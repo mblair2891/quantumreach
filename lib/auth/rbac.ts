@@ -2,12 +2,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { slugify } from "@/lib/utils";
-
-export const rolePermissions = {
-  PLATFORM_OWNER: ["*:*"], WORKSPACE_OWNER: ["*:*"], ADMIN: ["*:*"], MANAGER: ["read:*", "write:*", "manage:crm"],
-  STRATEGIST: ["read:*", "write:diagnostics", "write:analysis", "write:reports"], SALES_REP: ["read:crm", "write:crm"],
-  DELIVERY: ["read:*", "write:projects"], VIEWER: ["read:*"]
-} as const;
+export { can, rolePermissions, type WorkspaceRole } from "@/lib/auth/permissions";
 
 export async function requireUserProfile() {
   const { userId } = await auth();
@@ -24,10 +19,6 @@ export async function requireWorkspaceAccess(workspaceId?: string) {
   return { user, membership, workspace: membership.workspace };
 }
 
-export function can(roleKey: keyof typeof rolePermissions, action: string, subject: string) {
-  const grants: readonly string[] = rolePermissions[roleKey];
-  return grants.includes("*:*") || grants.includes(`${action}:*`) || grants.includes(`${action}:${subject}`);
-}
 
 export async function createWorkspaceForCurrentUser(name: string) {
   const user = await requireUserProfile();

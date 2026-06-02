@@ -25,3 +25,7 @@ AI execution is structured around AnalyzerDefinition, AnalyzerRun, AIExecution, 
 ## pgvector note
 
 Neon can have pgvector enabled for future embedding search. The MVP stores a lightweight `embeddingRef` on knowledge records and avoids overbuilding vector search until retrieval requirements are validated.
+
+## Rate limiting
+
+`lib/rate-limit.ts` provides a small dependency-free in-memory limiter for safe MVP boundaries such as AI analyzer routes. Production deployments with multiple Vercel instances should replace this with a shared store such as Upstash Redis or Vercel KV.

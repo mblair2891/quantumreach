@@ -1,2 +1,2 @@
 import { DetailPage } from "@/components/dashboard/detail-page";
-export default async function Page({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; return <DetailPage type="leads" id={id} />; }
+export default function Page({ params }: { params: { id: string } }) { const { id } = params; return <DetailPage type="leads" id={id} />; }

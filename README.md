@@ -79,6 +79,9 @@ Create a Vercel project named `quantumreach`, connect the GitHub repository, add
 
 ## Validation commands
 
+The repair pass targets these commands. If npm registry access is blocked in your environment, run them locally or in CI with registry access.
+
+
 ```bash
 npm run prisma:generate
 npm run typecheck
@@ -94,6 +97,6 @@ npm run build
 - Workspace-scoped service helpers enforce membership before queries/mutations.
 - Business records include `workspaceId` and archive/status fields where appropriate.
 - AI outputs are auditable and require human review before finalization.
-- Rate limiting should be added at API route/server-action boundaries before public launch.
+- A dependency-free in-memory rate-limit helper protects the AI analyzer API during local/runtime MVP use; replace it with Upstash Redis, Vercel KV, or an edge-safe shared limiter before multi-instance production launch.
 
 See `docs/architecture.md` and `docs/manual-test-checklist.md` for detailed architecture and manual validation steps.

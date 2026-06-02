@@ -14,4 +14,5 @@
 12. Run an analyzer with a valid OpenAI key and confirm AnalyzerRun, AIExecution, and AIOutputArtifact records persist.
 13. Create ROI, report, roadmap, proposal, project, milestone, and project task records.
 14. Review AI execution logs and audit logs.
-15. Run `npm run typecheck`, `npm run lint`, `npm run test`, and `npm run build` before deployment.
+15. Run `npm run prisma:generate`, `npm run typecheck`, `npm run lint`, `npm run test`, and `npm run build` before deployment.
+16. For production rate limiting, replace the in-memory limiter with a shared store-backed limiter such as Upstash Redis or Vercel KV before public traffic.
