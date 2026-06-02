@@ -1,0 +1,2 @@
+import { ModulePage } from "@/components/dashboard/module-page";
+export default function Page() { return <ModulePage title="Executive reports" description="Export-ready report structures with recommendation summaries, roadmap summaries, and review status." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Generate report","Edit sections","Review recommendations","Mark final"]} />; }

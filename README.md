@@ -1,1 +1,99 @@
-# quantumreach
+# Quantum Reach
+
+Quantum Reach is an enterprise-grade, multi-tenant SaaS foundation for CRM-led decision intelligence: native CRM, structured diagnostics, AI orchestration, business analysis, ROI/cost-of-inaction modeling, executive reporting, strategic roadmaps, proposals, and implementation handoff.
+
+**Completion classification for this build:** Built with limitations. The repository now contains the production-oriented MVP foundation, but it is not production-validated or deployment-smoke-tested until real provider credentials, migrations, and Vercel validation are completed.
+
+## Stack
+
+- Next.js App Router, TypeScript, Tailwind CSS, shadcn-style UI primitives
+- Prisma + PostgreSQL/Neon (`DATABASE_URL`, `DIRECT_DATABASE_URL`)
+- Clerk authentication with internal workspace RBAC
+- OpenAI provider abstraction with structured JSON output handling
+- Cloudflare R2 private storage abstraction
+- Trigger.dev-ready job abstraction
+- Sentry configuration guarded by DSN presence
+- Vercel deployment target
+
+## Local setup
+
+1. Copy `.env.example` to `.env.local`.
+2. Populate local-only values; do not commit secrets.
+3. Install dependencies:
+
+```bash
+npm install
+```
+
+4. Generate Prisma client:
+
+```bash
+npm run prisma:generate
+```
+
+5. Create a Neon development database, ensure pgvector is enabled if you plan future vector features, then run:
+
+```bash
+npm run prisma:migrate -- --name init
+```
+
+6. Optional demo seed:
+
+```bash
+npm run prisma:seed
+```
+
+7. Start development:
+
+```bash
+npm run dev
+```
+
+## Clerk setup notes
+
+Create a Clerk application, set the publishable and secret keys, and configure sign-in/sign-up URLs from `.env.example`. Clerk protects `/onboarding` and `/dashboard(.*)` through `middleware.ts`. Application permissions still use internal `WorkspaceMember.roleKey` and service-layer checks.
+
+## Neon and Prisma notes
+
+The Prisma schema defines workspace-scoped CRM, diagnostics, AI, reporting, proposal, delivery, knowledge, audit, role, and permission records. Use `DIRECT_DATABASE_URL` for migrations and `DATABASE_URL` for runtime pooling if Neon provides separate URLs.
+
+## OpenAI notes
+
+Set `OPENAI_API_KEY` and `OPENAI_DEFAULT_MODEL`. The OpenAI adapter lives behind `lib/ai/provider.ts`, while `lib/ai/orchestration.ts` records AnalyzerRun, AIExecution, and AIOutputArtifact rows. AI output is draft/reviewed/final governed and does not directly overwrite CRM records.
+
+## R2 notes
+
+R2 storage is private by default through `lib/storage/service.ts`. `R2_PUBLIC_BASE_URL` may remain blank. DocumentAsset records are ready for future file and transcript upload workflows.
+
+## Trigger.dev notes
+
+`lib/jobs/service.ts` provides the job queue seam. Full Trigger.dev task registration should be completed after project id/secret setup; missing `TRIGGER_PROJECT_ID` does not block local development.
+
+## Sentry notes
+
+Sentry initializes only when `NEXT_PUBLIC_SENTRY_DSN` is present. `SENTRY_AUTH_TOKEN` is optional and should be used for source map/release upload in CI, not required locally.
+
+## Vercel deployment
+
+Create a Vercel project named `quantumreach`, connect the GitHub repository, add all environment variables, run Prisma migrations against production Neon, then deploy `main`. Perform a production smoke test for auth, onboarding, dashboard protection, workspace isolation, and provider integrations.
+
+## Validation commands
+
+```bash
+npm run prisma:generate
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
+
+## Security posture
+
+- No secrets are committed; `.env.example` uses placeholders only.
+- Dashboard and onboarding routes are protected by Clerk middleware.
+- Workspace-scoped service helpers enforce membership before queries/mutations.
+- Business records include `workspaceId` and archive/status fields where appropriate.
+- AI outputs are auditable and require human review before finalization.
+- Rate limiting should be added at API route/server-action boundaries before public launch.
+
+See `docs/architecture.md` and `docs/manual-test-checklist.md` for detailed architecture and manual validation steps.

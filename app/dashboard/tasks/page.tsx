@@ -1,0 +1,2 @@
+import { ModulePage } from "@/components/dashboard/module-page";
+export default function Page() { return <ModulePage title="Tasks and follow-ups" description="Workspace-scoped execution queue for CRM, diagnostic, proposal, and implementation work." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Create task","Assign owner","Set reminder","Complete or archive"]} />; }
