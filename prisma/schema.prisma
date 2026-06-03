@@ -8,84 +8,183 @@ datasource db {
   directUrl = env("DIRECT_DATABASE_URL")
 }
 
-enum WorkspaceRoleKey { PLATFORM_OWNER WORKSPACE_OWNER ADMIN MANAGER STRATEGIST SALES_REP DELIVERY VIEWER }
-enum RecordStatus { ACTIVE ARCHIVED }
-enum LeadStatus { NEW CONTACTED QUALIFIED DISQUALIFIED CONVERTED ARCHIVED }
-enum OpportunityStatus { OPEN WON LOST ARCHIVED }
-enum TaskStatus { TODO IN_PROGRESS BLOCKED DONE ARCHIVED }
-enum Priority { LOW MEDIUM HIGH URGENT }
-enum DiagnosticStatus { DRAFT IN_PROGRESS TRANSCRIPT_READY ANALYZING ANALYZED REVIEWED ARCHIVED }
-enum AIExecutionStatus { QUEUED RUNNING SUCCEEDED FAILED CANCELED }
-enum ReviewStatus { DRAFT NEEDS_REVIEW REVIEWED FINAL REJECTED }
-enum ReportStatus { DRAFT GENERATED REVIEWED FINAL ARCHIVED }
-enum ProjectStatus { PLANNED ACTIVE AT_RISK COMPLETED ARCHIVED }
-enum HandoffStatus { DRAFT READY ACCEPTED IN_DELIVERY COMPLETED ARCHIVED }
+enum WorkspaceRoleKey {
+  PLATFORM_OWNER
+  WORKSPACE_OWNER
+  ADMIN
+  MANAGER
+  STRATEGIST
+  SALES_REP
+  DELIVERY
+  VIEWER
+}
+
+enum RecordStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  DISQUALIFIED
+  CONVERTED
+  ARCHIVED
+}
+
+enum OpportunityStatus {
+  OPEN
+  WON
+  LOST
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum DiagnosticStatus {
+  DRAFT
+  IN_PROGRESS
+  TRANSCRIPT_READY
+  ANALYZING
+  ANALYZED
+  REVIEWED
+  ARCHIVED
+}
+
+enum AIExecutionStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum ReviewStatus {
+  DRAFT
+  NEEDS_REVIEW
+  REVIEWED
+  FINAL
+  REJECTED
+}
+
+enum ReportStatus {
+  DRAFT
+  GENERATED
+  REVIEWED
+  FINAL
+  ARCHIVED
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  AT_RISK
+  COMPLETED
+  ARCHIVED
+}
+
+enum HandoffStatus {
+  DRAFT
+  READY
+  ACCEPTED
+  IN_DELIVERY
+  COMPLETED
+  ARCHIVED
+}
 
 model UserProfile {
-  id            String   @id @default(cuid())
-  clerkUserId   String   @unique
-  email         String   @unique
-  firstName     String?
-  lastName      String?
-  imageUrl      String?
-  platformRole  WorkspaceRoleKey?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  memberships   WorkspaceMember[]
-  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
-  auditLogs     AuditLog[]
+  id              String            @id @default(cuid())
+  clerkUserId     String            @unique
+  email           String            @unique
+  firstName       String?
+  lastName        String?
+  imageUrl        String?
+  platformRole    WorkspaceRoleKey?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  auditLogs       AuditLog[]
+  memberships     WorkspaceMember[]
+  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
 }
 
 model Workspace {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String?
-  settings    Json     @default("{}")
-  ownerId     String?
-  owner       UserProfile? @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  status      RecordStatus @default(ACTIVE)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  members     WorkspaceMember[]
-  roles       Role[]
-  permissions Permission[]
-  auditLogs   AuditLog[]
-  pipelines   Pipeline[]
-  leads       Lead[]
-  contacts    Contact[]
-  companies   Company[]
-  clients     Client[]
-  opportunities Opportunity[]
-  tasks       Task[]
-  notes       Note[]
-  activities  Activity[]
-  reminders   Reminder[]
-  diagnostics DiagnosticSession[]
-  analyses    AnalysisRecord[]
-  aiExecutions AIExecution[]
-  reports     ExecutiveReport[]
-  roadmaps    StrategicRoadmap[]
-  proposals   Proposal[]
-  projects    ImplementationProject[]
-  knowledgeRecords KnowledgeRecord[]
+  id                     String                  @id @default(cuid())
+  name                   String
+  slug                   String                  @unique
+  description            String?
+  settings               Json                    @default("{}")
+  ownerId                String?
+  status                 RecordStatus            @default(ACTIVE)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  owner                  UserProfile?            @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  activities             Activity[]
+  aiExecutions           AIExecution[]
+  analyses               AnalysisRecord[]
+  auditLogs              AuditLog[]
+  clients                Client[]
+  companies              Company[]
+  contacts               Contact[]
+  diagnostics            DiagnosticSession[]
+  documentAssets         DocumentAsset[]
+  followUps              FollowUp[]
+  frameworks             Framework[]
+  handoffRecords         HandoffRecord[]
+  knowledgeRecords       KnowledgeRecord[]
+  leads                  Lead[]
+  members                WorkspaceMember[]
+  notes                  Note[]
+  opportunities          Opportunity[]
+  permissions            Permission[]
+  pipelines              Pipeline[]
+  pipelineStages         PipelineStage[]
+  playbooks              Playbook[]
+  promptTemplates        PromptTemplate[]
+  projects               ImplementationProject[] @relation("WorkspaceProjects")
+  proposals              Proposal[]
+  reminders              Reminder[]
+  reports                ExecutiveReport[]
+  roles                  Role[]
+  roadmaps               StrategicRoadmap[]
+  tags                   Tag[]
+  tasks                  Task[]
+  templates              Template[]
+  communicationLogs      CommunicationLog[]
+  segments               Segment[]
 
   @@index([slug])
   @@index([ownerId])
 }
 
 model WorkspaceMember {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   workspaceId String
   userId      String
   roleKey     WorkspaceRoleKey @default(VIEWER)
   title       String?
-  status      RecordStatus @default(ACTIVE)
+  status      RecordStatus     @default(ACTIVE)
   invitedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user        UserProfile      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
   @@index([workspaceId, roleKey])
@@ -93,93 +192,891 @@ model WorkspaceMember {
 }
 
 model Role {
-  id          String @id @default(cuid())
+  id          String           @id @default(cuid())
   workspaceId String
   key         WorkspaceRoleKey
   name        String
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   permissions Permission[]
+
   @@unique([workspaceId, key])
   @@index([workspaceId])
 }
 
 model Permission {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   roleId      String?
   action      String
   subject     String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
+
+  role        Role?     @relation(fields: [roleId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  role        Role? @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, subject])
   @@index([roleId])
 }
 
 model AuditLog {
-  id          String @id @default(cuid())
+  id          String       @id @default(cuid())
   workspaceId String
   actorId     String?
   action      String
   entityType  String
   entityId    String?
-  metadata    Json @default("{}")
-  createdAt   DateTime @default(now())
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metadata    Json         @default("{}")
+  createdAt   DateTime     @default(now())
+
   actor       UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, entityType, entityId])
   @@index([actorId])
 }
 
-model Pipeline { id String @id @default(cuid()); workspaceId String; name String; description String?; isDefault Boolean @default(false); status RecordStatus @default(ACTIVE); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); stages PipelineStage[]; opportunities Opportunity[]; @@index([workspaceId, status]) }
-model PipelineStage { id String @id @default(cuid()); workspaceId String; pipelineId String; name String; position Int; probability Int @default(0); status RecordStatus @default(ACTIVE); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade); opportunities Opportunity[]; @@index([workspaceId, pipelineId, position]) }
-model Company { id String @id @default(cuid()); workspaceId String; name String; domain String?; industry String?; employeeCount Int?; annualRevenue Decimal? @db.Decimal(18,2); status RecordStatus @default(ACTIVE); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); contacts Contact[]; opportunities Opportunity[]; clients Client[]; @@index([workspaceId, name]); @@index([workspaceId, status]) }
-model Contact { id String @id @default(cuid()); workspaceId String; companyId String?; firstName String; lastName String; email String?; phone String?; title String?; status RecordStatus @default(ACTIVE); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull); opportunities Opportunity[]; @@index([workspaceId, email]); @@index([workspaceId, companyId]) }
-model Lead { id String @id @default(cuid()); workspaceId String; companyId String?; contactId String?; source String?; name String; email String?; status LeadStatus @default(NEW); score Int?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); @@index([workspaceId, status]); @@index([workspaceId, email]) }
-model Client { id String @id @default(cuid()); workspaceId String; companyId String?; name String; status RecordStatus @default(ACTIVE); healthScore Int?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull); @@index([workspaceId, status]) }
-model Opportunity { id String @id @default(cuid()); workspaceId String; pipelineId String?; stageId String?; companyId String?; contactId String?; leadId String?; name String; amount Decimal? @db.Decimal(18,2); closeDate DateTime?; status OpportunityStatus @default(OPEN); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); pipeline Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull); stage PipelineStage? @relation(fields: [stageId], references: [id], onDelete: SetNull); company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull); contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull); proposals Proposal[]; estimates Estimate[]; projects ImplementationProject[]; @@index([workspaceId, status]); @@index([workspaceId, stageId]); @@index([companyId]); @@index([contactId]); @@index([leadId]) }
-model Task { id String @id @default(cuid()); workspaceId String; title String; description String?; status TaskStatus @default(TODO); priority Priority @default(MEDIUM); dueAt DateTime?; assigneeId String?; relatedType String?; relatedId String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); @@index([workspaceId, status, dueAt]); @@index([workspaceId, relatedType, relatedId]) }
-model Note { id String @id @default(cuid()); workspaceId String; body String; relatedType String?; relatedId String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); @@index([workspaceId, relatedType, relatedId]) }
-model Activity { id String @id @default(cuid()); workspaceId String; type String; title String; description String?; relatedType String?; relatedId String?; createdById String?; occurredAt DateTime @default(now()); createdAt DateTime @default(now()); workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); @@index([workspaceId, occurredAt]); @@index([workspaceId, relatedType, relatedId]) }
-model Reminder { id String @id @default(cuid()); workspaceId String; title String; remindAt DateTime; status TaskStatus @default(TODO); relatedType String?; relatedId String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); @@index([workspaceId, remindAt, status]) }
-model FollowUp { id String @id @default(cuid()); workspaceId String; title String; dueAt DateTime?; status TaskStatus @default(TODO); relatedType String?; relatedId String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, status, dueAt]) }
-model CommunicationLog { id String @id @default(cuid()); workspaceId String; channel String; direction String?; subject String?; body String?; relatedType String?; relatedId String?; createdById String?; occurredAt DateTime @default(now()); createdAt DateTime @default(now()); @@index([workspaceId, relatedType, relatedId]) }
-model Tag { id String @id @default(cuid()); workspaceId String; name String; color String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@unique([workspaceId, name]) }
-model Segment { id String @id @default(cuid()); workspaceId String; name String; criteria Json @default("{}"); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, name]) }
+model Pipeline {
+  id            String          @id @default(cuid())
+  workspaceId   String
+  name          String
+  description   String?
+  isDefault     Boolean         @default(false)
+  status        RecordStatus    @default(ACTIVE)
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
-model DiagnosticSession { id String @id @default(cuid()); workspaceId String; title String; status DiagnosticStatus @default(DRAFT); relatedType String?; relatedId String?; summary String?; createdById String?; reviewedById String?; reviewedAt DateTime?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); questions DiagnosticQuestion[]; answers DiagnosticAnswer[]; transcripts Transcript[]; analyses AnalysisRecord[]; analyzerRuns AnalyzerRun[]; @@index([workspaceId, status]); @@index([workspaceId, relatedType, relatedId]) }
-model DiagnosticQuestion { id String @id @default(cuid()); workspaceId String; sessionId String; question String; position Int @default(0); createdAt DateTime @default(now()); session DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade); answers DiagnosticAnswer[]; @@index([workspaceId, sessionId]) }
-model DiagnosticAnswer { id String @id @default(cuid()); workspaceId String; sessionId String; questionId String?; answer String; createdById String?; createdAt DateTime @default(now()); session DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade); question DiagnosticQuestion? @relation(fields: [questionId], references: [id], onDelete: SetNull); @@index([workspaceId, sessionId]) }
-model Transcript { id String @id @default(cuid()); workspaceId String; sessionId String; content String; source String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; session DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade); @@index([workspaceId, sessionId]) }
-model AnalysisRecord { id String @id @default(cuid()); workspaceId String; sessionId String?; title String; summary String?; observations Json @default("[]"); risks Json @default("[]"); status ReviewStatus @default(DRAFT); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); session DiagnosticSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull); constraints Constraint[]; bottlenecks Bottleneck[]; recommendations Recommendation[]; roiModels ROIModel[]; reports ExecutiveReport[]; roadmaps StrategicRoadmap[]; proposals Proposal[]; @@index([workspaceId, status]); @@index([sessionId]) }
-model Constraint { id String @id @default(cuid()); workspaceId String; analysisId String; label String; impact String?; severity Priority @default(MEDIUM); evidence String?; createdAt DateTime @default(now()); analysis AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade); @@index([workspaceId, analysisId]) }
-model Bottleneck { id String @id @default(cuid()); workspaceId String; analysisId String; label String; description String?; severity Priority @default(MEDIUM); createdAt DateTime @default(now()); analysis AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade); @@index([workspaceId, analysisId]) }
-model Recommendation { id String @id @default(cuid()); workspaceId String; analysisId String; title String; rationale String?; expectedOutcome String?; priority Priority @default(MEDIUM); reviewStatus ReviewStatus @default(DRAFT); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; analysis AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade); @@index([workspaceId, analysisId]) }
-model ROIModel { id String @id @default(cuid()); workspaceId String; opportunityId String?; analysisId String?; title String; assumptions Json @default("{}"); estimatedUpside Decimal? @db.Decimal(18,2); estimatedImplementationCost Decimal? @db.Decimal(18,2); confidenceScore Int?; executiveSummary String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; analysis AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull); @@index([workspaceId, opportunityId]); @@index([analysisId]) }
-model CostOfInactionModel { id String @id @default(cuid()); workspaceId String; opportunityId String?; analysisId String?; title String; assumptions Json @default("{}"); estimatedCost Decimal? @db.Decimal(18,2); timeHorizonMonths Int?; confidenceScore Int?; executiveSummary String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, opportunityId]); @@index([analysisId]) }
-model ExecutiveReport { id String @id @default(cuid()); workspaceId String; analysisId String?; title String; sections Json @default("[]"); recommendationSummary String?; roadmapSummary String?; status ReportStatus @default(DRAFT); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); analysis AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull); @@index([workspaceId, status]); @@index([analysisId]) }
-model StrategicRoadmap { id String @id @default(cuid()); workspaceId String; analysisId String?; title String; phases Json @default("[]"); summary String?; status ReportStatus @default(DRAFT); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); analysis AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull); proposals Proposal[]; @@index([workspaceId, status]); @@index([analysisId]) }
-model Proposal { id String @id @default(cuid()); workspaceId String; opportunityId String?; analysisId String?; roadmapId String?; title String; content Json @default("{}"); status ReportStatus @default(DRAFT); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull); analysis AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull); roadmap StrategicRoadmap? @relation(fields: [roadmapId], references: [id], onDelete: SetNull); projects ImplementationProject[]; @@index([workspaceId, status]); @@index([opportunityId]) }
-model Estimate { id String @id @default(cuid()); workspaceId String; opportunityId String?; title String; amount Decimal? @db.Decimal(18,2); assumptions Json @default("{}"); status ReportStatus @default(DRAFT); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull); @@index([workspaceId, opportunityId]) }
-model Contract { id String @id @default(cuid()); workspaceId String; proposalId String?; title String; status ReportStatus @default(DRAFT); content Json @default("{}"); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, proposalId]) }
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+  stages        PipelineStage[]
 
-model PromptTemplate { id String @id @default(cuid()); workspaceId String?; key String; name String; systemPrompt String; userPrompt String; outputSchema Json @default("{}"); version Int @default(1); status RecordStatus @default(ACTIVE); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; analyzerDefinitions AnalyzerDefinition[]; @@unique([workspaceId, key, version]); @@index([workspaceId, key]) }
-model AnalyzerDefinition { id String @id @default(cuid()); workspaceId String?; key String; name String; description String?; promptTemplateId String?; outputSchema Json @default("{}"); status RecordStatus @default(ACTIVE); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; promptTemplate PromptTemplate? @relation(fields: [promptTemplateId], references: [id], onDelete: SetNull); runs AnalyzerRun[]; @@unique([workspaceId, key]); @@index([workspaceId, status]) }
-model AnalyzerRun { id String @id @default(cuid()); workspaceId String; analyzerDefinitionId String?; diagnosticSessionId String?; input Json @default("{}"); output Json?; status AIExecutionStatus @default(QUEUED); reviewStatus ReviewStatus @default(DRAFT); createdById String?; reviewedById String?; reviewedAt DateTime?; startedAt DateTime?; completedAt DateTime?; error String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; definition AnalyzerDefinition? @relation(fields: [analyzerDefinitionId], references: [id], onDelete: SetNull); session DiagnosticSession? @relation(fields: [diagnosticSessionId], references: [id], onDelete: SetNull); executions AIExecution[]; artifacts AIOutputArtifact[]; @@index([workspaceId, status]); @@index([diagnosticSessionId]) }
-model AIExecution { id String @id @default(cuid()); workspaceId String; analyzerRunId String?; provider String; model String; promptHash String?; input Json @default("{}"); output Json?; status AIExecutionStatus @default(QUEUED); error String?; startedAt DateTime?; completedAt DateTime?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); analyzerRun AnalyzerRun? @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull); artifacts AIOutputArtifact[]; @@index([workspaceId, status]); @@index([analyzerRunId]) }
-model AIOutputArtifact { id String @id @default(cuid()); workspaceId String; analyzerRunId String?; aiExecutionId String?; artifactType String; content Json @default("{}"); reviewStatus ReviewStatus @default(DRAFT); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; analyzerRun AnalyzerRun? @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull); aiExecution AIExecution? @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull); @@index([workspaceId, artifactType]); @@index([aiExecutionId]) }
+  @@index([workspaceId, status])
+}
 
-model ImplementationProject { id String @id @default(cuid()); workspaceId String; opportunityId String?; proposalId String?; name String; status ProjectStatus @default(PLANNED); summary String?; deliveryOwnerId String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull); proposal Proposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull); milestones ProjectMilestone[]; tasks ProjectTask[]; handoffs HandoffRecord[]; decisions DecisionRecord[]; @@index([workspaceId, status]); @@index([opportunityId]); @@index([proposalId]) }
-model ProjectMilestone { id String @id @default(cuid()); workspaceId String; projectId String; name String; dueAt DateTime?; status TaskStatus @default(TODO); position Int @default(0); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; project ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade); @@index([workspaceId, projectId, status]) }
-model ProjectTask { id String @id @default(cuid()); workspaceId String; projectId String; milestoneId String?; title String; status TaskStatus @default(TODO); priority Priority @default(MEDIUM); assigneeId String?; dueAt DateTime?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; project ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade); @@index([workspaceId, projectId, status]) }
-model HandoffRecord { id String @id @default(cuid()); workspaceId String; projectId String?; opportunityId String?; proposalId String?; summary String; status HandoffStatus @default(DRAFT); createdById String?; acceptedById String?; acceptedAt DateTime?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; project ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull); @@index([workspaceId, status]); @@index([projectId]) }
-model DecisionRecord { id String @id @default(cuid()); workspaceId String; projectId String?; title String; decision String; rationale String?; decidedById String?; decidedAt DateTime @default(now()); createdAt DateTime @default(now()); project ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull); @@index([workspaceId, projectId]) }
+model PipelineStage {
+  id            String        @id @default(cuid())
+  workspaceId   String
+  pipelineId    String
+  name          String
+  position      Int
+  probability   Int           @default(0)
+  status        RecordStatus  @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-model KnowledgeRecord { id String @id @default(cuid()); workspaceId String; title String; body String; source String?; embeddingRef String?; status RecordStatus @default(ACTIVE); createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade); @@index([workspaceId, status]) }
-model Framework { id String @id @default(cuid()); workspaceId String; name String; description String?; structure Json @default("{}"); status RecordStatus @default(ACTIVE); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, status]) }
-model Playbook { id String @id @default(cuid()); workspaceId String; name String; steps Json @default("[]"); status RecordStatus @default(ACTIVE); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, status]) }
-model Template { id String @id @default(cuid()); workspaceId String; name String; type String; content Json @default("{}"); status RecordStatus @default(ACTIVE); createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, type, status]) }
-model DocumentAsset { id String @id @default(cuid()); workspaceId String; key String; fileName String; contentType String?; sizeBytes Int?; relatedType String?; relatedId String?; createdById String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; @@index([workspaceId, relatedType, relatedId]); @@unique([workspaceId, key]) }
+  pipeline      Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+
+  @@index([workspaceId, pipelineId, position])
+}
+
+model Company {
+  id             String        @id @default(cuid())
+  workspaceId    String
+  name           String
+  domain         String?
+  industry       String?
+  employeeCount  Int?
+  annualRevenue  Decimal?      @db.Decimal(18, 2)
+  status         RecordStatus  @default(ACTIVE)
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clients        Client[]
+  contacts       Contact[]
+  opportunities  Opportunity[]
+
+  @@index([workspaceId, name])
+  @@index([workspaceId, status])
+}
+
+model Contact {
+  id            String        @id @default(cuid())
+  workspaceId   String
+  companyId     String?
+  firstName     String
+  lastName      String
+  email         String?
+  phone         String?
+  title         String?
+  status        RecordStatus  @default(ACTIVE)
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  company       Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+
+  @@index([workspaceId, email])
+  @@index([workspaceId, companyId])
+}
+
+model Lead {
+  id          String     @id @default(cuid())
+  workspaceId String
+  companyId   String?
+  contactId   String?
+  source      String?
+  name        String
+  email       String?
+  status      LeadStatus @default(NEW)
+  score       Int?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, email])
+}
+
+model Client {
+  id          String       @id @default(cuid())
+  workspaceId String
+  companyId   String?
+  name        String
+  status      RecordStatus @default(ACTIVE)
+  healthScore Int?
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  company     Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+}
+
+model Opportunity {
+  id            String            @id @default(cuid())
+  workspaceId   String
+  pipelineId    String?
+  stageId       String?
+  companyId     String?
+  contactId     String?
+  leadId        String?
+  name          String
+  amount        Decimal?          @db.Decimal(18, 2)
+  closeDate     DateTime?
+  status        OpportunityStatus @default(OPEN)
+  createdById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  company       Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact       Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  pipeline      Pipeline?         @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  stage         PipelineStage?    @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  estimates     Estimate[]
+  projects      ImplementationProject[]
+  proposals     Proposal[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, stageId])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([leadId])
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  workspaceId String
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
+  dueAt       DateTime?
+  assigneeId  String?
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, dueAt])
+  @@index([workspaceId, relatedType, relatedId])
+}
+
+model Note {
+  id          String    @id @default(cuid())
+  workspaceId String
+  body        String
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, relatedType, relatedId])
+}
+
+model Activity {
+  id          String    @id @default(cuid())
+  workspaceId String
+  type        String
+  title       String
+  description String?
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  occurredAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, occurredAt])
+  @@index([workspaceId, relatedType, relatedId])
+}
+
+model Reminder {
+  id          String     @id @default(cuid())
+  workspaceId String
+  title       String
+  remindAt    DateTime
+  status      TaskStatus @default(TODO)
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, remindAt, status])
+}
+
+model FollowUp {
+  id          String     @id @default(cuid())
+  workspaceId String
+  title       String
+  dueAt       DateTime?
+  status      TaskStatus @default(TODO)
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, dueAt])
+}
+
+model CommunicationLog {
+  id          String    @id @default(cuid())
+  workspaceId String
+  channel     String
+  direction   String?
+  subject     String?
+  body        String?
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  occurredAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, relatedType, relatedId])
+}
+
+model Tag {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+}
+
+model Segment {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  criteria    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, name])
+}
+
+model DiagnosticSession {
+  id          String             @id @default(cuid())
+  workspaceId String
+  title       String
+  status      DiagnosticStatus   @default(DRAFT)
+  relatedType String?
+  relatedId   String?
+  summary     String?
+  createdById String?
+  reviewedById String?
+  reviewedAt  DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  analyses    AnalysisRecord[]
+  analyzerRuns AnalyzerRun[]
+  answers     DiagnosticAnswer[]
+  questions   DiagnosticQuestion[]
+  transcripts Transcript[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, relatedType, relatedId])
+}
+
+model DiagnosticQuestion {
+  id          String             @id @default(cuid())
+  workspaceId String
+  sessionId   String
+  question    String
+  position    Int                @default(0)
+  createdAt   DateTime           @default(now())
+
+  session     DiagnosticSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  answers     DiagnosticAnswer[]
+
+  @@index([workspaceId, sessionId])
+}
+
+model DiagnosticAnswer {
+  id          String              @id @default(cuid())
+  workspaceId String
+  sessionId   String
+  questionId  String?
+  answer      String
+  createdById String?
+  createdAt   DateTime            @default(now())
+
+  question    DiagnosticQuestion? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  session     DiagnosticSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, sessionId])
+}
+
+model Transcript {
+  id          String            @id @default(cuid())
+  workspaceId String
+  sessionId   String
+  content     String
+  source      String?
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  session     DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, sessionId])
+}
+
+model AnalysisRecord {
+  id              String             @id @default(cuid())
+  workspaceId     String
+  sessionId       String?
+  title           String
+  summary         String?
+  observations    Json               @default("[]")
+  risks           Json               @default("[]")
+  status          ReviewStatus       @default(DRAFT)
+  createdById     String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  session         DiagnosticSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  bottlenecks     Bottleneck[]
+  constraints     Constraint[]
+  proposals       Proposal[]
+  recommendations Recommendation[]
+  reports         ExecutiveReport[]
+  roadmaps        StrategicRoadmap[]
+  roiModels       ROIModel[]
+
+  @@index([workspaceId, status])
+  @@index([sessionId])
+}
+
+model Constraint {
+  id          String         @id @default(cuid())
+  workspaceId String
+  analysisId  String
+  label       String
+  impact      String?
+  severity    Priority       @default(MEDIUM)
+  evidence    String?
+  createdAt   DateTime       @default(now())
+
+  analysis    AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, analysisId])
+}
+
+model Bottleneck {
+  id          String         @id @default(cuid())
+  workspaceId String
+  analysisId  String
+  label       String
+  description String?
+  severity    Priority       @default(MEDIUM)
+  createdAt   DateTime       @default(now())
+
+  analysis    AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, analysisId])
+}
+
+model Recommendation {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  analysisId      String
+  title           String
+  rationale       String?
+  expectedOutcome String?
+  priority        Priority       @default(MEDIUM)
+  reviewStatus    ReviewStatus   @default(DRAFT)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  analysis        AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, analysisId])
+}
+
+model ROIModel {
+  id                          String          @id @default(cuid())
+  workspaceId                 String
+  opportunityId               String?
+  analysisId                  String?
+  title                       String
+  assumptions                 Json            @default("{}")
+  estimatedUpside             Decimal?        @db.Decimal(18, 2)
+  estimatedImplementationCost Decimal?        @db.Decimal(18, 2)
+  confidenceScore             Int?
+  executiveSummary            String?
+  createdById                 String?
+  createdAt                   DateTime        @default(now())
+  updatedAt                   DateTime        @updatedAt
+
+  analysis                    AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, opportunityId])
+  @@index([analysisId])
+}
+
+model CostOfInactionModel {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  opportunityId     String?
+  analysisId        String?
+  title             String
+  assumptions       Json     @default("{}")
+  estimatedCost     Decimal? @db.Decimal(18, 2)
+  timeHorizonMonths Int?
+  confidenceScore   Int?
+  executiveSummary  String?
+  createdById       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([workspaceId, opportunityId])
+  @@index([analysisId])
+}
+
+model ExecutiveReport {
+  id                    String          @id @default(cuid())
+  workspaceId           String
+  analysisId            String?
+  title                 String
+  sections              Json            @default("[]")
+  recommendationSummary String?
+  roadmapSummary        String?
+  status                ReportStatus    @default(DRAFT)
+  createdById           String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  analysis              AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  workspace             Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([analysisId])
+}
+
+model StrategicRoadmap {
+  id          String          @id @default(cuid())
+  workspaceId String
+  analysisId  String?
+  title       String
+  phases      Json            @default("[]")
+  summary     String?
+  status      ReportStatus    @default(DRAFT)
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  analysis    AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  proposals   Proposal[]
+
+  @@index([workspaceId, status])
+  @@index([analysisId])
+}
+
+model Proposal {
+  id            String                  @id @default(cuid())
+  workspaceId   String
+  opportunityId String?
+  analysisId    String?
+  roadmapId     String?
+  title         String
+  content       Json                    @default("{}")
+  status        ReportStatus            @default(DRAFT)
+  createdById   String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  analysis      AnalysisRecord?         @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  opportunity   Opportunity?            @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  roadmap       StrategicRoadmap?       @relation(fields: [roadmapId], references: [id], onDelete: SetNull)
+  workspace     Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projects      ImplementationProject[]
+
+  @@index([workspaceId, status])
+  @@index([opportunityId])
+}
+
+model Estimate {
+  id            String       @id @default(cuid())
+  workspaceId   String
+  opportunityId String?
+  title         String
+  amount        Decimal?     @db.Decimal(18, 2)
+  assumptions   Json         @default("{}")
+  status        ReportStatus @default(DRAFT)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, opportunityId])
+}
+
+model Contract {
+  id          String       @id @default(cuid())
+  workspaceId String
+  proposalId  String?
+  title       String
+  status      ReportStatus @default(DRAFT)
+  content     Json         @default("{}")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([workspaceId, proposalId])
+}
+
+model PromptTemplate {
+  id                  String               @id @default(cuid())
+  workspaceId         String?
+  key                 String
+  name                String
+  systemPrompt        String
+  userPrompt          String
+  outputSchema        Json                 @default("{}")
+  version             Int                  @default(1)
+  status              RecordStatus         @default(ACTIVE)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  workspace           Workspace?           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  analyzerDefinitions AnalyzerDefinition[]
+
+  @@unique([workspaceId, key, version])
+  @@index([workspaceId, key])
+}
+
+model AnalyzerDefinition {
+  id               String             @id @default(cuid())
+  workspaceId      String?
+  key              String
+  name             String
+  description      String?
+  promptTemplateId String?
+  outputSchema     Json               @default("{}")
+  status           RecordStatus       @default(ACTIVE)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  promptTemplate   PromptTemplate?    @relation(fields: [promptTemplateId], references: [id], onDelete: SetNull)
+  runs             AnalyzerRun[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId, status])
+}
+
+model AnalyzerRun {
+  id                   String             @id @default(cuid())
+  workspaceId          String
+  analyzerDefinitionId String?
+  diagnosticSessionId  String?
+  input                Json               @default("{}")
+  output               Json?
+  status               AIExecutionStatus  @default(QUEUED)
+  reviewStatus         ReviewStatus       @default(DRAFT)
+  createdById          String?
+  reviewedById         String?
+  reviewedAt           DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  error                String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  definition           AnalyzerDefinition? @relation(fields: [analyzerDefinitionId], references: [id], onDelete: SetNull)
+  session              DiagnosticSession?  @relation(fields: [diagnosticSessionId], references: [id], onDelete: SetNull)
+  artifacts            AIOutputArtifact[]
+  executions           AIExecution[]
+
+  @@index([workspaceId, status])
+  @@index([diagnosticSessionId])
+}
+
+model AIExecution {
+  id            String            @id @default(cuid())
+  workspaceId   String
+  analyzerRunId String?
+  provider      String
+  model         String
+  promptHash    String?
+  input         Json              @default("{}")
+  output        Json?
+  status        AIExecutionStatus @default(QUEUED)
+  error         String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  analyzerRun   AnalyzerRun?      @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull)
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  artifacts     AIOutputArtifact[]
+
+  @@index([workspaceId, status])
+  @@index([analyzerRunId])
+}
+
+model AIOutputArtifact {
+  id            String          @id @default(cuid())
+  workspaceId   String
+  analyzerRunId String?
+  aiExecutionId String?
+  artifactType  String
+  content       Json            @default("{}")
+  reviewStatus  ReviewStatus    @default(DRAFT)
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  aiExecution   AIExecution?    @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
+  analyzerRun   AnalyzerRun?    @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, artifactType])
+  @@index([aiExecutionId])
+}
+
+model ImplementationProject {
+  id              String             @id @default(cuid())
+  workspaceId     String
+  opportunityId   String?
+  proposalId      String?
+  name            String
+  status          ProjectStatus      @default(PLANNED)
+  summary         String?
+  deliveryOwnerId String?
+  createdById     String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  opportunity     Opportunity?       @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  proposal        Proposal?          @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  workspace       Workspace          @relation("WorkspaceProjects", fields: [workspaceId], references: [id], onDelete: Cascade)
+  decisions       DecisionRecord[]
+  handoffs        HandoffRecord[]
+  milestones      ProjectMilestone[]
+  tasks           ProjectTask[]
+
+  @@index([workspaceId, status])
+  @@index([opportunityId])
+  @@index([proposalId])
+}
+
+model ProjectMilestone {
+  id          String                @id @default(cuid())
+  workspaceId String
+  projectId   String
+  name        String
+  dueAt       DateTime?
+  status      TaskStatus            @default(TODO)
+  position    Int                   @default(0)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  project     ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, projectId, status])
+}
+
+model ProjectTask {
+  id          String                @id @default(cuid())
+  workspaceId String
+  projectId   String
+  milestoneId String?
+  title       String
+  status      TaskStatus            @default(TODO)
+  priority    Priority              @default(MEDIUM)
+  assigneeId  String?
+  dueAt       DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  project     ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, projectId, status])
+}
+
+model HandoffRecord {
+  id           String                 @id @default(cuid())
+  workspaceId  String
+  projectId    String?
+  opportunityId String?
+  proposalId   String?
+  summary      String
+  status       HandoffStatus          @default(DRAFT)
+  createdById  String?
+  acceptedById String?
+  acceptedAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  project      ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([projectId])
+}
+
+model DecisionRecord {
+  id          String                 @id @default(cuid())
+  workspaceId String
+  projectId   String?
+  title       String
+  decision    String
+  rationale   String?
+  decidedById String?
+  decidedAt   DateTime               @default(now())
+  createdAt   DateTime               @default(now())
+
+  project     ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, projectId])
+}
+
+model KnowledgeRecord {
+  id           String       @id @default(cuid())
+  workspaceId  String
+  title        String
+  body         String
+  source       String?
+  embeddingRef String?
+  status       RecordStatus @default(ACTIVE)
+  createdById  String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+}
+
+model Framework {
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  structure   Json         @default("{}")
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+}
+
+model Playbook {
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  steps       Json         @default("[]")
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+}
+
+model Template {
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  type        String
+  content     Json         @default("{}")
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, type, status])
+}
+
+model DocumentAsset {
+  id          String    @id @default(cuid())
+  workspaceId String
+  key         String
+  fileName    String
+  contentType String?
+  sizeBytes   Int?
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, relatedType, relatedId])
+  @@unique([workspaceId, key])
+}
