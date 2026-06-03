@@ -1,0 +1,2 @@
+import { ModulePage } from "@/components/dashboard/module-page";
+export default function Page() { return <ModulePage title="Strategic roadmaps" description="Phased roadmap records linked to analysis, proposals, opportunities, diagnostics, and accounts." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Generate roadmap","Sequence phases","Link proposal","Prepare delivery handoff"]} />; }

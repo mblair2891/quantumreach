@@ -1,0 +1,4 @@
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/input";
+export default function Page({ params }: { params: { id: string } }) { const { id } = params; return <div className="space-y-6"><div><h1 className="text-3xl font-semibold">Run structured analysis</h1><p className="text-slate-600">Diagnostic {id} can run summary, constraint extraction, ROI, report, and roadmap analyzers with persisted AI execution logs.</p></div><Card><CardHeader><CardTitle>Transcript / context</CardTitle><CardDescription>AI outputs remain draft until reviewed; CRM records are not overwritten automatically.</CardDescription></CardHeader><Textarea placeholder="Paste executive interview transcript or business context..." /><Button className="mt-4">Queue analyzer run</Button></Card></div>; }

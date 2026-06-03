@@ -1,0 +1,2 @@
+import { ModulePage } from "@/components/dashboard/module-page";
+export default function Page() { return <ModulePage title="Proposal drafts" description="Proposal foundation created from analysis and roadmaps without payment or e-signature integrations." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Draft proposal","Link opportunity","Review scope","Prepare handoff"]} />; }
