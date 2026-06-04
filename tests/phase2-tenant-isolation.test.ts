@@ -4,7 +4,8 @@ const access = vi.fn(async (workspaceId?: string) => ({ user: { id: "user_1" }, 
 const notFound = vi.fn(() => { throw new Error("NEXT_NOT_FOUND"); });
 const redirect = vi.fn((path: string) => { throw new Error(`NEXT_REDIRECT:${path}`); });
 const audit = vi.fn(async () => ({}));
-const provider = { runStructured: vi.fn(async () => ({ model: "gpt-test", rawText: JSON.stringify({ summary: "Executive summary", constraints: [{ label: "Manual reporting", impact: "Cycle time", severity: "HIGH", evidence: "Transcript" }], bottlenecks: [{ label: "Approval delay", description: "Decisions wait for one owner", severity: "MEDIUM" }], recommendations: [{ title: "Define review lane", rationale: "Removes ambiguity", expectedOutcome: "Faster approvals", priority: "HIGH" }], risks: [], assumptions: [] }), json: { summary: "Executive summary", constraints: [{ label: "Manual reporting", impact: "Cycle time", severity: "HIGH", evidence: "Transcript" }], bottlenecks: [{ label: "Approval delay", description: "Decisions wait for one owner", severity: "MEDIUM" }], recommendations: [{ title: "Define review lane", rationale: "Removes ambiguity", expectedOutcome: "Faster approvals", priority: "HIGH" }], risks: [], assumptions: [] } })) };
+const validDiagnosticOutput = { summary: "Executive summary", constraints: [{ label: "Manual reporting", impact: "Cycle time", severity: "HIGH", evidence: "Transcript" }], bottlenecks: [{ label: "Approval delay", description: "Decisions wait for one owner", severity: "MEDIUM" }], recommendations: [{ title: "Define review lane", rationale: "Removes ambiguity", expectedOutcome: "Faster approvals", priority: "HIGH" }], risks: [], assumptions: [] };
+const provider = { runStructured: vi.fn(async (): Promise<any> => ({ model: "gpt-test", rawText: JSON.stringify(validDiagnosticOutput), json: validDiagnosticOutput })) };
 
 const prisma = {
   company: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
@@ -39,6 +40,7 @@ vi.mock("@/lib/ai/provider", () => ({ getAIProvider: () => provider }));
 describe("Phase 2 tenant isolation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    provider.runStructured.mockResolvedValue({ model: "gpt-test", rawText: JSON.stringify(validDiagnosticOutput), json: validDiagnosticOutput });
     prisma.company.count.mockResolvedValue(1);
     prisma.contact.count.mockResolvedValue(1);
     prisma.lead.count.mockResolvedValue(1);
@@ -113,4 +115,60 @@ describe("Phase 2 tenant isolation", () => {
     expect(provider.runStructured).toHaveBeenCalled();
     expect(prisma.analysisRecord.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ workspaceId: "workspace_1", sessionId: "diag_1", status: "NEEDS_REVIEW" }) }));
   });
+  it("normalizes valid structured analyzer output without warnings", async () => {
+    const { normalizeDiagnosticOutput } = await import("@/lib/ai/orchestration");
+    const normalized = normalizeDiagnosticOutput(validDiagnosticOutput);
+    expect(normalized.parsed.summary).toBe("Executive summary");
+    expect(normalized.parsed.constraints).toHaveLength(1);
+    expect(normalized.warnings).toEqual([]);
+  });
+
+  it("inserts a missing summary fallback and defaults missing arrays", async () => {
+    const { normalizeDiagnosticOutput } = await import("@/lib/ai/orchestration");
+    const normalized = normalizeDiagnosticOutput({ overview: "Mapped overview" });
+    expect(normalized.parsed.summary).toBe("Mapped overview");
+    expect(normalized.parsed.constraints).toEqual([]);
+    expect(normalized.parsed.bottlenecks).toEqual([]);
+    expect(normalized.parsed.recommendations).toEqual([]);
+    expect(normalized.parsed.risks).toEqual([]);
+    expect(normalized.parsed.assumptions).toEqual([]);
+    expect(normalized.warnings).toContain("Mapped overview to required summary field.");
+    expect(normalized.warnings).toContain("Missing or invalid constraints array; defaulted to an empty array.");
+  });
+
+  it("uses the explicit fallback summary when no safe summary field exists", async () => {
+    const { normalizeDiagnosticOutput } = await import("@/lib/ai/orchestration");
+    const normalized = normalizeDiagnosticOutput({ constraints: [] });
+    expect(normalized.parsed.summary).toBe("The analyzer completed, but the model did not provide a structured summary. Review the raw output before finalizing.");
+    expect(normalized.warnings).toContain("Missing structured summary; inserted fallback summary for human review.");
+  });
+
+  it("preserves raw output and NEEDS_REVIEW when parse fallback normalization occurs", async () => {
+    const { runDiagnosticSummaryAnalyzer } = await import("@/lib/ai/orchestration");
+    provider.runStructured.mockResolvedValue({ model: "gpt-test", rawText: "not-json", json: null, parseError: "Unexpected token o in JSON" });
+    prisma.diagnosticSession.findFirst.mockResolvedValueOnce({ id: "diag_1", workspaceId: "workspace_1", title: "Diagnostic", status: "TRANSCRIPT_READY", relatedType: "Company", relatedId: "company_1", transcripts: [{ id: "tr_1", content: "Transcript" }] }).mockResolvedValueOnce({ id: "diag_1" });
+    prisma.company.findFirst.mockResolvedValue({ id: "company_1", name: "Acme" });
+    prisma.analyzerDefinition.upsert.mockResolvedValue({ id: "definition_1" });
+    prisma.analyzerRun.create.mockResolvedValue({ id: "run_1" });
+    prisma.aIExecution.create.mockResolvedValue({ id: "exec_1" });
+    prisma.analyzerRun.update.mockResolvedValue({ id: "run_1", status: "SUCCEEDED" });
+    prisma.aIExecution.update.mockResolvedValue({ id: "exec_1" });
+    prisma.aIOutputArtifact.create.mockResolvedValue({ id: "artifact_1" });
+    prisma.analysisRecord.findFirst.mockResolvedValue(null);
+    prisma.analysisRecord.create.mockResolvedValue({ id: "analysis_1" });
+    prisma.constraint.deleteMany.mockResolvedValue({ count: 0 });
+    prisma.bottleneck.deleteMany.mockResolvedValue({ count: 0 });
+    prisma.recommendation.deleteMany.mockResolvedValue({ count: 0 });
+    prisma.constraint.createMany.mockResolvedValue({ count: 0 });
+    prisma.bottleneck.createMany.mockResolvedValue({ count: 0 });
+    prisma.recommendation.createMany.mockResolvedValue({ count: 0 });
+    prisma.diagnosticSession.update.mockResolvedValue({ id: "diag_1" });
+
+    await runDiagnosticSummaryAnalyzer("workspace_1", "diag_1");
+
+    expect(prisma.analyzerRun.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "run_1" }, data: expect.objectContaining({ status: "SUCCEEDED", reviewStatus: "NEEDS_REVIEW" }) }));
+    expect(prisma.aIExecution.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ output: expect.objectContaining({ raw: "not-json", normalizationWarnings: expect.arrayContaining([expect.stringContaining("Model response could not be parsed as JSON")]) }) }) }));
+    expect(prisma.aIOutputArtifact.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ reviewStatus: "NEEDS_REVIEW", content: expect.objectContaining({ raw: "not-json", structured: expect.objectContaining({ summary: "The analyzer completed, but the model did not provide a structured summary. Review the raw output before finalizing.", constraints: [] }) }) }) }));
+  });
+
 });

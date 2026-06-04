@@ -6,13 +6,37 @@ import { getAIProvider } from "@/lib/ai/provider";
 import { toPrismaJson } from "@/lib/db/json";
 import { getCrmRecordContext } from "@/lib/crm/service";
 
+const diagnosticStructuredOutputPrompt = `You are a senior business diagnostic analyst. Produce a calm, executive-grade, decision-oriented diagnostic summary with evidence-backed constraints, bottlenecks, recommendations, risks, and assumptions. Do not use chatbot framing.
+
+Return valid JSON only. Do not include markdown fences, prose, commentary, or keys outside the required JSON object.
+
+The JSON object must use exactly this top-level shape:
+{
+  "summary": "string",
+  "constraints": [],
+  "bottlenecks": [],
+  "recommendations": [],
+  "risks": [],
+  "assumptions": []
+}
+
+Required field rules:
+- summary is required and must be a non-empty string.
+- constraints, bottlenecks, recommendations, risks, and assumptions are required arrays. Use [] when no items are supported by the evidence.
+- Constraint items should include label, impact, severity, and evidence when available.
+- Bottleneck items should include label, description, and severity when available.
+- Recommendation items should include title, rationale, expectedOutcome, and priority when available.
+- severity and priority must be one of LOW, MEDIUM, HIGH, or URGENT.`;
+
 const analyzerPrompts = {
-  diagnostic_summary: "You are a senior business diagnostic analyst. Produce a calm, executive-grade, decision-oriented diagnostic summary with evidence-backed constraints, bottlenecks, recommendations, risks, and assumptions. Do not use chatbot framing.",
-  constraint_extraction: "Extract business constraints, operating bottlenecks, risks, assumptions, and priority recommendations from CRM and diagnostic context. Return business-ready structured JSON only.",
+  diagnostic_summary: diagnosticStructuredOutputPrompt,
+  constraint_extraction: diagnosticStructuredOutputPrompt,
   roi_model: "Generate an ROI and cost-of-inaction model with assumptions and confidence scoring.",
   executive_report: "Create an executive recommendation report with sections and next decisions.",
   strategic_roadmap: "Create a phased strategic roadmap and implementation sequence."
 };
+
+const DIAGNOSTIC_FALLBACK_SUMMARY = "The analyzer completed, but the model did not provide a structured summary. Review the raw output before finalizing.";
 
 type AnalyzerKey = keyof typeof analyzerPrompts;
 const severity = z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]);
@@ -25,9 +49,49 @@ const diagnosticOutputSchema = z.object({
   assumptions: z.array(z.unknown()).default([])
 });
 
-function normalizeDiagnosticOutput(output: unknown) {
-  const parsed = diagnosticOutputSchema.safeParse(output);
-  return parsed.success ? { parsed: parsed.data, parseError: null } : { parsed: null, parseError: parsed.error.message };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function pickSummaryCandidate(output: Record<string, unknown>) {
+  const candidateKeys = ["summary", "executiveSummary", "executive_summary", "diagnosticSummary", "diagnostic_summary", "overview", "synopsis"];
+  const key = candidateKeys.find((candidateKey) => {
+    const value = output[candidateKey];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+  return key ? { key, value: String(output[key]).trim() } : null;
+}
+
+export function normalizeDiagnosticOutput(output: unknown, providerParseError?: string) {
+  const warnings: string[] = [];
+  const source = isRecord(output) ? { ...output } : {};
+  if (!isRecord(output)) warnings.push("Model output was not a JSON object; fallback structured fields were created for review.");
+  if (providerParseError) warnings.push("Model response could not be parsed as JSON; fallback structured fields were created for review.");
+
+  const summaryCandidate = pickSummaryCandidate(source);
+  if (!summaryCandidate) {
+    source.summary = DIAGNOSTIC_FALLBACK_SUMMARY;
+    warnings.push("Missing structured summary; inserted fallback summary for human review.");
+  } else if (summaryCandidate.key !== "summary") {
+    source.summary = summaryCandidate.value;
+    warnings.push(`Mapped ${summaryCandidate.key} to required summary field.`);
+  }
+
+  for (const key of ["constraints", "bottlenecks", "recommendations", "risks", "assumptions"] as const) {
+    if (!Array.isArray(source[key])) {
+      source[key] = [];
+      warnings.push(`Missing or invalid ${key} array; defaulted to an empty array.`);
+    }
+  }
+
+  const parsed = diagnosticOutputSchema.safeParse(source);
+  if (parsed.success) return { parsed: parsed.data, parseError: providerParseError ?? null, warnings };
+
+  return {
+    parsed: { summary: String(source.summary || DIAGNOSTIC_FALLBACK_SUMMARY), constraints: [], bottlenecks: [], recommendations: [], risks: [], assumptions: [] },
+    parseError: parsed.error.message,
+    warnings: [...warnings, "Structured output validation failed after normalization; retained fallback fields for review."]
+  };
 }
 
 export async function runAnalyzer(workspaceId: string, analyzerKey: AnalyzerKey, input: Record<string, unknown>) {
@@ -43,19 +107,19 @@ export async function runAnalyzer(workspaceId: string, analyzerKey: AnalyzerKey,
   const execution = await prisma.aIExecution.create({ data: { workspaceId, analyzerRunId: run.id, provider: "openai", model: process.env.OPENAI_DEFAULT_MODEL ?? "gpt-4.1-mini", input: aiInput, status: "RUNNING", startedAt: new Date(), createdById: user.id } });
   try {
     const result = await getAIProvider().runStructured({ system: analyzerPrompts[analyzerKey], user: JSON.stringify(input), schemaName: analyzerKey });
-    const normalized = analyzerKey === "diagnostic_summary" || analyzerKey === "constraint_extraction" ? normalizeDiagnosticOutput(result.json) : { parsed: result.json, parseError: null };
-    const content = toPrismaJson({ structured: normalized.parsed, raw: result.rawText, parseError: normalized.parseError });
-    const output = toPrismaJson(normalized.parsed ?? { summary: "Analyzer output requires review before it can be used.", constraints: [], bottlenecks: [], recommendations: [], risks: [], assumptions: [], raw: result.rawText, parseError: normalized.parseError });
+    const normalized = analyzerKey === "diagnostic_summary" || analyzerKey === "constraint_extraction" ? normalizeDiagnosticOutput(result.json, result.parseError) : { parsed: result.json, parseError: result.parseError ?? null, warnings: [] };
+    const content = toPrismaJson({ structured: normalized.parsed, raw: result.rawText, parseError: normalized.parseError, normalizationWarnings: normalized.warnings });
+    const output = toPrismaJson({ structured: normalized.parsed, raw: result.rawText, parseError: normalized.parseError, normalizationWarnings: normalized.warnings });
     const [updatedRun] = await prisma.$transaction([
-      prisma.analyzerRun.update({ where: { id: run.id }, data: { output, status: "SUCCEEDED", completedAt: new Date(), reviewStatus: "NEEDS_REVIEW", error: normalized.parseError } }),
-      prisma.aIExecution.update({ where: { id: execution.id }, data: { output: content, status: "SUCCEEDED", model: result.model, completedAt: new Date(), error: normalized.parseError } }),
+      prisma.analyzerRun.update({ where: { id: run.id }, data: { output, status: "SUCCEEDED", completedAt: new Date(), reviewStatus: "NEEDS_REVIEW", error: normalized.parseError ?? (normalized.warnings.length > 0 ? normalized.warnings.join(" ") : null) } }),
+      prisma.aIExecution.update({ where: { id: execution.id }, data: { output: content, status: "SUCCEEDED", model: result.model, completedAt: new Date(), error: normalized.parseError ?? (normalized.warnings.length > 0 ? normalized.warnings.join(" ") : null) } }),
       prisma.aIOutputArtifact.create({ data: { workspaceId, analyzerRunId: run.id, aiExecutionId: execution.id, artifactType: analyzerKey, content, reviewStatus: "NEEDS_REVIEW", createdById: user.id } })
     ]);
     if (analyzerKey === "diagnostic_summary" || analyzerKey === "constraint_extraction") {
       const analysisOutput = diagnosticOutputSchema.safeParse(normalized.parsed);
       if (analysisOutput.success) await upsertDiagnosticAnalysis(workspaceId, diagnosticSessionId, user.id, analysisOutput.data);
     }
-    await audit(workspaceId, "run", "AnalyzerRun", run.id, user.id, { analyzerKey, model: result.model, parseError: normalized.parseError });
+    await audit(workspaceId, "run", "AnalyzerRun", run.id, user.id, { analyzerKey, model: result.model, parseError: normalized.parseError, normalizationWarnings: normalized.warnings });
     return updatedRun;
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI execution failed";

@@ -35,7 +35,7 @@ Structured outputs include:
 - Risks
 - Assumptions
 
-Outputs are marked `NEEDS_REVIEW`. If parsing fails, raw output and the parse error are preserved in the execution/artifact so the user can review safely.
+Outputs are marked `NEEDS_REVIEW`. The analyzer prompt requires JSON only with the exact top-level shape `summary`, `constraints`, `bottlenecks`, `recommendations`, `risks`, and `assumptions`. Before validation, missing arrays default to empty arrays and a missing summary is safely mapped from likely summary fields or replaced with a clear fallback summary. Any parsing or normalization warnings are preserved with the raw output in the execution/artifact and shown calmly in the diagnostic UI so the user can review safely.
 
 ## Tenant isolation
 
