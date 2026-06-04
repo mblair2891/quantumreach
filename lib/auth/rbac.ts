@@ -12,16 +12,22 @@ export async function requireUserProfile() {
   return prisma.userProfile.upsert({ where: { clerkUserId: userId }, update: { email, firstName: clerkUser?.firstName, lastName: clerkUser?.lastName, imageUrl: clerkUser?.imageUrl }, create: { clerkUserId: userId, email, firstName: clerkUser?.firstName, lastName: clerkUser?.lastName, imageUrl: clerkUser?.imageUrl } });
 }
 
+export async function getActiveWorkspaceMembershipForUser(userId: string, workspaceId?: string) {
+  return prisma.workspaceMember.findFirst({ where: { userId, workspaceId, status: "ACTIVE", workspace: { status: "ACTIVE" } }, include: { workspace: true }, orderBy: { createdAt: "asc" } });
+}
+
 export async function requireWorkspaceAccess(workspaceId?: string) {
   const user = await requireUserProfile();
-  const membership = await prisma.workspaceMember.findFirst({ where: { userId: user.id, workspaceId, status: "ACTIVE" }, include: { workspace: true } });
+  const membership = await getActiveWorkspaceMembershipForUser(user.id, workspaceId);
   if (!membership) redirect("/onboarding");
   return { user, membership, workspace: membership.workspace };
 }
 
-
 export async function createWorkspaceForCurrentUser(name: string) {
   const user = await requireUserProfile();
+  const existingMembership = await getActiveWorkspaceMembershipForUser(user.id);
+  if (existingMembership) return existingMembership.workspace;
+
   const slugBase = slugify(name);
   const workspace = await prisma.workspace.create({ data: { name, slug: `${slugBase}-${Date.now().toString(36)}`, ownerId: user.id, members: { create: { userId: user.id, roleKey: "WORKSPACE_OWNER" } } } });
   return workspace;
