@@ -1,7 +1,50 @@
 import { z } from "zod";
+
+const optionalText = z.string().trim().optional().or(z.literal(""));
+const optionalId = z.string().trim().optional().or(z.literal(""));
+
 export const workspaceSchema = z.object({ name: z.string().min(2).max(120) });
-export const companySchema = z.object({ name: z.string().min(2), domain: z.string().optional(), industry: z.string().optional() });
-export const contactSchema = z.object({ firstName: z.string().min(1), lastName: z.string().min(1), email: z.string().email().optional().or(z.literal("")), companyId: z.string().optional() });
-export const leadSchema = z.object({ name: z.string().min(2), email: z.string().email().optional().or(z.literal("")), source: z.string().optional() });
-export const opportunitySchema = z.object({ name: z.string().min(2), amount: z.coerce.number().nonnegative().optional(), companyId: z.string().optional(), contactId: z.string().optional(), leadId: z.string().optional(), stageId: z.string().optional() });
+
+export const companySchema = z.object({
+  name: z.string().trim().min(2, "Company name is required"),
+  domain: optionalText,
+  industry: optionalText,
+  employeeCount: z.coerce.number().int().nonnegative().optional().or(z.literal("")),
+  annualRevenue: z.coerce.number().nonnegative().optional().or(z.literal(""))
+});
+
+export const contactSchema = z.object({
+  firstName: z.string().trim().min(1, "First name is required"),
+  lastName: z.string().trim().min(1, "Last name is required"),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: optionalText,
+  title: optionalText,
+  companyId: optionalId
+});
+
+export const leadSchema = z.object({
+  name: z.string().trim().min(2, "Lead name is required"),
+  email: z.string().email().optional().or(z.literal("")),
+  source: optionalText,
+  companyId: optionalId,
+  contactId: optionalId,
+  score: z.coerce.number().int().min(0).max(100).optional().or(z.literal(""))
+});
+
+export const opportunitySchema = z.object({
+  name: z.string().trim().min(2, "Opportunity name is required"),
+  amount: z.coerce.number().nonnegative().optional().or(z.literal("")),
+  closeDate: z.string().optional().or(z.literal("")),
+  companyId: optionalId,
+  contactId: optionalId,
+  leadId: optionalId,
+  pipelineId: optionalId,
+  stageId: optionalId
+});
+
 export const diagnosticSchema = z.object({ title: z.string().min(2), relatedType: z.string().optional(), relatedId: z.string().optional(), transcript: z.string().min(10).optional() });
+
+export const activityNoteSchema = z.object({ body: z.string().trim().min(2, "Note text is required") });
+export const activityTaskSchema = z.object({ title: z.string().trim().min(2, "Task title is required"), description: optionalText, dueAt: z.string().optional().or(z.literal("")), priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM") });
+export const followUpSchema = z.object({ title: z.string().trim().min(2, "Follow-up title is required"), dueAt: z.string().optional().or(z.literal("")) });
+export const transcriptContextSchema = z.object({ transcript: z.string().trim().optional().or(z.literal("")), discoveryNotes: z.string().trim().optional().or(z.literal("")), businessContext: z.string().trim().optional().or(z.literal("")) }).refine((data) => Boolean(data.transcript || data.discoveryNotes || data.businessContext), "At least one transcript or context field is required");

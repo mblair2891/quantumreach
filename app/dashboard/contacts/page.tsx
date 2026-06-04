@@ -1,2 +1,2 @@
-import { ModulePage } from "@/components/dashboard/module-page";
-export default function Page() { return <ModulePage title="Contacts" description="Relationship records linked to companies, opportunities, communications, diagnostics, and activity history." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Create contact","Link to company","Record communication","Start diagnostic from contact"]} />; }
+import { CrmListPage } from "@/components/dashboard/crm-pages";
+export default function Page() { return <CrmListPage module="contacts" />; }
