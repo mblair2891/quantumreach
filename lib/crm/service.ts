@@ -43,9 +43,9 @@ export async function getCrmRecordContext(workspaceId: string, relatedType?: str
   if (!relatedType || !relatedId) return null;
   await requireWorkspaceAccess(workspaceId);
   if (relatedType === "Company") return prisma.company.findFirst({ where: { id: relatedId, workspaceId }, select: { id: true, name: true, domain: true, industry: true, status: true } });
-  if (relatedType === "Contact") return prisma.contact.findFirst({ where: { id: relatedId, workspaceId }, select: { id: true, firstName: true, lastName: true, email: true, title: true, status: true, company: { select: { name: true } } } });
+  if (relatedType === "Contact") return prisma.contact.findFirst({ where: { id: relatedId, workspaceId }, select: { id: true, firstName: true, lastName: true, email: true, title: true, status: true, company: { select: { id: true, name: true } } } });
   if (relatedType === "Lead") return prisma.lead.findFirst({ where: { id: relatedId, workspaceId }, select: { id: true, name: true, email: true, source: true, status: true, score: true } });
-  if (relatedType === "Opportunity") return prisma.opportunity.findFirst({ where: { id: relatedId, workspaceId }, select: { id: true, name: true, amount: true, status: true, closeDate: true, company: { select: { name: true } }, contact: { select: { firstName: true, lastName: true } } } });
+  if (relatedType === "Opportunity") return prisma.opportunity.findFirst({ where: { id: relatedId, workspaceId }, select: { id: true, name: true, amount: true, status: true, closeDate: true, company: { select: { id: true, name: true } }, contact: { select: { id: true, firstName: true, lastName: true } } } });
   return null;
 }
 

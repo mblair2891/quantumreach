@@ -3,8 +3,33 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 40% 98%; --foreground: 222 47% 11%; --card: 0 0% 100%; --card-foreground: 222 47% 11%;
-  --muted: 214 32% 91%; --muted-foreground: 215 16% 47%; --border: 214 32% 91%; --input: 214 32% 91%;
-  --ring: 222 84% 5%; --primary: 222 47% 11%; --primary-foreground: 210 40% 98%;
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --muted: 214 32% 91%;
+  --muted-foreground: 215 16% 47%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 222 84% 5%;
+  --primary: 222 47% 11%;
+  --primary-foreground: 210 40% 98%;
 }
-body { @apply bg-background text-foreground antialiased; }
+
+.dark {
+  --background: 222 47% 6%;
+  --foreground: 210 40% 96%;
+  --card: 222 47% 9%;
+  --card-foreground: 210 40% 96%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 70%;
+  --border: 217 33% 20%;
+  --input: 217 33% 20%;
+  --ring: 213 94% 68%;
+  --primary: 210 40% 96%;
+  --primary-foreground: 222 47% 11%;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+}
