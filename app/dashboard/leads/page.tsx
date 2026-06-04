@@ -1,2 +1,2 @@
-import { ModulePage } from "@/components/dashboard/module-page";
-export default function Page() { return <ModulePage title="Leads" description="Lead capture and qualification with status, source, scoring, tags, and conversion readiness." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Create lead","Qualify or disqualify","Attach diagnostic context","Convert into opportunity"]} />; }
+import { CrmListPage } from "@/components/dashboard/crm-pages";
+export default function Page() { return <CrmListPage module="leads" />; }

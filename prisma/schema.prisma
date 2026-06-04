@@ -575,14 +575,16 @@ model DiagnosticAnswer {
 }
 
 model Transcript {
-  id          String            @id @default(cuid())
-  workspaceId String
-  sessionId   String
-  content     String
-  source      String?
-  createdById String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id             String            @id @default(cuid())
+  workspaceId    String
+  sessionId      String
+  content        String
+  source         String?
+  discoveryNotes String?
+  businessContext String?
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   session     DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 

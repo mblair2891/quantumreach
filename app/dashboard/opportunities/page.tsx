@@ -1,2 +1,2 @@
-import { ModulePage } from "@/components/dashboard/module-page";
-export default function Page() { return <ModulePage title="Opportunities / deals" description="Pipeline opportunities linked to native CRM records, diagnostics, ROI models, reports, proposals, and projects." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Create opportunity","Move stage","Generate ROI model","Create proposal or handoff"]} />; }
+import { CrmListPage } from "@/components/dashboard/crm-pages";
+export default function Page() { return <CrmListPage module="opportunities" />; }

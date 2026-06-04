@@ -1,2 +1,2 @@
-import { ModulePage } from "@/components/dashboard/module-page";
-export default function Page() { return <ModulePage title="Companies / accounts" description="Account-level system of record for relationships, opportunities, clients, diagnostics, and delivery history." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Create account","Associate contacts","Open opportunity","Review account timeline"]} />; }
+import { CrmListPage } from "@/components/dashboard/crm-pages";
+export default function Page() { return <CrmListPage module="companies" />; }

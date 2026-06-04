@@ -1,2 +1,2 @@
-import { DetailPage } from "@/components/dashboard/detail-page";
-export default function Page({ params }: { params: { id: string } }) { const { id } = params; return <DetailPage type="opportunities" id={id} />; }
+import { CrmDetailPage } from "@/components/dashboard/crm-pages";
+export default function Page({ params }: { params: { id: string } }) { return <CrmDetailPage module="opportunities" id={params.id} />; }

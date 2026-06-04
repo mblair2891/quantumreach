@@ -1,2 +1,2 @@
-import { ModulePage } from "@/components/dashboard/module-page";
-export default function Page() { return <ModulePage title="Diagnostic sessions" description="Structured discovery workflow with transcript/context ingestion and CRM-linked diagnostic records." metrics={[{label:"Workspace records",value:"—",detail:"Requires database connection"},{label:"Needs review",value:"—",detail:"Human approval enforced"},{label:"Archived",value:"—",detail:"Destructive deletes avoided"}]} workflows={["Start session from CRM record","Enter transcript/context","Run structured analyzer","Review diagnostic output"]} />; }
+import { DiagnosticsListPage } from "@/components/dashboard/diagnostic-pages";
+export default function Page() { return <DiagnosticsListPage />; }
