@@ -597,10 +597,16 @@ model AnalysisRecord {
   sessionId       String?
   title           String
   summary         String?
+  executiveNotes  String?
+  internalNotes   String?
   observations    Json               @default("[]")
   risks           Json               @default("[]")
   status          ReviewStatus       @default(DRAFT)
   createdById     String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  finalizedById   String?
+  finalizedAt     DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -613,6 +619,7 @@ model AnalysisRecord {
   reports         ExecutiveReport[]
   roadmaps        StrategicRoadmap[]
   roiModels       ROIModel[]
+  costOfInactionModels CostOfInactionModel[]
 
   @@index([workspaceId, status])
   @@index([sessionId])
@@ -673,6 +680,8 @@ model ROIModel {
   assumptions                 Json            @default("{}")
   estimatedUpside             Decimal?        @db.Decimal(18, 2)
   estimatedImplementationCost Decimal?        @db.Decimal(18, 2)
+  estimatedCostOfDelay        Decimal?        @db.Decimal(18, 2)
+  timeHorizonMonths           Int?
   confidenceScore             Int?
   executiveSummary            String?
   createdById                 String?
@@ -686,19 +695,21 @@ model ROIModel {
 }
 
 model CostOfInactionModel {
-  id                String   @id @default(cuid())
+  id                String          @id @default(cuid())
   workspaceId       String
   opportunityId     String?
   analysisId        String?
   title             String
-  assumptions       Json     @default("{}")
-  estimatedCost     Decimal? @db.Decimal(18, 2)
+  assumptions       Json            @default("{}")
+  estimatedCost     Decimal?        @db.Decimal(18, 2)
   timeHorizonMonths Int?
   confidenceScore   Int?
   executiveSummary  String?
   createdById       String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  analysis          AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, opportunityId])
   @@index([analysisId])
@@ -708,12 +719,21 @@ model ExecutiveReport {
   id                    String          @id @default(cuid())
   workspaceId           String
   analysisId            String?
+  diagnosticSessionId   String?
+  opportunityId         String?
+  companyId             String?
+  contactId             String?
+  leadId                String?
   title                 String
   sections              Json            @default("[]")
   recommendationSummary String?
   roadmapSummary        String?
   status                ReportStatus    @default(DRAFT)
   createdById           String?
+  reviewedById          String?
+  reviewedAt            DateTime?
+  finalizedById         String?
+  finalizedAt           DateTime?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
@@ -721,6 +741,7 @@ model ExecutiveReport {
   workspace             Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
+  @@index([workspaceId, opportunityId])
   @@index([analysisId])
 }
 
@@ -728,11 +749,17 @@ model StrategicRoadmap {
   id          String          @id @default(cuid())
   workspaceId String
   analysisId  String?
+  reportId    String?
+  opportunityId String?
   title       String
   phases      Json            @default("[]")
   summary     String?
   status      ReportStatus    @default(DRAFT)
   createdById String?
+  reviewedById String?
+  reviewedAt  DateTime?
+  finalizedById String?
+  finalizedAt DateTime?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -741,6 +768,7 @@ model StrategicRoadmap {
   proposals   Proposal[]
 
   @@index([workspaceId, status])
+  @@index([workspaceId, opportunityId])
   @@index([analysisId])
 }
 
@@ -750,10 +778,15 @@ model Proposal {
   opportunityId String?
   analysisId    String?
   roadmapId     String?
+  companyId     String?
   title         String
   content       Json                    @default("{}")
   status        ReportStatus            @default(DRAFT)
   createdById   String?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  finalizedById String?
+  finalizedAt   DateTime?
   createdAt     DateTime                @default(now())
   updatedAt     DateTime                @updatedAt
 
