@@ -5,6 +5,8 @@ import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { audit } from "@/lib/audit/service";
 import { toPrismaJson } from "@/lib/db/json";
 import { getAIProvider } from "@/lib/ai/provider";
+import { buildPromptContext, recordPromptSources } from "@/lib/knowledge/context-builder";
+import { getSourcesForEntity } from "@/lib/knowledge/service";
 
 const reviewableStatuses = ["REVIEWED", "FINAL"] as const;
 const reportStatus = z.enum(["DRAFT", "GENERATED", "REVIEWED", "FINAL", "ARCHIVED"]);
@@ -263,7 +265,8 @@ export async function getAnalysisDetail(workspaceId: string, id: string) {
   const analysis = await prisma.analysisRecord.findFirst({ where: { id, workspaceId }, include: { session: true, constraints: true, bottlenecks: true, recommendations: true, reports: { orderBy: { updatedAt: "desc" } }, roadmaps: { orderBy: { updatedAt: "desc" } }, proposals: { orderBy: { updatedAt: "desc" } }, roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } });
   if (!analysis) notFound();
   const events = await prisma.auditLog.findMany({ where: { workspaceId, entityId: id }, orderBy: { createdAt: "desc" }, take: 12 });
-  return { analysis, events };
+  const sources = await getSourcesForEntity(workspaceId, "AnalysisRecord", id);
+  return { analysis, events, sources };
 }
 
 export async function updateAnalysis(workspaceId: string, id: string, input: unknown) {
@@ -356,19 +359,21 @@ async function sourceForAnalysis(workspaceId: string, analysisId: string) {
   };
 }
 
-async function generateStructured(workspaceId: string, actorId: string, kind: string, schemaName: string, system: string, input: Record<string, unknown>) {
-  const aiInput = toPrismaJson(input);
+async function generateStructured(workspaceId: string, actorId: string, kind: string, schemaName: string, system: string, input: Record<string, unknown>, workflowStage: "REPORT_GENERATION" | "ROADMAP_GENERATION" | "PROPOSAL_GENERATION" | "ROI_MODELING"): Promise<Record<string, unknown> & { __promptContext?: Awaited<ReturnType<typeof buildPromptContext>> }> {
+  const promptContext = await buildPromptContext({ workspaceId, workflowStage, generatorType: kind, crmContext: input.crmContext ?? input.opportunity, diagnosticContext: input.diagnosticContext, reviewedAnalysis: input, outputSchemaInstruction: system });
+  const governedInput = { ...input, sourceCoverageWarning: promptContext.sourceCoverageWarning, sourcesUsed: promptContext.sources };
+  const aiInput = toPrismaJson(governedInput);
   const execution = await prisma.aIExecution.create({ data: { workspaceId, provider: "openai", model: process.env.OPENAI_DEFAULT_MODEL ?? "gpt-4.1-mini", input: aiInput, status: "RUNNING", startedAt: new Date(), createdById: actorId } });
   try {
-    const result = await getAIProvider().runStructured({ system, user: JSON.stringify(input), schemaName });
-    await prisma.aIExecution.update({ where: { id: execution.id }, data: { status: result.parseError ? "FAILED" : "SUCCEEDED", model: result.model, output: toPrismaJson({ structured: result.json, raw: result.rawText, parseError: result.parseError }), error: result.parseError ?? null, completedAt: new Date() } });
-    await prisma.aIOutputArtifact.create({ data: { workspaceId, aiExecutionId: execution.id, artifactType: kind, content: toPrismaJson({ structured: result.json, raw: result.rawText, parseError: result.parseError }), reviewStatus: "NEEDS_REVIEW", createdById: actorId } });
-    return result.json && typeof result.json === "object" ? result.json as Record<string, unknown> : {};
+    const result = await getAIProvider().runStructured({ system: promptContext.system, user: promptContext.user, schemaName });
+    await prisma.aIExecution.update({ where: { id: execution.id }, data: { status: result.parseError ? "FAILED" : "SUCCEEDED", model: result.model, output: toPrismaJson({ structured: result.json, raw: result.rawText, parseError: result.parseError, sourcesUsed: promptContext.sources, sourceCoverageWarning: promptContext.sourceCoverageWarning }), error: result.parseError ?? null, completedAt: new Date() } });
+    await prisma.aIOutputArtifact.create({ data: { workspaceId, aiExecutionId: execution.id, artifactType: kind, content: toPrismaJson({ structured: result.json, raw: result.rawText, parseError: result.parseError, sourcesUsed: promptContext.sources, sourceCoverageWarning: promptContext.sourceCoverageWarning }), reviewStatus: "NEEDS_REVIEW", createdById: actorId } });
+    return { ...(result.json && typeof result.json === "object" ? result.json as Record<string, unknown> : {}), __promptContext: promptContext };
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI generation failed";
     await prisma.aIExecution.update({ where: { id: execution.id }, data: { status: "FAILED", error: message, completedAt: new Date() } });
     await prisma.aIOutputArtifact.create({ data: { workspaceId, aiExecutionId: execution.id, artifactType: kind, content: toPrismaJson({ error: message, fallbackUsed: true }), reviewStatus: "NEEDS_REVIEW", createdById: actorId } });
-    return {};
+    return { __promptContext: promptContext };
   }
 }
 
@@ -383,24 +388,27 @@ export async function generateExecutiveReport(workspaceId: string, analysisId: s
     `Create an executive-ready report from reviewed diagnostic analysis. Return valid JSON only.
 The JSON object must use exactly these string fields: executiveSummary, currentState, keyConstraints, operationalBottlenecks, strategicRecommendations, risksAndAssumptions, costOfInactionNarrative, recommendedNextSteps, implementationRoadmapSummary.
 Populate every field with readable business-facing draft content derived from the provided analysis, diagnostic context, CRM context, and ROI/cost-of-inaction context. Do not use placeholders. Do not finalize it.`,
-    input
+    input,
+    "REPORT_GENERATION"
   );
   const fallback = buildExecutiveReportFallback(input);
   const sections = buildExecutiveReportSections(generated, input);
   const report = await prisma.executiveReport.create({ data: { workspaceId, analysisId, diagnosticSessionId: analysis.sessionId, title: `Executive report: ${analysis.title}`, sections: toPrismaJson(sections), recommendationSummary: sections.find((s) => s.title === "Strategic recommendations")?.body, roadmapSummary: sections.find((s) => s.title === "Implementation roadmap summary")?.body, status: "GENERATED", createdById: user.id } });
-  await audit(workspaceId, "report.generated", "ExecutiveReport", report.id, user.id, { analysisId, fallbackSectionsUsed: sections.filter((section) => Object.values(fallback).includes(section.body)).map((section) => section.title) });
+  if (generated.__promptContext) await recordPromptSources(workspaceId, "ExecutiveReport", report.id, "REPORT_GENERATION", "executive_report", generated.__promptContext as never, user.id);
+  await audit(workspaceId, "report.generated", "ExecutiveReport", report.id, user.id, { analysisId, fallbackSectionsUsed: sections.filter((section) => Object.values(fallback).includes(section.body)).map((section) => section.title), sourcesUsed: generated.__promptContext && typeof generated.__promptContext === "object" ? (generated.__promptContext as { sources?: unknown }).sources : undefined });
   return report;
 }
 
 export async function generateStrategicRoadmap(workspaceId: string, analysisId: string, reportId?: string) {
   const { user } = await requireWorkspaceAccess(workspaceId);
   const { analysis, input } = await sourceForAnalysis(workspaceId, analysisId);
-  const generated = await generateStructured(workspaceId, user.id, "strategic_roadmap", "StrategicRoadmap", "Create a phased strategic roadmap from reviewed diagnostic analysis. Return valid JSON only with a summary string and phases array. Derive phases from recommendations, constraints, bottlenecks, risks, and assumptions. Do not use placeholders; never finalize it.", input);
+  const generated = await generateStructured(workspaceId, user.id, "strategic_roadmap", "StrategicRoadmap", "Create a phased strategic roadmap from reviewed diagnostic analysis. Return valid JSON only with a summary string and phases array. Derive phases from recommendations, constraints, bottlenecks, risks, and assumptions. Do not use placeholders; never finalize it.", input, "ROADMAP_GENERATION");
   const fallbackPhases = buildRoadmapFallback(input);
   const phases = Array.isArray(generated.phases) && generated.phases.some(hasUsefulPhase) ? generated.phases : fallbackPhases;
   const summary = hasUsefulContent(generated.summary) ? normalizeSectionContent(generated.summary) : buildRoadmapSummary(input);
   const roadmap = await prisma.strategicRoadmap.create({ data: { workspaceId, analysisId, reportId, opportunityId: undefined, title: `Strategic roadmap: ${analysis.title}`, summary, phases: toPrismaJson(phases), status: "GENERATED", createdById: user.id } });
-  await audit(workspaceId, "roadmap.generated", "StrategicRoadmap", roadmap.id, user.id, { analysisId, reportId, fallbackUsed: phases === fallbackPhases });
+  if (generated.__promptContext) await recordPromptSources(workspaceId, "StrategicRoadmap", roadmap.id, "ROADMAP_GENERATION", "strategic_roadmap", generated.__promptContext as never, user.id);
+  await audit(workspaceId, "roadmap.generated", "StrategicRoadmap", roadmap.id, user.id, { analysisId, reportId, fallbackUsed: phases === fallbackPhases, sourcesUsed: generated.__promptContext && typeof generated.__promptContext === "object" ? (generated.__promptContext as { sources?: unknown }).sources : undefined });
   return roadmap;
 }
 
@@ -412,11 +420,12 @@ export async function generateProposal(workspaceId: string, opportunityId: strin
   const roadmap = roadmapId ? await prisma.strategicRoadmap.findFirst({ where: { id: roadmapId, workspaceId } }) : null;
   if (roadmapId && !roadmap) notFound();
   const generationInput = { ...input, opportunity, roadmap };
-  const generated = await generateStructured(workspaceId, user.id, "proposal_draft", "Proposal", "Create a proposal draft from an opportunity and reviewed analysis. Return valid JSON only using exactly these fields: clientContext, problemStatement, recommendedSolution, scopeOfWork, strategicRoadmapSummary, expectedOutcomes, assumptions, exclusions, investmentPlaceholder, nextSteps. Populate every field from the opportunity, analysis, and roadmap; keep it draft and do not use placeholders.", generationInput);
+  const generated = await generateStructured(workspaceId, user.id, "proposal_draft", "Proposal", "Create a proposal draft from an opportunity and reviewed analysis. Return valid JSON only using exactly these fields: clientContext, problemStatement, recommendedSolution, scopeOfWork, strategicRoadmapSummary, expectedOutcomes, assumptions, exclusions, investmentPlaceholder, nextSteps. Populate every field from the opportunity, analysis, and roadmap; keep it draft and do not use placeholders.", generationInput, "PROPOSAL_GENERATION");
   const fallback = buildProposalFallback(input, opportunity as unknown as Record<string, unknown>, roadmap as Record<string, unknown> | null);
   const content = Object.fromEntries(proposalSections.map((key) => [key, normalizeSectionContent(hasUsefulContent(generated[key]) ? generated[key] : fallback[key as keyof typeof fallback])]));
   const proposal = await prisma.proposal.create({ data: { workspaceId, opportunityId, analysisId: analysis.id, roadmapId: roadmap?.id, companyId: opportunity.companyId, title: `Proposal draft: ${opportunity.name}`, content: toPrismaJson(content), status: "DRAFT", createdById: user.id } });
-  await audit(workspaceId, "proposal.generated", "Proposal", proposal.id, user.id, { opportunityId, analysisId, roadmapId: roadmap?.id });
+  if (generated.__promptContext) await recordPromptSources(workspaceId, "Proposal", proposal.id, "PROPOSAL_GENERATION", "proposal_draft", generated.__promptContext as never, user.id);
+  await audit(workspaceId, "proposal.generated", "Proposal", proposal.id, user.id, { opportunityId, analysisId, roadmapId: roadmap?.id, sourcesUsed: generated.__promptContext && typeof generated.__promptContext === "object" ? (generated.__promptContext as { sources?: unknown }).sources : undefined });
   return proposal;
 }
 
@@ -462,7 +471,8 @@ export async function getReportDetail(workspaceId: string, id: string) {
   const report = await prisma.executiveReport.findFirst({ where: { id, workspaceId }, include: { analysis: { include: { roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } } } });
   if (!report) notFound();
   const events = await prisma.auditLog.findMany({ where: { workspaceId, entityId: id }, orderBy: { createdAt: "desc" }, take: 12 });
-  return { report, events };
+  const sources = await getSourcesForEntity(workspaceId, "ExecutiveReport", id);
+  return { report, events, sources };
 }
 
 export async function getRoadmapDetail(workspaceId: string, id: string) {
@@ -470,7 +480,8 @@ export async function getRoadmapDetail(workspaceId: string, id: string) {
   const roadmap = await prisma.strategicRoadmap.findFirst({ where: { id, workspaceId }, include: { analysis: { include: { roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } }, proposals: true } });
   if (!roadmap) notFound();
   const events = await prisma.auditLog.findMany({ where: { workspaceId, entityId: id }, orderBy: { createdAt: "desc" }, take: 12 });
-  return { roadmap, events };
+  const sources = await getSourcesForEntity(workspaceId, "StrategicRoadmap", id);
+  return { roadmap, events, sources };
 }
 
 export async function getProposalDetail(workspaceId: string, id: string) {
@@ -478,7 +489,8 @@ export async function getProposalDetail(workspaceId: string, id: string) {
   const proposal = await prisma.proposal.findFirst({ where: { id, workspaceId }, include: { opportunity: { include: { company: true, contact: true } }, roadmap: true, analysis: { include: { roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } } } });
   if (!proposal) notFound();
   const events = await prisma.auditLog.findMany({ where: { workspaceId, entityId: id }, orderBy: { createdAt: "desc" }, take: 12 });
-  return { proposal, events };
+  const sources = await getSourcesForEntity(workspaceId, "Proposal", id);
+  return { proposal, events, sources };
 }
 
 export function analysisFormDefaults(analysis: Awaited<ReturnType<typeof getAnalysisDetail>>["analysis"]) {

@@ -26,6 +26,12 @@ export const leadSchema = z.object({
   name: z.string().trim().min(2, "Lead name is required"),
   email: z.string().email().optional().or(z.literal("")),
   source: optionalText,
+  sourcePlatform: optionalText,
+  sourceUrl: optionalText,
+  importMethod: z.enum(["MANUAL", "CSV", "CRM_IMPORT", "APPROVED_DATA_PROVIDER", "OTHER"]).default("MANUAL"),
+  campaignName: optionalText,
+  sourceNotes: optionalText,
+  outreachPermissionStatus: z.enum(["UNKNOWN", "PERMITTED", "DO_NOT_CONTACT", "NEEDS_REVIEW"]).default("UNKNOWN"),
   companyId: optionalId,
   contactId: optionalId,
   score: z.coerce.number().int().min(0).max(100).optional().or(z.literal(""))
@@ -48,3 +54,7 @@ export const activityNoteSchema = z.object({ body: z.string().trim().min(2, "Not
 export const activityTaskSchema = z.object({ title: z.string().trim().min(2, "Task title is required"), description: optionalText, dueAt: z.string().optional().or(z.literal("")), priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM") });
 export const followUpSchema = z.object({ title: z.string().trim().min(2, "Follow-up title is required"), dueAt: z.string().optional().or(z.literal("")) });
 export const transcriptContextSchema = z.object({ transcript: z.string().trim().optional().or(z.literal("")), discoveryNotes: z.string().trim().optional().or(z.literal("")), businessContext: z.string().trim().optional().or(z.literal("")) }).refine((data) => Boolean(data.transcript || data.discoveryNotes || data.businessContext), "At least one transcript or context field is required");
+
+export const outreachCampaignSchema = z.object({ name: z.string().trim().min(2), description: optionalText });
+export const outreachStatusSchema = z.object({ campaignId: optionalId, status: z.enum(["NOT_STARTED", "QUEUED", "SENT", "OPENED", "REPLIED", "CALL_BOOKED", "CALL_COMPLETED", "TRANSCRIPT_READY", "ANALYZED"]), notes: optionalText });
+export const callSessionSchema = z.object({ leadId: optionalId, contactId: optionalId, companyId: optionalId, opportunityId: optionalId, provider: z.enum(["ZOOM", "GOOGLE_MEET", "TEAMS", "OTHER"]).default("OTHER"), meetingUrl: optionalText, recordingUrl: optionalText, transcriptText: optionalText, transcriptSource: optionalText, callDate: z.string().optional().or(z.literal("")), status: z.enum(["SCHEDULED", "COMPLETED", "TRANSCRIPT_READY", "DIAGNOSTIC_CREATED", "ARCHIVED"]).default("SCHEDULED") });

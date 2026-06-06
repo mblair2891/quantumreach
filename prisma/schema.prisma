@@ -106,16 +106,106 @@ enum HandoffStatus {
   ARCHIVED
 }
 
+enum KnowledgeAuthorityLevel {
+  SYSTEM_DOCTRINE
+  PRODUCT_DOCTRINE
+  UX_COPY_DOCTRINE
+  STRATEGY_FRAMEWORK
+  DIAGNOSTIC_FRAMEWORK
+  ROI_FRAMEWORK
+  REPORT_FRAMEWORK
+  ROADMAP_FRAMEWORK
+  PROPOSAL_FRAMEWORK
+  EXECUTION_HANDOFF
+  AUTHORITY_TEMPLATE
+  TRAINING_CURRICULUM
+  COURSE_TEMPLATE
+  REFERENCE
+}
+
+enum KnowledgePriority {
+  GLOBAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum KnowledgeStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum WorkflowStage {
+  LEAD_CAPTURE
+  OUTREACH
+  DISCOVERY_CALL
+  TRANSCRIPT_ANALYSIS
+  DIAGNOSTIC_REVIEW
+  REPORT_GENERATION
+  ROADMAP_GENERATION
+  PROPOSAL_GENERATION
+  ROI_MODELING
+  IMPLEMENTATION_HANDOFF
+  AUTHORITY_ASSET_GENERATION
+  ACADEMY_TRAINING
+  APP_UX
+  OFFER_CREATION
+  POSITIONING
+}
+
+enum LeadImportMethod {
+  MANUAL
+  CSV
+  CRM_IMPORT
+  APPROVED_DATA_PROVIDER
+  OTHER
+}
+
+enum OutreachPermissionStatus {
+  UNKNOWN
+  PERMITTED
+  DO_NOT_CONTACT
+  NEEDS_REVIEW
+}
+
+enum OutreachStatus {
+  NOT_STARTED
+  QUEUED
+  SENT
+  OPENED
+  REPLIED
+  CALL_BOOKED
+  CALL_COMPLETED
+  TRANSCRIPT_READY
+  ANALYZED
+}
+
+enum CallProvider {
+  ZOOM
+  GOOGLE_MEET
+  TEAMS
+  OTHER
+}
+
+enum CallSessionStatus {
+  SCHEDULED
+  COMPLETED
+  TRANSCRIPT_READY
+  DIAGNOSTIC_CREATED
+  ARCHIVED
+}
+
 model UserProfile {
-  id              String            @id @default(cuid())
-  clerkUserId     String            @unique
-  email           String            @unique
-  firstName       String?
-  lastName        String?
-  imageUrl        String?
-  platformRole    WorkspaceRoleKey?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id           String            @id @default(cuid())
+  clerkUserId  String            @unique
+  email        String            @unique
+  firstName    String?
+  lastName     String?
+  imageUrl     String?
+  platformRole WorkspaceRoleKey?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   auditLogs       AuditLog[]
   memberships     WorkspaceMember[]
@@ -123,50 +213,59 @@ model UserProfile {
 }
 
 model Workspace {
-  id                     String                  @id @default(cuid())
-  name                   String
-  slug                   String                  @unique
-  description            String?
-  settings               Json                    @default("{}")
-  ownerId                String?
-  status                 RecordStatus            @default(ACTIVE)
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  description String?
+  settings    Json         @default("{}")
+  ownerId     String?
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
-  owner                  UserProfile?            @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  activities             Activity[]
-  aiExecutions           AIExecution[]
-  analyses               AnalysisRecord[]
-  auditLogs              AuditLog[]
-  clients                Client[]
-  companies              Company[]
-  contacts               Contact[]
-  diagnostics            DiagnosticSession[]
-  documentAssets         DocumentAsset[]
-  followUps              FollowUp[]
-  frameworks             Framework[]
-  handoffRecords         HandoffRecord[]
-  knowledgeRecords       KnowledgeRecord[]
-  leads                  Lead[]
-  members                WorkspaceMember[]
-  notes                  Note[]
-  opportunities          Opportunity[]
-  permissions            Permission[]
-  pipelines              Pipeline[]
-  pipelineStages         PipelineStage[]
-  playbooks              Playbook[]
-  promptTemplates        PromptTemplate[]
-  projects               ImplementationProject[] @relation("WorkspaceProjects")
-  proposals              Proposal[]
-  reminders              Reminder[]
-  reports                ExecutiveReport[]
-  roles                  Role[]
-  roadmaps               StrategicRoadmap[]
-  tags                   Tag[]
-  tasks                  Task[]
-  templates              Template[]
-  communicationLogs      CommunicationLog[]
-  segments               Segment[]
+  owner                     UserProfile?               @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  activities                Activity[]
+  aiExecutions              AIExecution[]
+  analyses                  AnalysisRecord[]
+  auditLogs                 AuditLog[]
+  clients                   Client[]
+  companies                 Company[]
+  contacts                  Contact[]
+  diagnostics               DiagnosticSession[]
+  documentAssets            DocumentAsset[]
+  followUps                 FollowUp[]
+  frameworks                Framework[]
+  handoffRecords            HandoffRecord[]
+  knowledgeRecords          KnowledgeRecord[]
+  knowledgeDocuments        KnowledgeDocument[]
+  knowledgeChunks           KnowledgeChunk[]
+  knowledgeCollections      KnowledgeCollection[]
+  knowledgeDocumentUsages   KnowledgeDocumentUsage[]
+  knowledgeSourceReferences KnowledgeSourceReference[]
+  leads                     Lead[]
+  members                   WorkspaceMember[]
+  notes                     Note[]
+  opportunities             Opportunity[]
+  permissions               Permission[]
+  pipelines                 Pipeline[]
+  pipelineStages            PipelineStage[]
+  playbooks                 Playbook[]
+  promptTemplates           PromptTemplate[]
+  projects                  ImplementationProject[]    @relation("WorkspaceProjects")
+  proposals                 Proposal[]
+  reminders                 Reminder[]
+  reports                   ExecutiveReport[]
+  roles                     Role[]
+  roadmaps                  StrategicRoadmap[]
+  tags                      Tag[]
+  tasks                     Task[]
+  templates                 Template[]
+  communicationLogs         CommunicationLog[]
+  segments                  Segment[]
+  outreachCampaigns         OutreachCampaign[]
+  outreachSteps             OutreachStep[]
+  leadOutreachStatuses      LeadOutreachStatus[]
+  callSessions              CallSession[]
 
   @@index([slug])
   @@index([ownerId])
@@ -183,8 +282,8 @@ model WorkspaceMember {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  user        UserProfile      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
   @@index([workspaceId, roleKey])
@@ -200,7 +299,7 @@ model Role {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   permissions Permission[]
 
   @@unique([workspaceId, key])
@@ -208,47 +307,47 @@ model Role {
 }
 
 model Permission {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   roleId      String?
   action      String
   subject     String
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
 
-  role        Role?     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role      Role?     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, subject])
   @@index([roleId])
 }
 
 model AuditLog {
-  id          String       @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   actorId     String?
   action      String
   entityType  String
   entityId    String?
-  metadata    Json         @default("{}")
-  createdAt   DateTime     @default(now())
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
 
-  actor       UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, entityType, entityId])
   @@index([actorId])
 }
 
 model Pipeline {
-  id            String          @id @default(cuid())
-  workspaceId   String
-  name          String
-  description   String?
-  isDefault     Boolean         @default(false)
-  status        RecordStatus    @default(ACTIVE)
-  createdById   String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  isDefault   Boolean      @default(false)
+  status      RecordStatus @default(ACTIVE)
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   opportunities Opportunity[]
@@ -258,15 +357,15 @@ model Pipeline {
 }
 
 model PipelineStage {
-  id            String        @id @default(cuid())
-  workspaceId   String
-  pipelineId    String
-  name          String
-  position      Int
-  probability   Int           @default(0)
-  status        RecordStatus  @default(ACTIVE)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id          String       @id @default(cuid())
+  workspaceId String
+  pipelineId  String
+  name        String
+  position    Int
+  probability Int          @default(0)
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   pipeline      Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -276,64 +375,74 @@ model PipelineStage {
 }
 
 model Company {
-  id             String        @id @default(cuid())
-  workspaceId    String
-  name           String
-  domain         String?
-  industry       String?
-  employeeCount  Int?
-  annualRevenue  Decimal?      @db.Decimal(18, 2)
-  status         RecordStatus  @default(ACTIVE)
-  createdById    String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id            String       @id @default(cuid())
+  workspaceId   String
+  name          String
+  domain        String?
+  industry      String?
+  employeeCount Int?
+  annualRevenue Decimal?     @db.Decimal(18, 2)
+  status        RecordStatus @default(ACTIVE)
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  clients        Client[]
-  contacts       Contact[]
-  opportunities  Opportunity[]
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clients       Client[]
+  contacts      Contact[]
+  opportunities Opportunity[]
+  callSessions  CallSession[]
 
   @@index([workspaceId, name])
   @@index([workspaceId, status])
 }
 
 model Contact {
-  id            String        @id @default(cuid())
-  workspaceId   String
-  companyId     String?
-  firstName     String
-  lastName      String
-  email         String?
-  phone         String?
-  title         String?
-  status        RecordStatus  @default(ACTIVE)
-  createdById   String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id          String       @id @default(cuid())
+  workspaceId String
+  companyId   String?
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  title       String?
+  status      RecordStatus @default(ACTIVE)
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   company       Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
   workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   opportunities Opportunity[]
+  callSessions  CallSession[]
 
   @@index([workspaceId, email])
   @@index([workspaceId, companyId])
 }
 
 model Lead {
-  id          String     @id @default(cuid())
-  workspaceId String
-  companyId   String?
-  contactId   String?
-  source      String?
-  name        String
-  email       String?
-  status      LeadStatus @default(NEW)
-  score       Int?
-  createdById String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id                       String                   @id @default(cuid())
+  workspaceId              String
+  companyId                String?
+  contactId                String?
+  source                   String?
+  sourcePlatform           String?
+  sourceUrl                String?
+  importMethod             LeadImportMethod         @default(MANUAL)
+  campaignName             String?
+  sourceNotes              String?
+  outreachPermissionStatus OutreachPermissionStatus @default(UNKNOWN)
+  name                     String
+  email                    String?
+  status                   LeadStatus               @default(NEW)
+  score                    Int?
+  createdById              String?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
 
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace        Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  outreachStatuses LeadOutreachStatus[]
+  callSessions     CallSession[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, email])
@@ -350,36 +459,37 @@ model Client {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  company     Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  company   Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
 }
 
 model Opportunity {
-  id            String            @id @default(cuid())
-  workspaceId   String
-  pipelineId    String?
-  stageId       String?
-  companyId     String?
-  contactId     String?
-  leadId        String?
-  name          String
-  amount        Decimal?          @db.Decimal(18, 2)
-  closeDate     DateTime?
-  status        OpportunityStatus @default(OPEN)
-  createdById   String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id          String            @id @default(cuid())
+  workspaceId String
+  pipelineId  String?
+  stageId     String?
+  companyId   String?
+  contactId   String?
+  leadId      String?
+  name        String
+  amount      Decimal?          @db.Decimal(18, 2)
+  closeDate   DateTime?
+  status      OpportunityStatus @default(OPEN)
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
-  company       Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact       Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  pipeline      Pipeline?         @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
-  stage         PipelineStage?    @relation(fields: [stageId], references: [id], onDelete: SetNull)
-  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  estimates     Estimate[]
-  projects      ImplementationProject[]
-  proposals     Proposal[]
+  company      Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact      Contact?                @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  pipeline     Pipeline?               @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  stage        PipelineStage?          @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  estimates    Estimate[]
+  projects     ImplementationProject[]
+  proposals    Proposal[]
+  callSessions CallSession[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, stageId])
@@ -403,29 +513,29 @@ model Task {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status, dueAt])
   @@index([workspaceId, relatedType, relatedId])
 }
 
 model Note {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   body        String
   relatedType String?
   relatedId   String?
   createdById String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, relatedType, relatedId])
 }
 
 model Activity {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   type        String
   title       String
@@ -433,10 +543,10 @@ model Activity {
   relatedType String?
   relatedId   String?
   createdById String?
-  occurredAt  DateTime  @default(now())
-  createdAt   DateTime  @default(now())
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, occurredAt])
   @@index([workspaceId, relatedType, relatedId])
@@ -454,7 +564,7 @@ model Reminder {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, remindAt, status])
 }
@@ -471,13 +581,13 @@ model FollowUp {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status, dueAt])
 }
 
 model CommunicationLog {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   channel     String
   direction   String?
@@ -486,139 +596,142 @@ model CommunicationLog {
   relatedType String?
   relatedId   String?
   createdById String?
-  occurredAt  DateTime  @default(now())
-  createdAt   DateTime  @default(now())
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, relatedType, relatedId])
 }
 
 model Tag {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   name        String
   color       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, name])
 }
 
 model Segment {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   name        String
-  criteria    Json      @default("{}")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  criteria    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, name])
 }
 
 model DiagnosticSession {
-  id          String             @id @default(cuid())
-  workspaceId String
-  title       String
-  status      DiagnosticStatus   @default(DRAFT)
-  relatedType String?
-  relatedId   String?
-  summary     String?
-  createdById String?
-  reviewedById String?
-  reviewedAt  DateTime?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id            String           @id @default(cuid())
+  workspaceId   String
+  title         String
+  status        DiagnosticStatus @default(DRAFT)
+  relatedType   String?
+  relatedId     String?
+  summary       String?
+  createdById   String?
+  callSessionId String?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
-  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  analyses    AnalysisRecord[]
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  callSession  CallSession?         @relation(fields: [callSessionId], references: [id], onDelete: SetNull)
+  analyses     AnalysisRecord[]
   analyzerRuns AnalyzerRun[]
-  answers     DiagnosticAnswer[]
-  questions   DiagnosticQuestion[]
-  transcripts Transcript[]
+  answers      DiagnosticAnswer[]
+  questions    DiagnosticQuestion[]
+  transcripts  Transcript[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, relatedType, relatedId])
+  @@index([callSessionId])
 }
 
 model DiagnosticQuestion {
-  id          String             @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   sessionId   String
   question    String
-  position    Int                @default(0)
-  createdAt   DateTime           @default(now())
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
 
-  session     DiagnosticSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  answers     DiagnosticAnswer[]
+  session DiagnosticSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  answers DiagnosticAnswer[]
 
   @@index([workspaceId, sessionId])
 }
 
 model DiagnosticAnswer {
-  id          String              @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   sessionId   String
   questionId  String?
   answer      String
   createdById String?
-  createdAt   DateTime            @default(now())
+  createdAt   DateTime @default(now())
 
-  question    DiagnosticQuestion? @relation(fields: [questionId], references: [id], onDelete: SetNull)
-  session     DiagnosticSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question DiagnosticQuestion? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  session  DiagnosticSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, sessionId])
 }
 
 model Transcript {
-  id             String            @id @default(cuid())
-  workspaceId    String
-  sessionId      String
-  content        String
-  source         String?
-  discoveryNotes String?
+  id              String   @id @default(cuid())
+  workspaceId     String
+  sessionId       String
+  content         String
+  source          String?
+  discoveryNotes  String?
   businessContext String?
-  createdById    String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  session     DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, sessionId])
 }
 
 model AnalysisRecord {
-  id              String             @id @default(cuid())
-  workspaceId     String
-  sessionId       String?
-  title           String
-  summary         String?
-  executiveNotes  String?
-  internalNotes   String?
-  observations    Json               @default("[]")
-  risks           Json               @default("[]")
-  status          ReviewStatus       @default(DRAFT)
-  createdById     String?
-  reviewedById    String?
-  reviewedAt      DateTime?
-  finalizedById   String?
-  finalizedAt     DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  id             String       @id @default(cuid())
+  workspaceId    String
+  sessionId      String?
+  title          String
+  summary        String?
+  executiveNotes String?
+  internalNotes  String?
+  observations   Json         @default("[]")
+  risks          Json         @default("[]")
+  status         ReviewStatus @default(DRAFT)
+  createdById    String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  finalizedById  String?
+  finalizedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
-  session         DiagnosticSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  bottlenecks     Bottleneck[]
-  constraints     Constraint[]
-  proposals       Proposal[]
-  recommendations Recommendation[]
-  reports         ExecutiveReport[]
-  roadmaps        StrategicRoadmap[]
-  roiModels       ROIModel[]
+  session              DiagnosticSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  bottlenecks          Bottleneck[]
+  constraints          Constraint[]
+  proposals            Proposal[]
+  recommendations      Recommendation[]
+  reports              ExecutiveReport[]
+  roadmaps             StrategicRoadmap[]
+  roiModels            ROIModel[]
   costOfInactionModels CostOfInactionModel[]
 
   @@index([workspaceId, status])
@@ -626,97 +739,97 @@ model AnalysisRecord {
 }
 
 model Constraint {
-  id          String         @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   analysisId  String
   label       String
   impact      String?
-  severity    Priority       @default(MEDIUM)
+  severity    Priority @default(MEDIUM)
   evidence    String?
-  createdAt   DateTime       @default(now())
+  createdAt   DateTime @default(now())
 
-  analysis    AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysis AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, analysisId])
 }
 
 model Bottleneck {
-  id          String         @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   analysisId  String
   label       String
   description String?
-  severity    Priority       @default(MEDIUM)
-  createdAt   DateTime       @default(now())
+  severity    Priority @default(MEDIUM)
+  createdAt   DateTime @default(now())
 
-  analysis    AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysis AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, analysisId])
 }
 
 model Recommendation {
-  id              String         @id @default(cuid())
+  id              String       @id @default(cuid())
   workspaceId     String
   analysisId      String
   title           String
   rationale       String?
   expectedOutcome String?
-  priority        Priority       @default(MEDIUM)
-  reviewStatus    ReviewStatus   @default(DRAFT)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  priority        Priority     @default(MEDIUM)
+  reviewStatus    ReviewStatus @default(DRAFT)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  analysis        AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysis AnalysisRecord @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, analysisId])
 }
 
 model ROIModel {
-  id                          String          @id @default(cuid())
+  id                          String   @id @default(cuid())
   workspaceId                 String
   opportunityId               String?
   analysisId                  String?
   title                       String
-  assumptions                 Json            @default("{}")
-  estimatedUpside             Decimal?        @db.Decimal(18, 2)
-  estimatedImplementationCost Decimal?        @db.Decimal(18, 2)
-  estimatedCostOfDelay        Decimal?        @db.Decimal(18, 2)
+  assumptions                 Json     @default("{}")
+  estimatedUpside             Decimal? @db.Decimal(18, 2)
+  estimatedImplementationCost Decimal? @db.Decimal(18, 2)
+  estimatedCostOfDelay        Decimal? @db.Decimal(18, 2)
   timeHorizonMonths           Int?
   confidenceScore             Int?
   executiveSummary            String?
   createdById                 String?
-  createdAt                   DateTime        @default(now())
-  updatedAt                   DateTime        @updatedAt
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
 
-  analysis                    AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  analysis AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, opportunityId])
   @@index([analysisId])
 }
 
 model CostOfInactionModel {
-  id                String          @id @default(cuid())
+  id                String   @id @default(cuid())
   workspaceId       String
   opportunityId     String?
   analysisId        String?
   title             String
-  assumptions       Json            @default("{}")
-  estimatedCost     Decimal?        @db.Decimal(18, 2)
+  assumptions       Json     @default("{}")
+  estimatedCost     Decimal? @db.Decimal(18, 2)
   timeHorizonMonths Int?
   confidenceScore   Int?
   executiveSummary  String?
   createdById       String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  analysis          AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  analysis AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, opportunityId])
   @@index([analysisId])
 }
 
 model ExecutiveReport {
-  id                    String          @id @default(cuid())
+  id                    String       @id @default(cuid())
   workspaceId           String
   analysisId            String?
   diagnosticSessionId   String?
@@ -725,20 +838,20 @@ model ExecutiveReport {
   contactId             String?
   leadId                String?
   title                 String
-  sections              Json            @default("[]")
+  sections              Json         @default("[]")
   recommendationSummary String?
   roadmapSummary        String?
-  status                ReportStatus    @default(DRAFT)
+  status                ReportStatus @default(DRAFT)
   createdById           String?
   reviewedById          String?
   reviewedAt            DateTime?
   finalizedById         String?
   finalizedAt           DateTime?
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
 
-  analysis              AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
-  workspace             Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  analysis  AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
   @@index([workspaceId, opportunityId])
@@ -746,26 +859,26 @@ model ExecutiveReport {
 }
 
 model StrategicRoadmap {
-  id          String          @id @default(cuid())
-  workspaceId String
-  analysisId  String?
-  reportId    String?
+  id            String       @id @default(cuid())
+  workspaceId   String
+  analysisId    String?
+  reportId      String?
   opportunityId String?
-  title       String
-  phases      Json            @default("[]")
-  summary     String?
-  status      ReportStatus    @default(DRAFT)
-  createdById String?
-  reviewedById String?
-  reviewedAt  DateTime?
+  title         String
+  phases        Json         @default("[]")
+  summary       String?
+  status        ReportStatus @default(DRAFT)
+  createdById   String?
+  reviewedById  String?
+  reviewedAt    DateTime?
   finalizedById String?
-  finalizedAt DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  finalizedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  analysis    AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  proposals   Proposal[]
+  analysis  AnalysisRecord? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  proposals Proposal[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, opportunityId])
@@ -773,28 +886,28 @@ model StrategicRoadmap {
 }
 
 model Proposal {
-  id            String                  @id @default(cuid())
+  id            String       @id @default(cuid())
   workspaceId   String
   opportunityId String?
   analysisId    String?
   roadmapId     String?
   companyId     String?
   title         String
-  content       Json                    @default("{}")
-  status        ReportStatus            @default(DRAFT)
+  content       Json         @default("{}")
+  status        ReportStatus @default(DRAFT)
   createdById   String?
   reviewedById  String?
   reviewedAt    DateTime?
   finalizedById String?
   finalizedAt   DateTime?
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  analysis      AnalysisRecord?         @relation(fields: [analysisId], references: [id], onDelete: SetNull)
-  opportunity   Opportunity?            @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  roadmap       StrategicRoadmap?       @relation(fields: [roadmapId], references: [id], onDelete: SetNull)
-  workspace     Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  projects      ImplementationProject[]
+  analysis    AnalysisRecord?         @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  opportunity Opportunity?            @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  roadmap     StrategicRoadmap?       @relation(fields: [roadmapId], references: [id], onDelete: SetNull)
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projects    ImplementationProject[]
 
   @@index([workspaceId, status])
   @@index([opportunityId])
@@ -811,7 +924,7 @@ model Estimate {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, opportunityId])
 }
@@ -830,17 +943,17 @@ model Contract {
 }
 
 model PromptTemplate {
-  id                  String               @id @default(cuid())
-  workspaceId         String?
-  key                 String
-  name                String
-  systemPrompt        String
-  userPrompt          String
-  outputSchema        Json                 @default("{}")
-  version             Int                  @default(1)
-  status              RecordStatus         @default(ACTIVE)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  id           String       @id @default(cuid())
+  workspaceId  String?
+  key          String
+  name         String
+  systemPrompt String
+  userPrompt   String
+  outputSchema Json         @default("{}")
+  version      Int          @default(1)
+  status       RecordStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   workspace           Workspace?           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   analyzerDefinitions AnalyzerDefinition[]
@@ -850,46 +963,46 @@ model PromptTemplate {
 }
 
 model AnalyzerDefinition {
-  id               String             @id @default(cuid())
+  id               String       @id @default(cuid())
   workspaceId      String?
   key              String
   name             String
   description      String?
   promptTemplateId String?
-  outputSchema     Json               @default("{}")
-  status           RecordStatus       @default(ACTIVE)
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  outputSchema     Json         @default("{}")
+  status           RecordStatus @default(ACTIVE)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  promptTemplate   PromptTemplate?    @relation(fields: [promptTemplateId], references: [id], onDelete: SetNull)
-  runs             AnalyzerRun[]
+  promptTemplate PromptTemplate? @relation(fields: [promptTemplateId], references: [id], onDelete: SetNull)
+  runs           AnalyzerRun[]
 
   @@unique([workspaceId, key])
   @@index([workspaceId, status])
 }
 
 model AnalyzerRun {
-  id                   String             @id @default(cuid())
+  id                   String            @id @default(cuid())
   workspaceId          String
   analyzerDefinitionId String?
   diagnosticSessionId  String?
-  input                Json               @default("{}")
+  input                Json              @default("{}")
   output               Json?
-  status               AIExecutionStatus  @default(QUEUED)
-  reviewStatus         ReviewStatus       @default(DRAFT)
+  status               AIExecutionStatus @default(QUEUED)
+  reviewStatus         ReviewStatus      @default(DRAFT)
   createdById          String?
   reviewedById         String?
   reviewedAt           DateTime?
   startedAt            DateTime?
   completedAt          DateTime?
   error                String?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
-  definition           AnalyzerDefinition? @relation(fields: [analyzerDefinitionId], references: [id], onDelete: SetNull)
-  session              DiagnosticSession?  @relation(fields: [diagnosticSessionId], references: [id], onDelete: SetNull)
-  artifacts            AIOutputArtifact[]
-  executions           AIExecution[]
+  definition AnalyzerDefinition? @relation(fields: [analyzerDefinitionId], references: [id], onDelete: SetNull)
+  session    DiagnosticSession?  @relation(fields: [diagnosticSessionId], references: [id], onDelete: SetNull)
+  artifacts  AIOutputArtifact[]
+  executions AIExecution[]
 
   @@index([workspaceId, status])
   @@index([diagnosticSessionId])
@@ -912,53 +1025,53 @@ model AIExecution {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  analyzerRun   AnalyzerRun?      @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull)
-  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  artifacts     AIOutputArtifact[]
+  analyzerRun AnalyzerRun?       @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull)
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  artifacts   AIOutputArtifact[]
 
   @@index([workspaceId, status])
   @@index([analyzerRunId])
 }
 
 model AIOutputArtifact {
-  id            String          @id @default(cuid())
+  id            String       @id @default(cuid())
   workspaceId   String
   analyzerRunId String?
   aiExecutionId String?
   artifactType  String
-  content       Json            @default("{}")
-  reviewStatus  ReviewStatus    @default(DRAFT)
+  content       Json         @default("{}")
+  reviewStatus  ReviewStatus @default(DRAFT)
   createdById   String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  aiExecution   AIExecution?    @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
-  analyzerRun   AnalyzerRun?    @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull)
+  aiExecution AIExecution? @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
+  analyzerRun AnalyzerRun? @relation(fields: [analyzerRunId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, artifactType])
   @@index([aiExecutionId])
 }
 
 model ImplementationProject {
-  id              String             @id @default(cuid())
+  id              String        @id @default(cuid())
   workspaceId     String
   opportunityId   String?
   proposalId      String?
   name            String
-  status          ProjectStatus      @default(PLANNED)
+  status          ProjectStatus @default(PLANNED)
   summary         String?
   deliveryOwnerId String?
   createdById     String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  opportunity     Opportunity?       @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  proposal        Proposal?          @relation(fields: [proposalId], references: [id], onDelete: SetNull)
-  workspace       Workspace          @relation("WorkspaceProjects", fields: [workspaceId], references: [id], onDelete: Cascade)
-  decisions       DecisionRecord[]
-  handoffs        HandoffRecord[]
-  milestones      ProjectMilestone[]
-  tasks           ProjectTask[]
+  opportunity Opportunity?       @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  proposal    Proposal?          @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  workspace   Workspace          @relation("WorkspaceProjects", fields: [workspaceId], references: [id], onDelete: Cascade)
+  decisions   DecisionRecord[]
+  handoffs    HandoffRecord[]
+  milestones  ProjectMilestone[]
+  tasks       ProjectTask[]
 
   @@index([workspaceId, status])
   @@index([opportunityId])
@@ -966,74 +1079,273 @@ model ImplementationProject {
 }
 
 model ProjectMilestone {
-  id          String                @id @default(cuid())
+  id          String     @id @default(cuid())
   workspaceId String
   projectId   String
   name        String
   dueAt       DateTime?
-  status      TaskStatus            @default(TODO)
-  position    Int                   @default(0)
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  status      TaskStatus @default(TODO)
+  position    Int        @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  project     ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, projectId, status])
 }
 
 model ProjectTask {
-  id          String                @id @default(cuid())
+  id          String     @id @default(cuid())
   workspaceId String
   projectId   String
   milestoneId String?
   title       String
-  status      TaskStatus            @default(TODO)
-  priority    Priority              @default(MEDIUM)
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
   assigneeId  String?
   dueAt       DateTime?
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  project     ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project ImplementationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, projectId, status])
 }
 
 model HandoffRecord {
-  id           String                 @id @default(cuid())
-  workspaceId  String
-  projectId    String?
+  id            String        @id @default(cuid())
+  workspaceId   String
+  projectId     String?
   opportunityId String?
-  proposalId   String?
-  summary      String
-  status       HandoffStatus          @default(DRAFT)
-  createdById  String?
-  acceptedById String?
-  acceptedAt   DateTime?
-  createdAt    DateTime               @default(now())
-  updatedAt    DateTime               @updatedAt
+  proposalId    String?
+  summary       String
+  status        HandoffStatus @default(DRAFT)
+  createdById   String?
+  acceptedById  String?
+  acceptedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  project      ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
   @@index([projectId])
 }
 
 model DecisionRecord {
-  id          String                 @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   projectId   String?
   title       String
   decision    String
   rationale   String?
   decidedById String?
-  decidedAt   DateTime               @default(now())
-  createdAt   DateTime               @default(now())
+  decidedAt   DateTime @default(now())
+  createdAt   DateTime @default(now())
 
-  project     ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  project ImplementationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, projectId])
+}
+
+model KnowledgeCollection {
+  id          String          @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  status      KnowledgeStatus @default(ACTIVE)
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  documents KnowledgeDocument[]
+
+  @@index([workspaceId, status])
+}
+
+model KnowledgeDocument {
+  id             String                  @id @default(cuid())
+  workspaceId    String
+  collectionId   String?
+  title          String
+  description    String?
+  documentType   KnowledgeAuthorityLevel
+  authorityLevel KnowledgeAuthorityLevel
+  priority       KnowledgePriority       @default(MEDIUM)
+  workflowStages Json                    @default("[]")
+  offerLine      String?
+  audience       String?
+  industry       String?
+  tags           Json                    @default("[]")
+  status         KnowledgeStatus         @default(DRAFT)
+  version        String                  @default("1.0")
+  sourceFileName String?
+  sourceMimeType String?
+  sourceText     String
+  createdById    String?
+  approvedById   String?
+  approvedAt     DateTime?
+  lastReviewedAt DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  collection       KnowledgeCollection?       @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  chunks           KnowledgeChunk[]
+  usages           KnowledgeDocumentUsage[]
+  sourceReferences KnowledgeSourceReference[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, authorityLevel, priority])
+  @@index([workspaceId, documentType])
+}
+
+model KnowledgeChunk {
+  id             String                  @id @default(cuid())
+  workspaceId    String
+  documentId     String
+  chunkIndex     Int
+  heading        String?
+  text           String
+  characterCount Int
+  workflowStages Json                    @default("[]")
+  documentType   KnowledgeAuthorityLevel
+  authorityLevel KnowledgeAuthorityLevel
+  status         KnowledgeStatus         @default(DRAFT)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document         KnowledgeDocument          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  usages           KnowledgeDocumentUsage[]
+  sourceReferences KnowledgeSourceReference[]
+
+  @@unique([documentId, chunkIndex])
+  @@index([workspaceId, status])
+  @@index([workspaceId, authorityLevel])
+}
+
+model KnowledgeDocumentUsage {
+  id            String        @id @default(cuid())
+  workspaceId   String
+  documentId    String
+  chunkId       String?
+  entityType    String
+  entityId      String
+  workflowStage WorkflowStage
+  usedFor       String
+  createdAt     DateTime      @default(now())
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document  KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk     KnowledgeChunk?   @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, entityType, entityId])
+  @@index([workspaceId, workflowStage])
+  @@index([documentId])
+  @@index([chunkId])
+}
+
+model KnowledgeSourceReference {
+  id          String   @id @default(cuid())
+  workspaceId String
+  documentId  String
+  chunkId     String?
+  label       String
+  url         String?
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document  KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk     KnowledgeChunk?   @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, documentId])
+}
+
+model OutreachCampaign {
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  status      RecordStatus @default(ACTIVE)
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  steps        OutreachStep[]
+  leadStatuses LeadOutreachStatus[]
+
+  @@index([workspaceId, status])
+}
+
+model OutreachStep {
+  id          String       @id @default(cuid())
+  workspaceId String
+  campaignId  String
+  name        String
+  description String?
+  position    Int          @default(0)
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign  OutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, campaignId])
+}
+
+model LeadOutreachStatus {
+  id          String         @id @default(cuid())
+  workspaceId String
+  leadId      String
+  campaignId  String?
+  status      OutreachStatus @default(NOT_STARTED)
+  notes       String?
+  updatedById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaign  OutreachCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, leadId, campaignId])
+  @@index([workspaceId, status])
+}
+
+model CallSession {
+  id               String            @id @default(cuid())
+  workspaceId      String
+  leadId           String?
+  contactId        String?
+  companyId        String?
+  opportunityId    String?
+  provider         CallProvider      @default(OTHER)
+  meetingUrl       String?
+  recordingUrl     String?
+  transcriptText   String?
+  transcriptSource String?
+  callDate         DateTime?
+  status           CallSessionStatus @default(SCHEDULED)
+  createdById      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead        Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact     Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company     Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  opportunity Opportunity?        @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  diagnostics DiagnosticSession[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, leadId])
+  @@index([workspaceId, opportunityId])
 }
 
 model KnowledgeRecord {
@@ -1048,7 +1360,7 @@ model KnowledgeRecord {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
 }
@@ -1063,7 +1375,7 @@ model Framework {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
 }
@@ -1077,7 +1389,7 @@ model Playbook {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
 }
@@ -1092,13 +1404,13 @@ model Template {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, type, status])
 }
 
 model DocumentAsset {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   workspaceId String
   key         String
   fileName    String
@@ -1107,11 +1419,11 @@ model DocumentAsset {
   relatedType String?
   relatedId   String?
   createdById String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@index([workspaceId, relatedType, relatedId])
   @@unique([workspaceId, key])
+  @@index([workspaceId, relatedType, relatedId])
 }
