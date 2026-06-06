@@ -52,17 +52,19 @@ export const proposalEditSchema = z.object({
   nextSteps: z.string().optional().default("")
 });
 
-const reportSections = [
-  "Executive summary",
-  "Current state / observed situation",
-  "Key constraints",
-  "Operational bottlenecks",
-  "Strategic recommendations",
-  "Risks and assumptions",
-  "Cost of inaction narrative",
-  "Recommended next steps",
-  "Implementation roadmap summary"
-];
+const reportSectionDefinitions = [
+  { key: "executiveSummary", title: "Executive summary" },
+  { key: "currentState", title: "Current state / observed situation" },
+  { key: "keyConstraints", title: "Key constraints" },
+  { key: "operationalBottlenecks", title: "Operational bottlenecks" },
+  { key: "strategicRecommendations", title: "Strategic recommendations" },
+  { key: "risksAndAssumptions", title: "Risks and assumptions" },
+  { key: "costOfInactionNarrative", title: "Cost of inaction narrative" },
+  { key: "recommendedNextSteps", title: "Recommended next steps" },
+  { key: "implementationRoadmapSummary", title: "Implementation roadmap summary" }
+] as const;
+
+const genericPlaceholderPattern = /review and refine|before final approval|before sending|to review|to confirm/i;
 
 const proposalSections = ["clientContext", "problemStatement", "recommendedSolution", "scopeOfWork", "strategicRoadmapSummary", "expectedOutcomes", "assumptions", "exclusions", "investmentPlaceholder", "nextSteps"];
 
@@ -95,15 +97,135 @@ function stringifyItem(item: unknown) {
 
 function normalizeSectionContent(value: unknown) {
   if (Array.isArray(value)) return value.map(stringifyItem).filter(Boolean).join("\n");
-  if (typeof value === "string") return value;
-  return stringifyItem(value);
+  if (typeof value === "string") return value.trim();
+  return stringifyItem(value).trim();
 }
 
-function makeSections(names: string[], source: Record<string, unknown>) {
-  return names.map((title) => {
-    const key = title.toLowerCase().replace(/[^a-z0-9]+(.)/g, (_, chr: string) => chr.toUpperCase()).replace(/[^a-z0-9]/g, "");
-    return { title, body: normalizeSectionContent(source[key] ?? source[title] ?? source[title.toLowerCase()] ?? "Review and refine this section before final approval.") };
-  });
+function hasUsefulContent(value: unknown) {
+  const normalized = normalizeSectionContent(value);
+  return normalized.length > 0 && !genericPlaceholderPattern.test(normalized);
+}
+
+function joinSentences(parts: Array<string | null | undefined>) {
+  return parts.map((part) => part?.trim()).filter((part): part is string => Boolean(part)).join(" ");
+}
+
+function sentenceList(items: string[], fallback: string) {
+  if (!items.length) return fallback;
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
+function bulletList(items: string[], fallback: string) {
+  return items.length ? items.map((item) => `- ${item}`).join("\n") : fallback;
+}
+
+function moneyString(value: unknown) {
+  const raw = typeof value === "object" && value && "toString" in value ? String(value.toString()) : typeof value === "number" || typeof value === "string" ? String(value) : "";
+  if (!raw || raw === "null" || raw === "undefined") return "";
+  const amount = Number(raw);
+  return Number.isFinite(amount) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount) : raw;
+}
+
+function modelSummary(model: unknown, label: string) {
+  if (!model || typeof model !== "object") return "";
+  const record = model as Record<string, unknown>;
+  const summary = normalizeSectionContent(record.executiveSummary);
+  if (summary) return summary;
+  const estimatedCost = moneyString(record.estimatedCost);
+  const estimatedUpside = moneyString(record.estimatedUpside);
+  const estimatedDelay = moneyString(record.estimatedCostOfDelay);
+  const months = record.timeHorizonMonths ? `${record.timeHorizonMonths} months` : "the planning horizon";
+  if (estimatedCost) return `${label} estimates ${estimatedCost} of exposure over ${months}.`;
+  if (estimatedUpside || estimatedDelay) return `${label} frames ${estimatedUpside ? `${estimatedUpside} of upside` : "the upside case"}${estimatedDelay ? ` and ${estimatedDelay} in cost-of-delay exposure` : ""} over ${months}.`;
+  return "";
+}
+
+function hasUsefulPhase(value: unknown) {
+  if (!value || typeof value !== "object") return hasUsefulContent(value);
+  const record = value as Record<string, unknown>;
+  return [record.name, record.title, record.objective, record.description, record.milestones].some(hasUsefulContent);
+}
+
+function analysisLists(input: Record<string, unknown>) {
+  return {
+    constraints: asArray(input.constraints).map(stringifyItem).filter(Boolean),
+    bottlenecks: asArray(input.bottlenecks).map(stringifyItem).filter(Boolean),
+    recommendations: asArray(input.recommendations).map(stringifyItem).filter(Boolean),
+    risks: asArray(input.risks).map(stringifyItem).filter(Boolean),
+    assumptions: asArray(input.assumptions).map(stringifyItem).filter(Boolean)
+  };
+}
+
+export function buildExecutiveReportFallback(input: Record<string, unknown>) {
+  const summary = normalizeSectionContent(input.summary) || normalizeSectionContent(input.executiveNotes) || "The reviewed analysis identifies operational issues that require executive attention and a sequenced response.";
+  const lists = analysisLists(input);
+  const businessCase = input.businessCase && typeof input.businessCase === "object" ? input.businessCase as Record<string, unknown> : {};
+  const roiSummary = modelSummary(businessCase.roi, "The ROI model");
+  const costSummary = modelSummary(businessCase.costOfInaction, "The cost-of-inaction model");
+  const context = input.diagnosticContext && typeof input.diagnosticContext === "object" ? input.diagnosticContext as Record<string, unknown> : {};
+  const crmContext = input.crmContext && typeof input.crmContext === "object" ? input.crmContext as Record<string, unknown> : {};
+  const clientName = normalizeSectionContent((crmContext.company as Record<string, unknown> | undefined)?.name) || normalizeSectionContent((crmContext.opportunity as Record<string, unknown> | undefined)?.name) || "the client";
+
+  return {
+    executiveSummary: joinSentences([summary, `The recommended response is to address ${sentenceList(lists.bottlenecks.slice(0, 2), "the highest-impact workflow bottlenecks")} while sequencing improvements around ${sentenceList(lists.constraints.slice(0, 2), "the known operating constraints")}.`, roiSummary || costSummary]),
+    currentState: joinSentences([`The current state for ${clientName} shows ${summary.toLowerCase()}.`, normalizeSectionContent(context.summary) ? `Diagnostic context notes: ${normalizeSectionContent(context.summary)}` : undefined, lists.bottlenecks.length ? `Observed bottlenecks include ${sentenceList(lists.bottlenecks.slice(0, 3), "process friction")}.` : undefined]),
+    keyConstraints: bulletList(lists.constraints, "No explicit constraints were captured in the reviewed analysis; validate budget, ownership, timing, and data-access constraints during review."),
+    operationalBottlenecks: bulletList(lists.bottlenecks, "No explicit bottlenecks were captured in the reviewed analysis; validate handoff, follow-up, visibility, and accountability gaps during review."),
+    strategicRecommendations: bulletList(lists.recommendations, "Confirm the priority operating changes with stakeholders, then define owners, milestones, and measurable success indicators."),
+    risksAndAssumptions: joinSentences([lists.risks.length ? `Key risks: ${sentenceList(lists.risks, "execution risk")}.` : "Key risks should be validated during review, with particular attention to adoption, ownership, and data quality.", lists.assumptions.length ? `Working assumptions: ${sentenceList(lists.assumptions, "stakeholder alignment")}.` : "Assumptions should be confirmed before final approval."]),
+    costOfInactionNarrative: joinSentences([costSummary || "If no action is taken, the organization is likely to continue absorbing avoidable leakage from slow follow-up, unclear ownership, inconsistent execution, and limited pipeline visibility.", roiSummary ? `The upside case reinforces the value of timely execution: ${roiSummary}` : undefined]),
+    recommendedNextSteps: bulletList(lists.recommendations.slice(0, 3).map((item) => `Assign an owner and success measure for: ${item}`), "- Confirm executive sponsor and decision owner.\n- Validate constraints, risks, and assumptions with the client.\n- Convert the highest-priority recommendation into a 30-day action plan."),
+    implementationRoadmapSummary: `Start with a 0-30 day stabilization phase focused on the most visible bottlenecks, move into a 31-60 day operating-cadence phase around constraints and ownership, and use the following 60-90 days to measure adoption, revenue impact, and process consistency.`
+  };
+}
+
+export function buildExecutiveReportSections(generated: Record<string, unknown>, input: Record<string, unknown>) {
+  const fallback = buildExecutiveReportFallback(input);
+  return reportSectionDefinitions.map(({ key, title }) => ({ title, body: normalizeSectionContent(hasUsefulContent(generated[key]) ? generated[key] : fallback[key]) }));
+}
+
+
+export function buildRoadmapFallback(input: Record<string, unknown>) {
+  const lists = analysisLists(input);
+  const objectives = (lists.recommendations.length ? lists.recommendations : [
+    "Stabilize the highest-risk operating bottlenecks",
+    "Clarify ownership, follow-up cadence, and pipeline visibility",
+    "Measure adoption and revenue-conversion impact"
+  ]).slice(0, 4);
+  return objectives.map((objective, index) => ({
+    name: `Phase ${index + 1}`,
+    objective,
+    milestones: index === 0 ? lists.bottlenecks.slice(0, 3) : lists.recommendations.slice(index - 1, index + 2),
+    dependencies: lists.constraints.slice(0, 3),
+    risks: lists.risks.slice(0, 3),
+    successIndicators: ["Named owner assigned", "Milestones reviewed weekly", "Revenue or workflow impact measured"],
+    timeHorizon: index === 0 ? "0-30 days" : index === 1 ? "31-60 days" : index === 2 ? "61-90 days" : "90+ days"
+  }));
+}
+
+function buildRoadmapSummary(input: Record<string, unknown>) {
+  const lists = analysisLists(input);
+  return `A phased roadmap should first stabilize ${sentenceList(lists.bottlenecks.slice(0, 2), "the most visible operational bottlenecks")}, then address ${sentenceList(lists.constraints.slice(0, 2), "the key constraints")}, and finally institutionalize the recommended operating changes with measurable success indicators.`;
+}
+
+export function buildProposalFallback(input: Record<string, unknown>, opportunity: Record<string, unknown>, roadmap: Record<string, unknown> | null) {
+  const report = buildExecutiveReportFallback(input);
+  const opportunityName = normalizeSectionContent(opportunity.name) || "the opportunity";
+  const company = opportunity.company && typeof opportunity.company === "object" ? opportunity.company as Record<string, unknown> : null;
+  const clientName = normalizeSectionContent(company?.name) || opportunityName;
+  return {
+    clientContext: `${clientName} is evaluating ${opportunityName}. ${report.currentState}`,
+    problemStatement: report.currentState,
+    recommendedSolution: report.strategicRecommendations,
+    scopeOfWork: report.recommendedNextSteps,
+    strategicRoadmapSummary: normalizeSectionContent(roadmap?.summary) || report.implementationRoadmapSummary,
+    expectedOutcomes: "Improved ownership, stronger follow-up consistency, clearer pipeline visibility, and measurable reduction in operational leakage.",
+    assumptions: report.risksAndAssumptions,
+    exclusions: "PDF export, e-signature, payment processing, and external integrations are excluded from this draft unless separately scoped.",
+    investmentPlaceholder: "Commercial investment should be framed against the quantified upside, cost-of-delay exposure, implementation scope, and payment terms approved by the team.",
+    nextSteps: report.recommendedNextSteps
+  };
 }
 
 function requireReviewedAnalysis(analysis: { status: string }) {
@@ -178,12 +300,60 @@ export async function setAnalysisStatus(workspaceId: string, id: string, status:
   return updated;
 }
 
+async function crmContextForSession(workspaceId: string, session?: { relatedType: string | null; relatedId: string | null } | null) {
+  if (!session?.relatedType || !session.relatedId) return {};
+  if (session.relatedType === "opportunity") {
+    const opportunity = await prisma.opportunity.findFirst({ where: { id: session.relatedId, workspaceId }, include: { company: true, contact: true } });
+    return opportunity ? { opportunity, company: opportunity.company, contact: opportunity.contact } : {};
+  }
+  if (session.relatedType === "company") {
+    const company = await prisma.company.findFirst({ where: { id: session.relatedId, workspaceId } });
+    return company ? { company } : {};
+  }
+  if (session.relatedType === "contact") {
+    const contact = await prisma.contact.findFirst({ where: { id: session.relatedId, workspaceId }, include: { company: true } });
+    return contact ? { contact, company: contact.company } : {};
+  }
+  if (session.relatedType === "lead") {
+    const lead = await prisma.lead.findFirst({ where: { id: session.relatedId, workspaceId } });
+    return lead ? { lead } : {};
+  }
+  return {};
+}
+
 async function sourceForAnalysis(workspaceId: string, analysisId: string) {
-  const analysis = await prisma.analysisRecord.findFirst({ where: { id: analysisId, workspaceId }, include: { session: true, constraints: true, bottlenecks: true, recommendations: true, roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } });
+  const analysis = await prisma.analysisRecord.findFirst({
+    where: { id: analysisId, workspaceId },
+    include: {
+      session: { include: { answers: { orderBy: { createdAt: "asc" }, take: 20 }, transcripts: { orderBy: { updatedAt: "desc" }, take: 3 } } },
+      constraints: true,
+      bottlenecks: true,
+      recommendations: true,
+      roiModels: { orderBy: { updatedAt: "desc" }, take: 1 },
+      costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 }
+    }
+  });
   if (!analysis) notFound();
   requireReviewedAnalysis(analysis);
   const risks = riskParts(analysis.risks);
-  return { analysis, risks, input: { summary: analysis.summary, executiveNotes: analysis.executiveNotes, constraints: analysis.constraints, bottlenecks: analysis.bottlenecks, recommendations: analysis.recommendations, risks: risks.risks, assumptions: risks.assumptions, businessCase: { roi: analysis.roiModels[0] ?? null, costOfInaction: analysis.costOfInactionModels[0] ?? null } } };
+  const crmContext = await crmContextForSession(workspaceId, analysis.session);
+  return {
+    analysis,
+    risks,
+    input: {
+      summary: analysis.summary,
+      executiveNotes: analysis.executiveNotes,
+      observations: analysis.observations,
+      constraints: analysis.constraints,
+      bottlenecks: analysis.bottlenecks,
+      recommendations: analysis.recommendations,
+      risks: risks.risks,
+      assumptions: risks.assumptions,
+      diagnosticContext: analysis.session ? { id: analysis.session.id, title: analysis.session.title, status: analysis.session.status, summary: analysis.session.summary, relatedType: analysis.session.relatedType, relatedId: analysis.session.relatedId, answers: analysis.session.answers, transcripts: analysis.session.transcripts } : null,
+      crmContext,
+      businessCase: { roi: analysis.roiModels[0] ?? null, costOfInaction: analysis.costOfInactionModels[0] ?? null }
+    }
+  };
 }
 
 async function generateStructured(workspaceId: string, actorId: string, kind: string, schemaName: string, system: string, input: Record<string, unknown>) {
@@ -205,20 +375,32 @@ async function generateStructured(workspaceId: string, actorId: string, kind: st
 export async function generateExecutiveReport(workspaceId: string, analysisId: string) {
   const { user } = await requireWorkspaceAccess(workspaceId);
   const { analysis, input } = await sourceForAnalysis(workspaceId, analysisId);
-  const generated = await generateStructured(workspaceId, user.id, "executive_report", "ExecutiveReport", "Create an executive-ready report from reviewed diagnostic analysis. Return JSON sections only; never finalize it.", input);
-  const sections = makeSections(reportSections, generated);
+  const generated = await generateStructured(
+    workspaceId,
+    user.id,
+    "executive_report",
+    "ExecutiveReport",
+    `Create an executive-ready report from reviewed diagnostic analysis. Return valid JSON only.
+The JSON object must use exactly these string fields: executiveSummary, currentState, keyConstraints, operationalBottlenecks, strategicRecommendations, risksAndAssumptions, costOfInactionNarrative, recommendedNextSteps, implementationRoadmapSummary.
+Populate every field with readable business-facing draft content derived from the provided analysis, diagnostic context, CRM context, and ROI/cost-of-inaction context. Do not use placeholders. Do not finalize it.`,
+    input
+  );
+  const fallback = buildExecutiveReportFallback(input);
+  const sections = buildExecutiveReportSections(generated, input);
   const report = await prisma.executiveReport.create({ data: { workspaceId, analysisId, diagnosticSessionId: analysis.sessionId, title: `Executive report: ${analysis.title}`, sections: toPrismaJson(sections), recommendationSummary: sections.find((s) => s.title === "Strategic recommendations")?.body, roadmapSummary: sections.find((s) => s.title === "Implementation roadmap summary")?.body, status: "GENERATED", createdById: user.id } });
-  await audit(workspaceId, "report.generated", "ExecutiveReport", report.id, user.id, { analysisId });
+  await audit(workspaceId, "report.generated", "ExecutiveReport", report.id, user.id, { analysisId, fallbackSectionsUsed: sections.filter((section) => Object.values(fallback).includes(section.body)).map((section) => section.title) });
   return report;
 }
 
 export async function generateStrategicRoadmap(workspaceId: string, analysisId: string, reportId?: string) {
   const { user } = await requireWorkspaceAccess(workspaceId);
   const { analysis, input } = await sourceForAnalysis(workspaceId, analysisId);
-  const generated = await generateStructured(workspaceId, user.id, "strategic_roadmap", "StrategicRoadmap", "Create a phased strategic roadmap from reviewed diagnostic analysis. Return JSON with phases; never finalize it.", input);
-  const phases = Array.isArray(generated.phases) && generated.phases.length ? generated.phases : ["Stabilize follow-up process", "Improve pipeline visibility", "Implement accountability workflow", "Measure revenue conversion lift"].map((objective, index) => ({ name: `Phase ${index + 1}`, objective, milestones: [], dependencies: [], risks: [], successIndicators: [], timeHorizon: index === 0 ? "0-30 days" : index === 1 ? "31-60 days" : index === 2 ? "61-90 days" : "90+ days" }));
-  const roadmap = await prisma.strategicRoadmap.create({ data: { workspaceId, analysisId, reportId, opportunityId: undefined, title: `Strategic roadmap: ${analysis.title}`, summary: typeof generated.summary === "string" ? generated.summary : "Phased implementation sequence for the reviewed analysis.", phases: toPrismaJson(phases), status: "GENERATED", createdById: user.id } });
-  await audit(workspaceId, "roadmap.generated", "StrategicRoadmap", roadmap.id, user.id, { analysisId, reportId });
+  const generated = await generateStructured(workspaceId, user.id, "strategic_roadmap", "StrategicRoadmap", "Create a phased strategic roadmap from reviewed diagnostic analysis. Return valid JSON only with a summary string and phases array. Derive phases from recommendations, constraints, bottlenecks, risks, and assumptions. Do not use placeholders; never finalize it.", input);
+  const fallbackPhases = buildRoadmapFallback(input);
+  const phases = Array.isArray(generated.phases) && generated.phases.some(hasUsefulPhase) ? generated.phases : fallbackPhases;
+  const summary = hasUsefulContent(generated.summary) ? normalizeSectionContent(generated.summary) : buildRoadmapSummary(input);
+  const roadmap = await prisma.strategicRoadmap.create({ data: { workspaceId, analysisId, reportId, opportunityId: undefined, title: `Strategic roadmap: ${analysis.title}`, summary, phases: toPrismaJson(phases), status: "GENERATED", createdById: user.id } });
+  await audit(workspaceId, "roadmap.generated", "StrategicRoadmap", roadmap.id, user.id, { analysisId, reportId, fallbackUsed: phases === fallbackPhases });
   return roadmap;
 }
 
@@ -229,8 +411,10 @@ export async function generateProposal(workspaceId: string, opportunityId: strin
   const { analysis, input } = await sourceForAnalysis(workspaceId, analysisId);
   const roadmap = roadmapId ? await prisma.strategicRoadmap.findFirst({ where: { id: roadmapId, workspaceId } }) : null;
   if (roadmapId && !roadmap) notFound();
-  const generated = await generateStructured(workspaceId, user.id, "proposal_draft", "Proposal", "Create a proposal draft from an opportunity and reviewed analysis. Return JSON sections only; keep it draft.", { ...input, opportunity, roadmap });
-  const content = Object.fromEntries(proposalSections.map((key) => [key, normalizeSectionContent(generated[key] ?? "Review and refine before sending.")]));
+  const generationInput = { ...input, opportunity, roadmap };
+  const generated = await generateStructured(workspaceId, user.id, "proposal_draft", "Proposal", "Create a proposal draft from an opportunity and reviewed analysis. Return valid JSON only using exactly these fields: clientContext, problemStatement, recommendedSolution, scopeOfWork, strategicRoadmapSummary, expectedOutcomes, assumptions, exclusions, investmentPlaceholder, nextSteps. Populate every field from the opportunity, analysis, and roadmap; keep it draft and do not use placeholders.", generationInput);
+  const fallback = buildProposalFallback(input, opportunity as unknown as Record<string, unknown>, roadmap as Record<string, unknown> | null);
+  const content = Object.fromEntries(proposalSections.map((key) => [key, normalizeSectionContent(hasUsefulContent(generated[key]) ? generated[key] : fallback[key as keyof typeof fallback])]));
   const proposal = await prisma.proposal.create({ data: { workspaceId, opportunityId, analysisId: analysis.id, roadmapId: roadmap?.id, companyId: opportunity.companyId, title: `Proposal draft: ${opportunity.name}`, content: toPrismaJson(content), status: "DRAFT", createdById: user.id } });
   await audit(workspaceId, "proposal.generated", "Proposal", proposal.id, user.id, { opportunityId, analysisId, roadmapId: roadmap?.id });
   return proposal;
