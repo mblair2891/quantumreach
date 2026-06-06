@@ -5,6 +5,7 @@ import { audit } from "@/lib/audit/service";
 import { getAIProvider } from "@/lib/ai/provider";
 import { toPrismaJson } from "@/lib/db/json";
 import { getCrmRecordContext } from "@/lib/crm/service";
+import { buildPromptContext, recordPromptSources } from "@/lib/knowledge/context-builder";
 
 const diagnosticStructuredOutputPrompt = `You are a senior business diagnostic analyst. Produce a calm, executive-grade, decision-oriented diagnostic summary with evidence-backed constraints, bottlenecks, recommendations, risks, and assumptions. Do not use chatbot framing.
 
@@ -97,7 +98,9 @@ export function normalizeDiagnosticOutput(output: unknown, providerParseError?: 
 export async function runAnalyzer(workspaceId: string, analyzerKey: AnalyzerKey, input: Record<string, unknown>) {
   const { user } = await requireWorkspaceAccess(workspaceId);
   const definition = await prisma.analyzerDefinition.upsert({ where: { workspaceId_key: { workspaceId, key: analyzerKey } }, update: {}, create: { workspaceId, key: analyzerKey, name: analyzerKey.replaceAll("_", " "), description: analyzerPrompts[analyzerKey] } });
-  const aiInput = toPrismaJson(input);
+  const promptContext = await buildPromptContext({ workspaceId, workflowStage: analyzerKey === "roi_model" ? "ROI_MODELING" : "TRANSCRIPT_ANALYSIS", generatorType: analyzerKey, crmContext: input.crmContext, diagnosticContext: input.transcriptContext ?? input.session, reviewedAnalysis: input, outputSchemaInstruction: analyzerPrompts[analyzerKey] });
+  const governedInput = { ...input, sourceCoverageWarning: promptContext.sourceCoverageWarning, sourcesUsed: promptContext.sources };
+  const aiInput = toPrismaJson(governedInput);
   const diagnosticSessionId = typeof input.diagnosticSessionId === "string" ? input.diagnosticSessionId : undefined;
   if (diagnosticSessionId) {
     const session = await prisma.diagnosticSession.findFirst({ where: { id: diagnosticSessionId, workspaceId } });
@@ -106,10 +109,10 @@ export async function runAnalyzer(workspaceId: string, analyzerKey: AnalyzerKey,
   const run = await prisma.analyzerRun.create({ data: { workspaceId, analyzerDefinitionId: definition.id, diagnosticSessionId, input: aiInput, status: "RUNNING", startedAt: new Date(), createdById: user.id } });
   const execution = await prisma.aIExecution.create({ data: { workspaceId, analyzerRunId: run.id, provider: "openai", model: process.env.OPENAI_DEFAULT_MODEL ?? "gpt-4.1-mini", input: aiInput, status: "RUNNING", startedAt: new Date(), createdById: user.id } });
   try {
-    const result = await getAIProvider().runStructured({ system: analyzerPrompts[analyzerKey], user: JSON.stringify(input), schemaName: analyzerKey });
+    const result = await getAIProvider().runStructured({ system: promptContext.system, user: promptContext.user, schemaName: analyzerKey });
     const normalized = analyzerKey === "diagnostic_summary" || analyzerKey === "constraint_extraction" ? normalizeDiagnosticOutput(result.json, result.parseError) : { parsed: result.json, parseError: result.parseError ?? null, warnings: [] };
-    const content = toPrismaJson({ structured: normalized.parsed, raw: result.rawText, parseError: normalized.parseError, normalizationWarnings: normalized.warnings });
-    const output = toPrismaJson({ structured: normalized.parsed, raw: result.rawText, parseError: normalized.parseError, normalizationWarnings: normalized.warnings });
+    const content = toPrismaJson({ structured: normalized.parsed, raw: result.rawText, parseError: normalized.parseError, normalizationWarnings: normalized.warnings, sourcesUsed: promptContext.sources, sourceCoverageWarning: promptContext.sourceCoverageWarning });
+    const output = toPrismaJson({ structured: normalized.parsed, raw: result.rawText, parseError: normalized.parseError, normalizationWarnings: normalized.warnings, sourcesUsed: promptContext.sources, sourceCoverageWarning: promptContext.sourceCoverageWarning });
     const [updatedRun] = await prisma.$transaction([
       prisma.analyzerRun.update({ where: { id: run.id }, data: { output, status: "SUCCEEDED", completedAt: new Date(), reviewStatus: "NEEDS_REVIEW", error: normalized.parseError ?? (normalized.warnings.length > 0 ? normalized.warnings.join(" ") : null) } }),
       prisma.aIExecution.update({ where: { id: execution.id }, data: { output: content, status: "SUCCEEDED", model: result.model, completedAt: new Date(), error: normalized.parseError ?? (normalized.warnings.length > 0 ? normalized.warnings.join(" ") : null) } }),
@@ -117,9 +120,13 @@ export async function runAnalyzer(workspaceId: string, analyzerKey: AnalyzerKey,
     ]);
     if (analyzerKey === "diagnostic_summary" || analyzerKey === "constraint_extraction") {
       const analysisOutput = diagnosticOutputSchema.safeParse(normalized.parsed);
-      if (analysisOutput.success) await upsertDiagnosticAnalysis(workspaceId, diagnosticSessionId, user.id, analysisOutput.data);
+      if (analysisOutput.success) {
+        const analysis = await upsertDiagnosticAnalysis(workspaceId, diagnosticSessionId, user.id, analysisOutput.data);
+        await recordPromptSources(workspaceId, "AnalysisRecord", analysis.id, "TRANSCRIPT_ANALYSIS", analyzerKey, promptContext, user.id);
+      }
     }
-    await audit(workspaceId, "run", "AnalyzerRun", run.id, user.id, { analyzerKey, model: result.model, parseError: normalized.parseError, normalizationWarnings: normalized.warnings });
+    await recordPromptSources(workspaceId, "AnalyzerRun", run.id, analyzerKey === "roi_model" ? "ROI_MODELING" : "TRANSCRIPT_ANALYSIS", analyzerKey, promptContext, user.id);
+    await audit(workspaceId, "run", "AnalyzerRun", run.id, user.id, { analyzerKey, model: result.model, parseError: normalized.parseError, normalizationWarnings: normalized.warnings, sourcesUsed: promptContext.sources, sourceCoverageWarning: promptContext.sourceCoverageWarning });
     return updatedRun;
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI execution failed";
@@ -146,7 +153,8 @@ export async function runDiagnosticSummaryAnalyzer(workspaceId: string, sessionI
   const { workspace } = await requireWorkspaceAccess(workspaceId);
   const session = await prisma.diagnosticSession.findFirst({ where: { id: sessionId, workspaceId }, include: { transcripts: { orderBy: { updatedAt: "desc" }, take: 1 } } });
   if (!session) throw new Error("Diagnostic session is not available in this workspace.");
-  if (!session.transcripts[0]) throw new Error("Transcript or context is required before analysis can run.");
+  const transcripts = Array.isArray(session.transcripts) ? session.transcripts : [];
+  if (!transcripts[0]) throw new Error("Transcript or context is required before analysis can run.");
   const crmContext = await getCrmRecordContext(workspaceId, session.relatedType, session.relatedId);
-  return runAnalyzer(workspaceId, "diagnostic_summary", { diagnosticSessionId: sessionId, workspace: { id: workspace.id, name: workspace.name }, session: { id: session.id, title: session.title, status: session.status, relatedType: session.relatedType, relatedId: session.relatedId }, crmContext, transcriptContext: session.transcripts[0], analyzerDefinition: { name: "Diagnostic Summary + Constraint Extraction", prompt: analyzerPrompts.diagnostic_summary } });
+  return runAnalyzer(workspaceId, "diagnostic_summary", { diagnosticSessionId: sessionId, workspace: { id: workspace.id, name: workspace.name }, session: { id: session.id, title: session.title, status: session.status, relatedType: session.relatedType, relatedId: session.relatedId }, crmContext, transcriptContext: transcripts[0], analyzerDefinition: { name: "Diagnostic Summary + Constraint Extraction", prompt: analyzerPrompts.diagnostic_summary } });
 }
