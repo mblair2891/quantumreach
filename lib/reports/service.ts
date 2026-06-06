@@ -115,6 +115,27 @@ export async function listWorkspaceRecords(workspaceId: string, model: "executiv
   return (prisma[model] as { findMany(args: unknown): Promise<unknown[]> }).findMany({ where: { workspaceId }, orderBy: { updatedAt: "desc" }, take: 50 });
 }
 
+
+export async function listAnalysisRecords(workspaceId: string) {
+  await requireWorkspaceAccess(workspaceId);
+  return prisma.analysisRecord.findMany({
+    where: { workspaceId },
+    include: {
+      session: {
+        include: {
+          analyzerRuns: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            include: { executions: { orderBy: { createdAt: "desc" }, take: 1 } }
+          }
+        }
+      }
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 100
+  });
+}
+
 export async function getAnalysisDetail(workspaceId: string, id: string) {
   await requireWorkspaceAccess(workspaceId);
   const analysis = await prisma.analysisRecord.findFirst({ where: { id, workspaceId }, include: { session: true, constraints: true, bottlenecks: true, recommendations: true, reports: { orderBy: { updatedAt: "desc" } }, roadmaps: { orderBy: { updatedAt: "desc" } }, proposals: { orderBy: { updatedAt: "desc" } }, roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } });
