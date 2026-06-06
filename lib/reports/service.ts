@@ -170,6 +170,7 @@ export async function setAnalysisStatus(workspaceId: string, id: string, status:
   const parsed = reviewStatus.parse(status);
   const existing = await prisma.analysisRecord.findFirst({ where: { id, workspaceId } });
   if (!existing) notFound();
+  if (existing.status === parsed) return existing;
   const now = new Date();
   const data = parsed === "REVIEWED" ? { status: parsed, reviewedById: user.id, reviewedAt: now } : parsed === "FINAL" ? { status: parsed, reviewedById: existing.reviewedById ?? user.id, reviewedAt: existing.reviewedAt ?? now, finalizedById: user.id, finalizedAt: now } : parsed === "REJECTED" ? { status: parsed, reviewedById: user.id, reviewedAt: now } : { status: parsed };
   const updated = await prisma.analysisRecord.update({ where: { id }, data });
