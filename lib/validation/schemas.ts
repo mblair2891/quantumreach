@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DOCUMENT_UPLOAD_MAX_FILE_SIZE_BYTES, KNOWLEDGE_UPLOAD_SUPPORTED_EXTENSIONS } from "@/lib/knowledge/import";
 
 const optionalText = z.string().trim().optional().or(z.literal(""));
 const optionalId = z.string().trim().optional().or(z.literal(""));
@@ -73,6 +74,13 @@ export const knowledgeBulkImportPayloadSchema = z.object({
     status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
     sourceFileName: z.string().trim().min(1),
     sourceMimeType: optionalText,
+    sourceFileSizeBytes: z.coerce.number().int().nonnegative().optional(),
+    storageKey: optionalText,
+    supersedesDocumentId: optionalText,
     sourceText: z.string().trim().min(10)
+  }).superRefine((document, context) => {
+    const lowerName = document.sourceFileName.toLowerCase();
+    if (!KNOWLEDGE_UPLOAD_SUPPORTED_EXTENSIONS.some((extension) => lowerName.endsWith(extension))) context.addIssue({ code: z.ZodIssueCode.custom, message: "Unsupported knowledge source file type.", path: ["sourceFileName"] });
+    if (document.sourceFileSizeBytes !== undefined && document.sourceFileSizeBytes > DOCUMENT_UPLOAD_MAX_FILE_SIZE_BYTES) context.addIssue({ code: z.ZodIssueCode.custom, message: "Knowledge source file exceeds the upload size limit.", path: ["sourceFileSizeBytes"] });
   })).min(1).max(12)
 });

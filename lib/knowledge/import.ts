@@ -1,5 +1,7 @@
 export const TXT_IMPORT_MAX_FILES = 12;
 export const TXT_IMPORT_MAX_FILE_SIZE_BYTES = 128 * 1024;
+export const DOCUMENT_UPLOAD_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+export const KNOWLEDGE_UPLOAD_SUPPORTED_EXTENSIONS = [".txt", ".md", ".pdf", ".docx"] as const;
 export const TXT_IMPORT_DESCRIPTION_FALLBACK = "Imported source-of-truth document.";
 
 
@@ -13,13 +15,19 @@ export type KnowledgeImportPriority = "GLOBAL" | "HIGH" | "MEDIUM" | "LOW";
 export type KnowledgeImportStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
 export type KnowledgeImportWorkflowStage = "LEAD_CAPTURE" | "OUTREACH" | "DISCOVERY_CALL" | "TRANSCRIPT_ANALYSIS" | "DIAGNOSTIC_REVIEW" | "REPORT_GENERATION" | "ROADMAP_GENERATION" | "PROPOSAL_GENERATION" | "ROI_MODELING" | "IMPLEMENTATION_HANDOFF" | "AUTHORITY_ASSET_GENERATION" | "ACADEMY_TRAINING" | "APP_UX" | "OFFER_CREATION" | "POSITIONING";
 
-export type TxtImportPreview = {
+export type KnowledgeImportPreview = {
   clientId: string;
   title: string;
   description: string;
   sourceFileName: string;
   sourceMimeType: string;
   sourceText: string;
+  sourceFileSizeBytes?: number;
+  storageKey?: string;
+  detectedFileType?: "TXT" | "MD" | "PDF" | "DOCX";
+  extractionStatus?: "EXTRACTED" | "WARNING";
+  extractionWarnings?: string[];
+  supersedesDocumentId?: string;
   documentType: KnowledgeImportAuthorityLevel;
   authorityLevel: KnowledgeImportAuthorityLevel;
   priority: KnowledgeImportPriority;
@@ -28,7 +36,9 @@ export type TxtImportPreview = {
   status: KnowledgeImportStatus;
 };
 
-export type TxtImportFileInput = { name: string; type?: string; size: number; text: string; clientId?: string };
+export type KnowledgeImportFileInput = { name: string; type?: string; size: number; text: string; clientId?: string; detectedFileType?: KnowledgeImportPreview["detectedFileType"]; extractionStatus?: KnowledgeImportPreview["extractionStatus"]; extractionWarnings?: string[]; supersedesDocumentId?: string };
+export type TxtImportPreview = KnowledgeImportPreview;
+export type TxtImportFileInput = KnowledgeImportFileInput;
 
 export function cleanImportTitle(value: string) {
   return value
@@ -69,15 +79,21 @@ export function extractTxtImportDescription(sourceText: string) {
   return limited.length < description.length ? `${limited.replace(/[.,;:!?\s]+$/g, "")}…` : limited;
 }
 
-export function validateTxtImportFile(file: { name: string; type?: string; size: number }) {
+export function validateKnowledgeUploadFile(file: { name: string; type?: string; size: number }) {
   const lowerName = file.name.toLowerCase();
-  if (!lowerName.endsWith(".txt")) return `${file.name} is not supported. Upload .txt files only.`;
-  if (file.size > TXT_IMPORT_MAX_FILE_SIZE_BYTES) return `${file.name} is too large. The per-file limit is ${Math.round(TXT_IMPORT_MAX_FILE_SIZE_BYTES / 1024)} KB.`;
+  const supported = KNOWLEDGE_UPLOAD_SUPPORTED_EXTENSIONS.some((extension) => lowerName.endsWith(extension));
+  if (!supported) return `${file.name} is not supported. Upload .txt, .md, .pdf, or .docx files only.`;
+  if (file.size > DOCUMENT_UPLOAD_MAX_FILE_SIZE_BYTES) return `${file.name} is too large. The per-file limit is ${Math.round(DOCUMENT_UPLOAD_MAX_FILE_SIZE_BYTES / (1024 * 1024))} MB.`;
+  if (file.size < 1) return `${file.name} is empty.`;
   return null;
 }
 
+export function validateTxtImportFile(file: { name: string; type?: string; size: number }) {
+  return validateKnowledgeUploadFile(file);
+}
+
 export function validateTxtImportFileCount(count: number) {
-  if (count > TXT_IMPORT_MAX_FILES) return `Upload ${TXT_IMPORT_MAX_FILES} or fewer .txt files at a time.`;
+  if (count > TXT_IMPORT_MAX_FILES) return `Upload ${TXT_IMPORT_MAX_FILES} or fewer files at a time.`;
   if (count < 1) return "Select at least one .txt file to import.";
   return null;
 }
@@ -118,7 +134,7 @@ export function suggestTxtImportMetadata(sourceFileName: string, title: string, 
   return { documentType, authorityLevel, priority, workflowStages: stageDefaults[authorityLevel] };
 }
 
-export function buildTxtImportPreview(file: TxtImportFileInput): TxtImportPreview {
+export function buildKnowledgeImportPreview(file: KnowledgeImportFileInput): KnowledgeImportPreview {
   const title = extractTxtImportTitle(file.name, file.text);
   const suggestion = suggestTxtImportMetadata(file.name, title, file.text);
   return {
@@ -128,6 +144,11 @@ export function buildTxtImportPreview(file: TxtImportFileInput): TxtImportPrevie
     sourceFileName: file.name,
     sourceMimeType: file.type || "text/plain",
     sourceText: file.text,
+    sourceFileSizeBytes: file.size,
+    detectedFileType: file.detectedFileType,
+    extractionStatus: file.extractionStatus ?? "EXTRACTED",
+    extractionWarnings: file.extractionWarnings ?? [],
+    supersedesDocumentId: file.supersedesDocumentId,
     documentType: suggestion.documentType,
     authorityLevel: suggestion.authorityLevel,
     priority: suggestion.priority,
@@ -136,3 +157,5 @@ export function buildTxtImportPreview(file: TxtImportFileInput): TxtImportPrevie
     status: "DRAFT"
   };
 }
+
+export function buildTxtImportPreview(file: TxtImportFileInput): TxtImportPreview { return buildKnowledgeImportPreview(file); }

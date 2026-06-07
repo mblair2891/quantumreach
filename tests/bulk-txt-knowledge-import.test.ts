@@ -18,8 +18,8 @@ describe("bulk TXT knowledge import", () => {
   });
 
   it("rejects unsupported files and oversized TXT files before preview", () => {
-    expect(validateTxtImportFile({ name: "source.pdf", size: 10, type: "application/pdf" })).toContain(".txt files only");
-    expect(validateTxtImportFile({ name: "source.txt", size: 600 * 1024, type: "text/plain" })).toContain("too large");
+    expect(validateTxtImportFile({ name: "source.exe", size: 10, type: "application/octet-stream" })).toContain(".txt, .md, .pdf, or .docx");
+    expect(validateTxtImportFile({ name: "source.txt", size: 6 * 1024 * 1024, type: "text/plain" })).toContain("too large");
     expect(validateTxtImportFile({ name: "source.txt", size: 100, type: "text/plain" })).toBeNull();
   });
 
@@ -46,6 +46,6 @@ describe("bulk TXT knowledge import", () => {
   it("links the import workflow from the knowledge dashboard", () => {
     const page = source("app/dashboard/knowledge/page.tsx");
     expect(page).toContain('/dashboard/knowledge/import');
-    expect(page).toContain("Bulk import TXT");
+    expect(page).toContain("Upload documents");
   });
 });
