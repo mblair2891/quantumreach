@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { audit } from "@/lib/audit/service";
 import { toPrismaJson } from "@/lib/db/json";
+import { TXT_IMPORT_MAX_FILES } from "@/lib/knowledge/import";
 
 export const knowledgeAuthorityLevels = ["SYSTEM_DOCTRINE", "PRODUCT_DOCTRINE", "UX_COPY_DOCTRINE", "STRATEGY_FRAMEWORK", "DIAGNOSTIC_FRAMEWORK", "ROI_FRAMEWORK", "REPORT_FRAMEWORK", "ROADMAP_FRAMEWORK", "PROPOSAL_FRAMEWORK", "EXECUTION_HANDOFF", "AUTHORITY_TEMPLATE", "TRAINING_CURRICULUM", "COURSE_TEMPLATE", "REFERENCE"] as const;
 export const knowledgePriorities = ["GLOBAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -28,6 +29,13 @@ export const knowledgeDocumentSchema = z.object({
   sourceFileName: optionalText,
   sourceMimeType: optionalText,
   sourceText: z.string().trim().min(10)
+});
+
+
+export const bulkKnowledgeImportSchema = z.object({
+  documents: z.array(knowledgeDocumentSchema.extend({
+    clientId: z.string().trim().optional()
+  })).min(1).max(TXT_IMPORT_MAX_FILES)
 });
 
 export const initialKnowledgeManifest = [
@@ -103,6 +111,20 @@ export async function createKnowledgeDocument(workspaceId: string, input: unknow
   await regenerateKnowledgeChunks(workspaceId, document.id, user.id);
   await audit(workspaceId, "knowledge.document_created", "KnowledgeDocument", document.id, user.id, { status: document.status, authorityLevel: document.authorityLevel });
   return document;
+}
+
+export async function bulkCreateKnowledgeDocuments(workspaceId: string, input: unknown) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const { documents } = bulkKnowledgeImportSchema.parse(input);
+  const imported = [];
+  for (const item of documents) {
+    const stages = parseStages(item.workflowStages);
+    const document = await prisma.knowledgeDocument.create({ data: { workspaceId, title: item.title, description: emptyToNull(item.description), documentType: item.documentType, authorityLevel: item.authorityLevel, priority: item.priority, workflowStages: toPrismaJson(stages), offerLine: emptyToNull(item.offerLine), audience: emptyToNull(item.audience), industry: emptyToNull(item.industry), tags: toPrismaJson(parseTags(item.tags)), status: item.status, version: item.version || "1.0", sourceFileName: emptyToNull(item.sourceFileName), sourceMimeType: emptyToNull(item.sourceMimeType) || "text/plain", sourceText: item.sourceText, createdById: user.id, approvedById: item.status === "ACTIVE" ? user.id : null, approvedAt: item.status === "ACTIVE" ? new Date() : null, lastReviewedAt: new Date() } });
+    const chunkCount = await regenerateKnowledgeChunks(workspaceId, document.id, user.id);
+    await audit(workspaceId, "knowledge.document_imported", "KnowledgeDocument", document.id, user.id, { status: document.status, authorityLevel: document.authorityLevel, sourceFileName: document.sourceFileName, chunkCount });
+    imported.push({ id: document.id, title: document.title, status: document.status, chunkCount });
+  }
+  return { importedCount: imported.length, imported };
 }
 
 export async function updateKnowledgeDocument(workspaceId: string, id: string, input: unknown) {

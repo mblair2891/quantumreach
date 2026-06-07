@@ -55,3 +55,20 @@ Schema changes are non-destructive. Apply them with:
 ```bash
 npm run prisma:deploy
 ```
+
+## Bulk TXT knowledge import
+
+Phase 4 now includes a focused bulk import path at `/dashboard/knowledge/import` for approved `.txt` source-of-truth documents. The workflow is intentionally deterministic and does not use AI for file parsing or metadata suggestions.
+
+Implemented behavior:
+- The dashboard links to **Bulk import TXT** from `/dashboard/knowledge`.
+- The client reads multiple `.txt` files locally, rejects unsupported extensions, enforces the configured file-count and per-file size limits, and builds a review preview before anything is persisted.
+- The preview proposes a title, description, document type, authority level, priority, workflow stages, version, and status for each file.
+- The default status is `DRAFT`; `ACTIVE` is only used if the reviewer explicitly selects it before import.
+- The reviewer can edit each document's title, description, type, authority level, priority, workflow stages, version, status, and source filename, remove individual files, or clear the preview.
+- The server action validates the submitted payload again, requires active workspace access, creates `KnowledgeDocument` rows in that workspace only, and regenerates `KnowledgeChunk` rows using the existing deterministic chunking path.
+- Successful imports redirect back to `/dashboard/knowledge` with an import summary.
+
+Current limitations:
+- `.txt` is the only supported file type.
+- PDF, DOCX, object storage, and AI-assisted metadata extraction remain intentionally deferred.
