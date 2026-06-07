@@ -59,3 +59,20 @@ export const outreachCampaignSchema = z.object({ name: z.string().trim().min(2),
 export const outreachLeadAssignmentSchema = z.object({ leadId: z.string().trim().min(1), notes: optionalText });
 export const outreachStatusSchema = z.object({ campaignId: optionalId, status: z.enum(["NOT_STARTED", "QUEUED", "SENT", "OPENED", "REPLIED", "CALL_BOOKED", "CALL_COMPLETED", "TRANSCRIPT_READY", "ANALYZED"]), notes: optionalText });
 export const callSessionSchema = z.object({ leadId: optionalId, contactId: optionalId, companyId: optionalId, opportunityId: optionalId, provider: z.enum(["ZOOM", "GOOGLE_MEET", "TEAMS", "OTHER"]).default("OTHER"), meetingUrl: optionalText, recordingUrl: optionalText, transcriptText: optionalText, transcriptSource: optionalText, callDate: z.string().optional().or(z.literal("")), status: z.enum(["SCHEDULED", "COMPLETED", "TRANSCRIPT_READY", "DIAGNOSTIC_CREATED", "ARCHIVED"]).default("SCHEDULED") });
+
+
+export const knowledgeBulkImportPayloadSchema = z.object({
+  documents: z.array(z.object({
+    title: z.string().trim().min(2),
+    description: optionalText,
+    documentType: z.enum(["SYSTEM_DOCTRINE", "PRODUCT_DOCTRINE", "UX_COPY_DOCTRINE", "STRATEGY_FRAMEWORK", "DIAGNOSTIC_FRAMEWORK", "ROI_FRAMEWORK", "REPORT_FRAMEWORK", "ROADMAP_FRAMEWORK", "PROPOSAL_FRAMEWORK", "EXECUTION_HANDOFF", "AUTHORITY_TEMPLATE", "TRAINING_CURRICULUM", "COURSE_TEMPLATE", "REFERENCE"]),
+    authorityLevel: z.enum(["SYSTEM_DOCTRINE", "PRODUCT_DOCTRINE", "UX_COPY_DOCTRINE", "STRATEGY_FRAMEWORK", "DIAGNOSTIC_FRAMEWORK", "ROI_FRAMEWORK", "REPORT_FRAMEWORK", "ROADMAP_FRAMEWORK", "PROPOSAL_FRAMEWORK", "EXECUTION_HANDOFF", "AUTHORITY_TEMPLATE", "TRAINING_CURRICULUM", "COURSE_TEMPLATE", "REFERENCE"]),
+    priority: z.enum(["GLOBAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
+    workflowStages: z.array(z.enum(["LEAD_CAPTURE", "OUTREACH", "DISCOVERY_CALL", "TRANSCRIPT_ANALYSIS", "DIAGNOSTIC_REVIEW", "REPORT_GENERATION", "ROADMAP_GENERATION", "PROPOSAL_GENERATION", "ROI_MODELING", "IMPLEMENTATION_HANDOFF", "AUTHORITY_ASSET_GENERATION", "ACADEMY_TRAINING", "APP_UX", "OFFER_CREATION", "POSITIONING"])).default([]),
+    version: z.string().trim().default("1.0"),
+    status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
+    sourceFileName: z.string().trim().min(1),
+    sourceMimeType: optionalText,
+    sourceText: z.string().trim().min(10)
+  })).min(1).max(12)
+});
