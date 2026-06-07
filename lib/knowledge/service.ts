@@ -12,6 +12,17 @@ export const knowledgePriorities = ["GLOBAL", "HIGH", "MEDIUM", "LOW"] as const;
 export const knowledgeStatuses = ["DRAFT", "ACTIVE", "ARCHIVED"] as const;
 export const workflowStages = ["LEAD_CAPTURE", "OUTREACH", "DISCOVERY_CALL", "TRANSCRIPT_ANALYSIS", "DIAGNOSTIC_REVIEW", "REPORT_GENERATION", "ROADMAP_GENERATION", "PROPOSAL_GENERATION", "ROI_MODELING", "IMPLEMENTATION_HANDOFF", "AUTHORITY_ASSET_GENERATION", "ACADEMY_TRAINING", "APP_UX", "OFFER_CREATION", "POSITIONING"] as const;
 
+export const activeKnowledgeDeleteMessage = "Active source-of-truth documents must be archived before deletion.";
+export const usedKnowledgeDeleteMessage = "This document has been used in generated outputs and cannot be permanently deleted without breaking source history. Archive it instead.";
+export const genericKnowledgeDeleteMessage = "Knowledge document could not be deleted. Archive it instead or contact support if the issue continues.";
+
+export class KnowledgeDocumentDeleteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "KnowledgeDocumentDeleteError";
+  }
+}
+
 const optionalText = z.string().trim().optional().or(z.literal(""));
 export const knowledgeDocumentSchema = z.object({
   title: z.string().trim().min(2),
@@ -146,6 +157,27 @@ export async function setKnowledgeDocumentStatus(workspaceId: string, id: string
   const document = await prisma.knowledgeDocument.update({ where: { id }, data: { status, approvedById: status === "ACTIVE" ? user.id : existing.approvedById, approvedAt: status === "ACTIVE" ? new Date() : existing.approvedAt, lastReviewedAt: new Date(), chunks: { updateMany: { where: { workspaceId }, data: { status } } } } });
   await audit(workspaceId, status === "ACTIVE" ? "knowledge.document_activated" : status === "ARCHIVED" ? "knowledge.document_archived" : "knowledge.document_drafted", "KnowledgeDocument", id, user.id, { status });
   return document;
+}
+
+export async function deleteKnowledgeDocument(workspaceId: string, documentId: string) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const document = await prisma.knowledgeDocument.findFirst({ where: { id: documentId, workspaceId }, select: { id: true, workspaceId: true, title: true, status: true, authorityLevel: true, documentType: true, version: true, chunks: { select: { id: true } } } });
+  if (!document) throw new KnowledgeDocumentDeleteError(genericKnowledgeDeleteMessage);
+  if (document.status === "ACTIVE") throw new KnowledgeDocumentDeleteError(activeKnowledgeDeleteMessage);
+
+  const [usageCount, sourceReferenceCount] = await Promise.all([
+    prisma.knowledgeDocumentUsage.count({ where: { workspaceId, documentId } }),
+    prisma.knowledgeSourceReference.count({ where: { workspaceId, documentId } })
+  ]);
+  if (usageCount > 0 || sourceReferenceCount > 0) throw new KnowledgeDocumentDeleteError(usedKnowledgeDeleteMessage);
+
+  await prisma.$transaction([
+    prisma.auditLog.create({ data: { workspaceId, action: "knowledge.document_deleted", entityType: "KnowledgeDocument", entityId: documentId, actorId: user.id, metadata: toPrismaJson({ title: document.title, status: document.status, authorityLevel: document.authorityLevel, documentType: document.documentType, version: document.version, chunkCount: document.chunks.length }) } }),
+    prisma.knowledgeChunk.deleteMany({ where: { workspaceId, documentId } }),
+    prisma.knowledgeDocument.delete({ where: { id: documentId } })
+  ]);
+
+  return { id: documentId, title: document.title, deletedChunks: document.chunks.length };
 }
 
 export type KnowledgeRetrievalOptions = { workspaceId: string; workflowStage: WorkflowStage; documentTypes?: KnowledgeAuthorityLevel[]; authorityLevels?: KnowledgeAuthorityLevel[]; priorities?: KnowledgePriority[]; offerLine?: string; industry?: string; includeTemplates?: boolean; maxCharacters?: number; testMode?: boolean };
