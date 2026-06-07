@@ -303,21 +303,36 @@ export async function setAnalysisStatus(workspaceId: string, id: string, status:
   return updated;
 }
 
+
+export function proposalDetailPath(proposal: { id: string }) {
+  return `/dashboard/proposals/${proposal.id}`;
+}
+
+export function analysisProposalOpportunityId(input: { explicitOpportunityId?: unknown; session?: { relatedType?: string | null; relatedId?: string | null } | null }) {
+  const explicit = typeof input.explicitOpportunityId === "string" ? input.explicitOpportunityId.trim() : "";
+  if (explicit) return explicit;
+  const relatedType = input.session?.relatedType?.toLowerCase();
+  const relatedId = input.session?.relatedId?.trim();
+  if (relatedType === "opportunity" && relatedId) return relatedId;
+  return undefined;
+}
+
 async function crmContextForSession(workspaceId: string, session?: { relatedType: string | null; relatedId: string | null } | null) {
   if (!session?.relatedType || !session.relatedId) return {};
-  if (session.relatedType === "opportunity") {
+  const relatedType = session.relatedType.toLowerCase();
+  if (relatedType === "opportunity") {
     const opportunity = await prisma.opportunity.findFirst({ where: { id: session.relatedId, workspaceId }, include: { company: true, contact: true } });
     return opportunity ? { opportunity, company: opportunity.company, contact: opportunity.contact } : {};
   }
-  if (session.relatedType === "company") {
+  if (relatedType === "company") {
     const company = await prisma.company.findFirst({ where: { id: session.relatedId, workspaceId } });
     return company ? { company } : {};
   }
-  if (session.relatedType === "contact") {
+  if (relatedType === "contact") {
     const contact = await prisma.contact.findFirst({ where: { id: session.relatedId, workspaceId }, include: { company: true } });
     return contact ? { contact, company: contact.company } : {};
   }
-  if (session.relatedType === "lead") {
+  if (relatedType === "lead") {
     const lead = await prisma.lead.findFirst({ where: { id: session.relatedId, workspaceId } });
     return lead ? { lead } : {};
   }
@@ -412,20 +427,22 @@ export async function generateStrategicRoadmap(workspaceId: string, analysisId: 
   return roadmap;
 }
 
-export async function generateProposal(workspaceId: string, opportunityId: string, analysisId: string, roadmapId?: string) {
+export async function generateProposal(workspaceId: string, opportunityId: string | undefined, analysisId: string, roadmapId?: string) {
   const { user } = await requireWorkspaceAccess(workspaceId);
-  const opportunity = await prisma.opportunity.findFirst({ where: { id: opportunityId, workspaceId }, include: { company: true, contact: true } });
-  if (!opportunity) notFound();
   const { analysis, input } = await sourceForAnalysis(workspaceId, analysisId);
+  const resolvedOpportunityId = analysisProposalOpportunityId({ explicitOpportunityId: opportunityId, session: analysis.session });
+  const opportunity = resolvedOpportunityId ? await prisma.opportunity.findFirst({ where: { id: resolvedOpportunityId, workspaceId }, include: { company: true, contact: true } }) : null;
+  if (resolvedOpportunityId && !opportunity) notFound();
   const roadmap = roadmapId ? await prisma.strategicRoadmap.findFirst({ where: { id: roadmapId, workspaceId } }) : null;
   if (roadmapId && !roadmap) notFound();
-  const generationInput = { ...input, opportunity, roadmap };
+  const proposalContext = opportunity ?? { name: analysis.title, company: null };
+  const generationInput = { ...input, opportunity: opportunity ?? null, roadmap };
   const generated = await generateStructured(workspaceId, user.id, "proposal_draft", "Proposal", "Create a proposal draft from an opportunity and reviewed analysis. Return valid JSON only using exactly these fields: clientContext, problemStatement, recommendedSolution, scopeOfWork, strategicRoadmapSummary, expectedOutcomes, assumptions, exclusions, investmentPlaceholder, nextSteps. Populate every field from the opportunity, analysis, and roadmap; keep it draft and do not use placeholders.", generationInput, "PROPOSAL_GENERATION");
-  const fallback = buildProposalFallback(input, opportunity as unknown as Record<string, unknown>, roadmap as Record<string, unknown> | null);
+  const fallback = buildProposalFallback(input, proposalContext as unknown as Record<string, unknown>, roadmap as Record<string, unknown> | null);
   const content = Object.fromEntries(proposalSections.map((key) => [key, normalizeSectionContent(hasUsefulContent(generated[key]) ? generated[key] : fallback[key as keyof typeof fallback])]));
-  const proposal = await prisma.proposal.create({ data: { workspaceId, opportunityId, analysisId: analysis.id, roadmapId: roadmap?.id, companyId: opportunity.companyId, title: `Proposal draft: ${opportunity.name}`, content: toPrismaJson(content), status: "DRAFT", createdById: user.id } });
+  const proposal = await prisma.proposal.create({ data: { workspaceId, opportunityId: opportunity?.id, analysisId: analysis.id, roadmapId: roadmap?.id, companyId: opportunity?.companyId, title: `Proposal draft: ${opportunity?.name ?? analysis.title}`, content: toPrismaJson(content), status: "DRAFT", createdById: user.id } });
   if (generated.__promptContext) await recordPromptSources(workspaceId, "Proposal", proposal.id, "PROPOSAL_GENERATION", "proposal_draft", generated.__promptContext as never, user.id);
-  await audit(workspaceId, "proposal.generated", "Proposal", proposal.id, user.id, { opportunityId, analysisId, roadmapId: roadmap?.id, sourcesUsed: generated.__promptContext && typeof generated.__promptContext === "object" ? (generated.__promptContext as { sources?: unknown }).sources : undefined });
+  await audit(workspaceId, "proposal.generated", "Proposal", proposal.id, user.id, { opportunityId: opportunity?.id, analysisId, roadmapId: roadmap?.id, sourcesUsed: generated.__promptContext && typeof generated.__promptContext === "object" ? (generated.__promptContext as { sources?: unknown }).sources : undefined });
   return proposal;
 }
 
