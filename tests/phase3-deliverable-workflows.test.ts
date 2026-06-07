@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { buildExecutiveReportSections, buildProposalFallback, buildRoadmapFallback, readablePhases, readableSections } from "@/lib/reports/service";
+import { analysisProposalOpportunityId, buildExecutiveReportSections, buildProposalFallback, buildRoadmapFallback, proposalDetailPath, readablePhases, readableSections } from "@/lib/reports/service";
 
 const reviewedAnalysisInput = {
   summary: "Follow-up ownership is inconsistent, qualified pipeline is hard to inspect, and stalled deals are not escalated quickly enough.",
@@ -40,7 +40,7 @@ describe("Phase 3 deliverable workflow protections", () => {
       "prisma.executiveReport.findFirst({ where: { id, workspaceId }",
       "prisma.strategicRoadmap.findFirst({ where: { id, workspaceId }",
       "prisma.proposal.findFirst({ where: { id, workspaceId }",
-      "prisma.opportunity.findFirst({ where: { id: opportunityId, workspaceId }"
+      "prisma.opportunity.findFirst({ where: { id: resolvedOpportunityId, workspaceId }"
     ]) {
       expect(source).toContain(lookup);
     }
@@ -50,6 +50,17 @@ describe("Phase 3 deliverable workflow protections", () => {
     const source = readFileSync("lib/reports/service.ts", "utf8");
     expect(source).toContain("Analysis must be REVIEWED or FINAL before generating deliverables.");
     expect(source).toContain("requireReviewedAnalysis(analysis)");
+  });
+
+  it("routes generated proposal drafts to the proposal detail record, not the analysis record", () => {
+    expect(proposalDetailPath({ id: "proposal_123" })).toBe("/dashboard/proposals/proposal_123");
+    expect(proposalDetailPath({ id: "proposal_123" })).not.toBe("/dashboard/analysis/proposal_123");
+  });
+
+  it("defaults proposal generation to an opportunity linked to the reviewed analysis session", () => {
+    expect(analysisProposalOpportunityId({ session: { relatedType: "opportunity", relatedId: "opp_lower" } })).toBe("opp_lower");
+    expect(analysisProposalOpportunityId({ session: { relatedType: "Opportunity", relatedId: "opp_upper" } })).toBe("opp_upper");
+    expect(analysisProposalOpportunityId({ explicitOpportunityId: "manual_opp", session: { relatedType: "opportunity", relatedId: "session_opp" } })).toBe("manual_opp");
   });
 
   it("creates non-placeholder executive report sections from reviewed analysis content", () => {
