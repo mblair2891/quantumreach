@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { deflateRawSync, deflateSync } from "node:zlib";
 import { readFileSync } from "node:fs";
-import { extractKnowledgeFile } from "@/lib/knowledge/extractors";
+import {
+  buildKnowledgeFilePreview,
+  extractKnowledgeFile,
+} from "@/lib/knowledge/extractors";
 import {
   buildKnowledgeImportPreview,
   validateKnowledgeUploadFile,
@@ -130,6 +133,63 @@ describe("document upload extraction", () => {
       sourceText: expect.stringContaining(
         "Source-of-truth PDF\nExtracted reliably",
       ),
+    });
+  });
+
+  it("rejects encoded or garbled selectable PDF text as unreadable", async () => {
+    const content = "BT /F1 12 Tf 72 720 Td (0DUNGRZQ 7HVW 'RFWULQH) Tj ET";
+
+    await expect(
+      extractKnowledgeFile(
+        makeFile(
+          "markdown-test-doctrine.pdf",
+          "application/pdf",
+          minimalPdf(content),
+        ),
+      ),
+    ).resolves.toMatchObject({
+      detectedFileType: "PDF",
+      sourceText: "",
+      warnings: expect.arrayContaining([
+        "Text was detected, but it could not be decoded into readable content. Try converting this PDF to TXT or DOCX before importing.",
+        "No useful text was extracted. Review the file or convert it to text before importing.",
+      ]),
+    });
+  });
+
+  it("does not derive import metadata from garbled PDF text", async () => {
+    const content = "BT /F1 12 Tf 72 720 Td (0DUNGRZQ 7HVW 'RFWULQH) Tj ET";
+
+    const preview = await buildKnowledgeFilePreview(
+      makeFile("encoded-source.pdf", "application/pdf", minimalPdf(content)),
+    );
+
+    expect(preview).toMatchObject({
+      detectedFileType: "PDF",
+      extractionStatus: "WARNING",
+      sourceText: "",
+      title: "encoded source",
+      description: "Imported source-of-truth document.",
+      status: "DRAFT",
+    });
+    expect(preview.title).not.toContain("DUNGRZQ");
+    expect(preview.description).not.toContain("RFWULQH");
+  });
+
+  it("rejects excessive single-character vertical PDF text", async () => {
+    const content =
+      "BT /F1 12 Tf 72 720 Td (A) Tj T* (B) Tj T* (C) Tj T* (D) Tj T* (E) Tj T* (F) Tj T* (G) Tj T* (H) Tj T* (I) Tj T* (J) Tj T* (K) Tj T* (L) Tj ET";
+
+    await expect(
+      extractKnowledgeFile(
+        makeFile("vertical.pdf", "application/pdf", minimalPdf(content)),
+      ),
+    ).resolves.toMatchObject({
+      detectedFileType: "PDF",
+      sourceText: "",
+      warnings: expect.arrayContaining([
+        "Text was detected, but it could not be decoded into readable content. Try converting this PDF to TXT or DOCX before importing.",
+      ]),
     });
   });
 

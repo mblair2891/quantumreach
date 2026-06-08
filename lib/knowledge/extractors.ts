@@ -22,6 +22,175 @@ const PDF_OCR_UNSUPPORTED_WARNING =
   "No selectable text was found. This may be a scanned document. OCR is not yet supported.";
 const PDF_PARSE_FALLBACK_WARNING =
   "PDF text extraction was partially limited. Review the preview before importing.";
+const PDF_UNREADABLE_TEXT_WARNING =
+  "Text was detected, but it could not be decoded into readable content. Try converting this PDF to TXT or DOCX before importing.";
+
+const COMMON_READABLE_WORDS = new Set([
+  "about",
+  "above",
+  "after",
+  "again",
+  "all",
+  "also",
+  "analysis",
+  "and",
+  "architecture",
+  "are",
+  "asset",
+  "before",
+  "business",
+  "call",
+  "client",
+  "content",
+  "conversion",
+  "customer",
+  "data",
+  "description",
+  "diagnostic",
+  "document",
+  "draft",
+  "during",
+  "each",
+  "execution",
+  "extracted",
+  "file",
+  "for",
+  "framework",
+  "from",
+  "handoff",
+  "has",
+  "have",
+  "import",
+  "into",
+  "knowledge",
+  "markdown",
+  "metadata",
+  "methodology",
+  "normal",
+  "operating",
+  "outreach",
+  "page",
+  "pdf",
+  "phase",
+  "preview",
+  "proposal",
+  "reach",
+  "readable",
+  "reliably",
+  "report",
+  "review",
+  "roadmap",
+  "rollout",
+  "selectable",
+  "source",
+  "status",
+  "strategy",
+  "supported",
+  "text",
+  "the",
+  "this",
+  "truth",
+  "upload",
+  "useful",
+  "version",
+  "with",
+  "workflow",
+]);
+
+function vowelRatio(value: string) {
+  const alpha = value.match(/[A-Za-z]/g) ?? [];
+  if (!alpha.length) return 0;
+  const vowels = alpha.filter((character) => /[AEIOUYaeiouy]/.test(character));
+  return vowels.length / alpha.length;
+}
+
+function hasReadableWordShape(word: string) {
+  const trimmed = word.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, "");
+  const lower = trimmed.toLowerCase();
+  if (lower.length < 3) return false;
+  if (COMMON_READABLE_WORDS.has(lower)) return true;
+  if (/^[A-Z]{4,}$/.test(trimmed)) return false;
+  if (!/[aeiouy]/.test(lower)) return false;
+  if (
+    /^[a-z]+(?:ing|tion|ment|ness|able|ible|ally|ed|er|est|ous|ive|ize|ise|ity|ies|al|ic|ance|ence|ship|ary|ory|ate|ure|ent|ant|ful|less|ism|ist|ize|ise|ify)$/.test(
+      lower,
+    )
+  )
+    return true;
+  if (
+    /^(pre|post|re|un|non|over|under|inter|intra|trans|micro|macro|auto|anti|multi)[a-z]{4,}$/.test(
+      lower,
+    )
+  )
+    return true;
+  return (
+    lower.length >= 5 &&
+    /[aeiouy].*[bcdfghjklmnpqrstvwxz]|[bcdfghjklmnpqrstvwxz].*[aeiouy]/.test(
+      lower,
+    )
+  );
+}
+
+function isProbablyReadablePdfText(value: string) {
+  const text = normalizeExtractedText(value);
+  if (!text) return false;
+
+  const alphaCharacters = text.match(/[A-Za-z]/g) ?? [];
+  if (alphaCharacters.length < 8) return false;
+
+  const artifactCharacters =
+    text.match(
+      /[\uFFFD\uE000-\uF8FF\u0001-\u0008\u000B\u000C\u000E-\u001F]/g,
+    ) ?? [];
+  if (artifactCharacters.length / Math.max(text.length, 1) > 0.02) return false;
+
+  const nonTextCharacters =
+    text.match(/[^\p{L}\p{N}\s.,;:!?@#$%&*()[\]{}'"“”‘’/\\_+\-=–—<>|\n]/gu) ??
+    [];
+  if (nonTextCharacters.length / Math.max(text.length, 1) > 0.05) return false;
+
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const singleCharacterLines = lines.filter((line) => /^[A-Za-z]$/.test(line));
+  if (lines.length >= 12 && singleCharacterLines.length / lines.length > 0.6)
+    return false;
+
+  const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) ?? [];
+  if (words.length < 2) return false;
+
+  const ratio = vowelRatio(text);
+  const longWords = words.filter(
+    (word) => word.replace(/[^A-Za-z]/g, "").length >= 4,
+  );
+  const recognizableWords = words.filter(hasReadableWordShape);
+  const recognizableRatio =
+    recognizableWords.length / Math.max(words.length, 1);
+  const uppercaseOrEncodedTokens = text.match(/\b[0-9A-Z'’]{4,}\b/g) ?? [];
+  const randomCapitalTokens = uppercaseOrEncodedTokens.filter((token) => {
+    const letters = token.match(/[A-Z]/g) ?? [];
+    if (letters.length < 3) return false;
+    const hasDigit = /\d/.test(token);
+    const tokenVowelRatio = vowelRatio(token);
+    return hasDigit || tokenVowelRatio < 0.22;
+  });
+
+  if (
+    randomCapitalTokens.length >= 2 &&
+    randomCapitalTokens.length / Math.max(longWords.length, 1) > 0.45 &&
+    recognizableRatio < 0.5
+  )
+    return false;
+
+  if (words.length >= 5 && ratio < 0.18 && recognizableRatio < 0.5)
+    return false;
+  if (words.length >= 3 && recognizableRatio < 0.12 && ratio < 0.3)
+    return false;
+  if (longWords.length >= 3 && recognizableWords.length === 0) return false;
+
+  return true;
+}
 
 function decodeUtf8(buffer: Buffer) {
   return new TextDecoder("utf-8", { fatal: false })
@@ -339,14 +508,22 @@ function getPdfStreamBuffers(buffer: Buffer) {
 }
 
 function extractPdfWithContentStreams(buffer: Buffer) {
-  return normalizeExtractedText(
+  let textOperatorCount = 0;
+  const sourceText = normalizeExtractedText(
     getPdfStreamBuffers(buffer)
-      .map((stream) =>
-        textFromPdfTokens(tokenizePdfContent(stream.toString("latin1")).tokens),
-      )
+      .map((stream) => {
+        const tokens = tokenizePdfContent(stream.toString("latin1")).tokens;
+        textOperatorCount += tokens.filter(
+          (token) =>
+            token.type === "operator" &&
+            ["Tj", "TJ", "\'", '"'].includes(token.value),
+        ).length;
+        return textFromPdfTokens(tokens);
+      })
       .filter(Boolean)
       .join("\n"),
   );
+  return { sourceText, textDetected: textOperatorCount > 0 };
 }
 
 function extractPdfWithLightweightFallback(buffer: Buffer) {
@@ -366,15 +543,27 @@ function extractPdfWithLightweightFallback(buffer: Buffer) {
 
 function extractPdf(buffer: Buffer) {
   const warnings: string[] = [];
+  let textDetected = false;
+  let sourceText = "";
   try {
-    const sourceText =
-      extractPdfWithContentStreams(buffer) ||
+    const contentStreamResult = extractPdfWithContentStreams(buffer);
+    textDetected = contentStreamResult.textDetected;
+    sourceText =
+      contentStreamResult.sourceText ||
       extractPdfWithLightweightFallback(buffer);
-    return { sourceText, warnings };
   } catch {
     warnings.push(PDF_PARSE_FALLBACK_WARNING);
-    return { sourceText: extractPdfWithLightweightFallback(buffer), warnings };
+    sourceText = extractPdfWithLightweightFallback(buffer);
+    textDetected = Boolean(sourceText);
   }
+
+  sourceText = normalizeExtractedText(sourceText);
+  if (sourceText && !isProbablyReadablePdfText(sourceText)) {
+    warnings.push(PDF_UNREADABLE_TEXT_WARNING);
+    return { sourceText: "", warnings, textDetected: true };
+  }
+  if (!sourceText && textDetected) warnings.push(PDF_UNREADABLE_TEXT_WARNING);
+  return { sourceText, warnings, textDetected };
 }
 
 export async function extractKnowledgeFile(
@@ -416,7 +605,11 @@ export async function extractKnowledgeFile(
   }
 
   sourceText = normalizeExtractedText(sourceText);
-  if (detectedFileType === "PDF" && !sourceText)
+  if (
+    detectedFileType === "PDF" &&
+    !sourceText &&
+    !warnings.includes(PDF_UNREADABLE_TEXT_WARNING)
+  )
     warnings.push(PDF_OCR_UNSUPPORTED_WARNING);
   if (sourceText.length > 0 && sourceText.length < 200)
     warnings.push(
@@ -438,7 +631,7 @@ export async function buildKnowledgeFilePreview(
     name: file.name,
     type: result.sourceMimeType,
     size: file.size,
-    text: result.sourceText || "Imported source-of-truth document.",
+    text: result.sourceText,
     detectedFileType: result.detectedFileType,
     extractionStatus: result.sourceText ? "EXTRACTED" : "WARNING",
     extractionWarnings: result.warnings,

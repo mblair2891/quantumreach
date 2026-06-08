@@ -10,13 +10,15 @@ Phase 5 expands the source-of-truth workflow from TXT-only bulk import to direct
 - TXT and Markdown are decoded as UTF-8 text.
 - DOCX extraction reads `word/document.xml` and converts document XML text nodes to plain text.
 - PDF extraction reads page content streams, including common Flate-compressed streams, literal strings, hexadecimal strings, and `Tj`/`TJ` text-showing operators. OCR is intentionally out of scope.
+- Extracted PDF text is accepted only after a readability heuristic checks for human-readable word shape, vowel ratio, excessive encoded capital-letter tokens, glyph/artifact characters, and single-character vertical text patterns.
 - Empty or image-only PDF extraction returns the warning: “No selectable text was found. This may be a scanned document. OCR is not yet supported.”
+- PDFs with selectable text that cannot be decoded into readable content return the warning: “Text was detected, but it could not be decoded into readable content. Try converting this PDF to TXT or DOCX before importing.”
 
 ## Import preview behavior
 
 Each uploaded file becomes an editable preview before any `KnowledgeDocument` is created. The preview includes file name, detected file type, extraction status, character count, extraction warnings, source text preview, title, description, document type, authority level, priority, workflow stages, version, status, and optional version lineage.
 
-Default status remains `DRAFT`. Documents become `ACTIVE` only when the user explicitly chooses `ACTIVE` in the preview.
+Default status remains `DRAFT`. Documents become `ACTIVE` only when the user explicitly chooses `ACTIVE` in the preview. Previews with no readable `sourceText` keep warning status and cannot be submitted until the user removes the file or converts it to a readable TXT/DOCX/PDF source.
 
 ## Original file storage
 
