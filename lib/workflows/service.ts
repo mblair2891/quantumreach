@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { audit } from "@/lib/audit/service";
-import { callSessionSchema, outreachCampaignSchema, outreachLeadAssignmentSchema, outreachStatusSchema } from "@/lib/validation/schemas";
+import { callSessionSchema, callTranscriptSchema, outreachCampaignSchema, outreachLeadAssignmentSchema, outreachStatusSchema } from "@/lib/validation/schemas";
 
 function empty(value?: string | null) {
   return value ? value : undefined;
@@ -35,6 +35,12 @@ async function assertOpportunity(workspaceId: string, id?: string) {
 async function assertCampaign(workspaceId: string, id?: string) {
   if (!id) return;
   if (!await prisma.outreachCampaign.count({ where: { id, workspaceId } })) throw new Error("Campaign is not available in this workspace.");
+}
+
+function relatedContext(call: { opportunityId?: string | null; companyId?: string | null; contactId?: string | null; leadId?: string | null }) {
+  const relatedType = call.opportunityId ? "Opportunity" : call.companyId ? "Company" : call.contactId ? "Contact" : call.leadId ? "Lead" : null;
+  const relatedId = call.opportunityId ?? call.companyId ?? call.contactId ?? call.leadId ?? null;
+  return { relatedType, relatedId };
 }
 
 export async function listOutreachCampaigns(workspaceId: string) {
@@ -90,7 +96,63 @@ export async function updateLeadOutreachStatus(workspaceId: string, leadId: stri
 
 export async function listCallSessions(workspaceId: string) {
   await requireWorkspaceAccess(workspaceId);
-  return prisma.callSession.findMany({ where: { workspaceId }, include: { lead: true, company: true, contact: true, opportunity: true }, orderBy: { updatedAt: "desc" } });
+  return prisma.callSession.findMany({
+    where: { workspaceId },
+    include: {
+      lead: true,
+      company: true,
+      contact: true,
+      opportunity: true,
+      diagnostics: { orderBy: { updatedAt: "desc" }, take: 1, include: { analyses: { orderBy: { updatedAt: "desc" }, take: 1 } } }
+    },
+    orderBy: { updatedAt: "desc" }
+  });
+}
+
+export async function getCallSessionFormOptions(workspaceId: string) {
+  await requireWorkspaceAccess(workspaceId);
+  const [leads, contacts, companies, opportunities] = await Promise.all([
+    prisma.lead.findMany({ where: { workspaceId, status: { not: "ARCHIVED" } }, orderBy: { updatedAt: "desc" }, take: 100 }),
+    prisma.contact.findMany({ where: { workspaceId, status: "ACTIVE" }, orderBy: { updatedAt: "desc" }, take: 100, include: { company: true } }),
+    prisma.company.findMany({ where: { workspaceId, status: "ACTIVE" }, orderBy: { updatedAt: "desc" }, take: 100 }),
+    prisma.opportunity.findMany({ where: { workspaceId, status: { not: "ARCHIVED" } }, orderBy: { updatedAt: "desc" }, take: 100, include: { company: true } })
+  ]);
+  return { leads, contacts, companies, opportunities };
+}
+
+export async function getCallSessionDetail(workspaceId: string, id: string) {
+  await requireWorkspaceAccess(workspaceId);
+  const call = await prisma.callSession.findFirst({
+    where: { id, workspaceId },
+    include: {
+      lead: true,
+      contact: { include: { company: true } },
+      company: true,
+      opportunity: { include: { company: true, contact: true } },
+      diagnostics: {
+        orderBy: { updatedAt: "desc" },
+        include: {
+          transcripts: { orderBy: { updatedAt: "desc" }, take: 1 },
+          analyzerRuns: { orderBy: { createdAt: "desc" }, take: 1 },
+          analyses: {
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            include: {
+              reports: { orderBy: { updatedAt: "desc" } },
+              roadmaps: { orderBy: { updatedAt: "desc" } },
+              proposals: { orderBy: { updatedAt: "desc" } }
+            }
+          }
+        }
+      }
+    }
+  });
+  if (!call) notFound();
+  const activity = await prisma.auditLog.findMany({ where: { workspaceId, entityType: { in: ["CallSession", "DiagnosticSession"] }, OR: [{ entityId: call.id }, { metadata: { path: ["callSessionId"], equals: call.id } }] }, orderBy: { createdAt: "desc" }, take: 8 });
+  const latestDiagnostic = call.diagnostics[0] ?? null;
+  const latestAnalysis = latestDiagnostic?.analyses[0] ?? null;
+  if (latestAnalysis && call.status === "DIAGNOSTIC_CREATED") await prisma.callSession.update({ where: { id: call.id }, data: { status: "ANALYZED" } });
+  return { call, latestDiagnostic, latestAnalysis, activity };
 }
 
 export async function createCallSession(workspaceId: string, input: unknown) {
@@ -101,21 +163,68 @@ export async function createCallSession(workspaceId: string, input: unknown) {
   const companyId = empty(data.companyId);
   const opportunityId = empty(data.opportunityId);
   await Promise.all([assertLead(workspaceId, leadId), assertContact(workspaceId, contactId), assertCompany(workspaceId, companyId), assertOpportunity(workspaceId, opportunityId)]);
-  const call = await prisma.callSession.create({ data: { workspaceId, leadId, contactId, companyId, opportunityId, provider: data.provider, meetingUrl: empty(data.meetingUrl), recordingUrl: empty(data.recordingUrl), transcriptText: empty(data.transcriptText), transcriptSource: empty(data.transcriptSource), callDate: date(data.callDate), status: data.transcriptText ? "TRANSCRIPT_READY" : data.status, createdById: user.id } });
-  await audit(workspaceId, "call_session.created", "CallSession", call.id, user.id);
-  if (data.transcriptText) await audit(workspaceId, "call_session.transcript_added", "CallSession", call.id, user.id);
+  const transcriptText = empty(data.transcriptText);
+  const call = await prisma.callSession.create({ data: { workspaceId, leadId, contactId, companyId, opportunityId, provider: data.provider, meetingUrl: empty(data.meetingUrl), recordingUrl: empty(data.recordingUrl), transcriptText, transcriptSource: empty(data.transcriptSource), callDate: date(data.callDate), status: transcriptText ? "TRANSCRIPT_READY" : data.status, createdById: user.id } });
+  await audit(workspaceId, "call_session.created", "CallSession", call.id, user.id, { provider: call.provider, status: call.status });
+  const linked = { leadId, contactId, companyId, opportunityId };
+  if (leadId || contactId || companyId || opportunityId) await audit(workspaceId, "call_session.crm_linked", "CallSession", call.id, user.id, linked);
+  if (transcriptText) await audit(workspaceId, "call_session.transcript_added", "CallSession", call.id, user.id, { transcriptSource: call.transcriptSource, characterCount: transcriptText.length });
+  return call;
+}
+
+export async function updateCallSession(workspaceId: string, id: string, input: unknown) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const existing = await prisma.callSession.findFirst({ where: { id, workspaceId } });
+  if (!existing) notFound();
+  const data = callSessionSchema.parse(input);
+  const leadId = empty(data.leadId);
+  const contactId = empty(data.contactId);
+  const companyId = empty(data.companyId);
+  const opportunityId = empty(data.opportunityId);
+  await Promise.all([assertLead(workspaceId, leadId), assertContact(workspaceId, contactId), assertCompany(workspaceId, companyId), assertOpportunity(workspaceId, opportunityId)]);
+  const transcriptText = empty(data.transcriptText);
+  const status = transcriptText && ["SCHEDULED", "COMPLETED"].includes(data.status) ? "TRANSCRIPT_READY" : data.status;
+  const call = await prisma.callSession.update({ where: { id }, data: { leadId, contactId, companyId, opportunityId, provider: data.provider, meetingUrl: empty(data.meetingUrl), recordingUrl: empty(data.recordingUrl), transcriptText, transcriptSource: empty(data.transcriptSource), callDate: date(data.callDate), status } });
+  await audit(workspaceId, "call_session.updated", "CallSession", id, user.id, { provider: call.provider });
+  if (existing.status !== call.status) await audit(workspaceId, "call_session.status_updated", "CallSession", id, user.id, { from: existing.status, to: call.status });
+  if (existing.leadId !== leadId || existing.contactId !== contactId || existing.companyId !== companyId || existing.opportunityId !== opportunityId) await audit(workspaceId, "call_session.crm_linked", "CallSession", id, user.id, { leadId, contactId, companyId, opportunityId });
+  if (existing.transcriptText !== transcriptText) await audit(workspaceId, "call_session.transcript_updated", "CallSession", id, user.id, { transcriptSource: call.transcriptSource, characterCount: transcriptText?.length ?? 0 });
+  return call;
+}
+
+export async function updateCallStatus(workspaceId: string, id: string, status: string) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const existing = await prisma.callSession.findFirst({ where: { id, workspaceId } });
+  if (!existing) notFound();
+  const data = callSessionSchema.pick({ status: true }).parse({ status });
+  const call = await prisma.callSession.update({ where: { id }, data: { status: data.status } });
+  await audit(workspaceId, "call_session.status_updated", "CallSession", id, user.id, { from: existing.status, to: call.status });
+  return call;
+}
+
+export async function saveCallTranscript(workspaceId: string, id: string, input: unknown) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const existing = await prisma.callSession.findFirst({ where: { id, workspaceId } });
+  if (!existing) notFound();
+  const data = callTranscriptSchema.parse(input);
+  const transcriptText = empty(data.transcriptText);
+  const call = await prisma.callSession.update({ where: { id }, data: { transcriptText, transcriptSource: empty(data.transcriptSource), status: transcriptText && ["SCHEDULED", "COMPLETED"].includes(existing.status) ? "TRANSCRIPT_READY" : existing.status } });
+  await audit(workspaceId, existing.transcriptText ? "call_session.transcript_updated" : "call_session.transcript_added", "CallSession", id, user.id, { transcriptSource: call.transcriptSource, characterCount: transcriptText?.length ?? 0 });
+  if (existing.status !== call.status) await audit(workspaceId, "call_session.status_updated", "CallSession", id, user.id, { from: existing.status, to: call.status });
   return call;
 }
 
 export async function createDiagnosticFromCallSession(workspaceId: string, callSessionId: string) {
   const { user } = await requireWorkspaceAccess(workspaceId);
-  const call = await prisma.callSession.findFirst({ where: { id: callSessionId, workspaceId } });
+  const call = await prisma.callSession.findFirst({ where: { id: callSessionId, workspaceId }, include: { diagnostics: { orderBy: { updatedAt: "desc" }, take: 1 } } });
   if (!call) notFound();
   if (!call.transcriptText) throw new Error("Transcript text is required before creating a diagnostic.");
-  const relatedType = call.opportunityId ? "opportunity" : call.companyId ? "company" : call.contactId ? "contact" : call.leadId ? "lead" : null;
-  const relatedId = call.opportunityId ?? call.companyId ?? call.contactId ?? call.leadId ?? null;
+  const existing = call.diagnostics[0];
+  if (existing) return existing;
+  const { relatedType, relatedId } = relatedContext(call);
   const session = await prisma.diagnosticSession.create({ data: { workspaceId, title: `Diagnostic from ${call.provider} call`, status: "TRANSCRIPT_READY", relatedType, relatedId, callSessionId: call.id, createdById: user.id, transcripts: { create: { workspaceId, content: call.transcriptText, source: call.transcriptSource ?? "manual_call_session", createdById: user.id } } } });
   await prisma.callSession.update({ where: { id: call.id }, data: { status: "DIAGNOSTIC_CREATED" } });
-  await audit(workspaceId, "diagnostic.created_from_call_session", "DiagnosticSession", session.id, user.id, { callSessionId: call.id });
+  await audit(workspaceId, "diagnostic.created_from_call_session", "DiagnosticSession", session.id, user.id, { callSessionId: call.id, relatedType, relatedId });
+  await audit(workspaceId, "call_session.status_updated", "CallSession", call.id, user.id, { from: call.status, to: "DIAGNOSTIC_CREATED" });
   return session;
 }
