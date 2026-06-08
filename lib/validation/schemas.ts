@@ -59,7 +59,9 @@ export const transcriptContextSchema = z.object({ transcript: z.string().trim().
 export const outreachCampaignSchema = z.object({ name: z.string().trim().min(2), description: optionalText });
 export const outreachLeadAssignmentSchema = z.object({ leadId: z.string().trim().min(1), notes: optionalText });
 export const outreachStatusSchema = z.object({ campaignId: optionalId, status: z.enum(["NOT_STARTED", "QUEUED", "SENT", "OPENED", "REPLIED", "CALL_BOOKED", "CALL_COMPLETED", "TRANSCRIPT_READY", "ANALYZED"]), notes: optionalText });
-export const callSessionSchema = z.object({ leadId: optionalId, contactId: optionalId, companyId: optionalId, opportunityId: optionalId, provider: z.enum(["ZOOM", "GOOGLE_MEET", "TEAMS", "OTHER"]).default("OTHER"), meetingUrl: optionalText, recordingUrl: optionalText, transcriptText: optionalText, transcriptSource: optionalText, callDate: z.string().optional().or(z.literal("")), status: z.enum(["SCHEDULED", "COMPLETED", "TRANSCRIPT_READY", "DIAGNOSTIC_CREATED", "ARCHIVED"]).default("SCHEDULED") });
+export const callSessionStatusSchema = z.enum(["SCHEDULED", "COMPLETED", "TRANSCRIPT_READY", "DIAGNOSTIC_CREATED", "ANALYZED", "ARCHIVED"]);
+export const callTranscriptSchema = z.object({ transcriptText: optionalText, transcriptSource: optionalText });
+export const callSessionSchema = z.object({ leadId: optionalId, contactId: optionalId, companyId: optionalId, opportunityId: optionalId, provider: z.enum(["ZOOM", "GOOGLE_MEET", "TEAMS", "OTHER"]).default("OTHER"), meetingUrl: optionalText, recordingUrl: optionalText, transcriptText: optionalText, transcriptSource: optionalText, callDate: z.string().optional().or(z.literal("")), status: callSessionStatusSchema.default("SCHEDULED") });
 
 
 export const knowledgeBulkImportPayloadSchema = z.object({
