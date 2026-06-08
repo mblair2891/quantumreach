@@ -1183,16 +1183,24 @@ model KnowledgeDocument {
   version        String                  @default("1.0")
   sourceFileName String?
   sourceMimeType String?
+  sourceFileSizeBytes Int?
+  storageKey     String?
   sourceText     String
   createdById    String?
   approvedById   String?
   approvedAt     DateTime?
   lastReviewedAt DateTime?
+  parentDocumentId String?
+  supersedesDocumentId String?
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
 
   workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   collection       KnowledgeCollection?       @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  parentDocument   KnowledgeDocument?         @relation("KnowledgeDocumentParent", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  childVersions    KnowledgeDocument[]        @relation("KnowledgeDocumentParent")
+  supersedesDocument KnowledgeDocument?       @relation("KnowledgeDocumentSupersedes", fields: [supersedesDocumentId], references: [id], onDelete: SetNull)
+  supersededBy     KnowledgeDocument[]        @relation("KnowledgeDocumentSupersedes")
   chunks           KnowledgeChunk[]
   usages           KnowledgeDocumentUsage[]
   sourceReferences KnowledgeSourceReference[]
@@ -1200,6 +1208,8 @@ model KnowledgeDocument {
   @@index([workspaceId, status])
   @@index([workspaceId, authorityLevel, priority])
   @@index([workspaceId, documentType])
+  @@index([workspaceId, parentDocumentId])
+  @@index([workspaceId, supersedesDocumentId])
 }
 
 model KnowledgeChunk {
