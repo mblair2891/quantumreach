@@ -9,8 +9,8 @@ Phase 5 expands the source-of-truth workflow from TXT-only bulk import to direct
 - `/api/knowledge/import-preview` repeats server-side authentication, active workspace access, file count, file type, and size validation before text extraction.
 - TXT and Markdown are decoded as UTF-8 text.
 - DOCX extraction reads `word/document.xml` and converts document XML text nodes to plain text.
-- PDF extraction supports selectable text strings. OCR is intentionally out of scope.
-- Empty selectable PDF extraction returns the warning: “No selectable text was found. This may be a scanned document. OCR is not yet supported.”
+- PDF extraction reads page content streams, including common Flate-compressed streams, literal strings, hexadecimal strings, and `Tj`/`TJ` text-showing operators. OCR is intentionally out of scope.
+- Empty or image-only PDF extraction returns the warning: “No selectable text was found. This may be a scanned document. OCR is not yet supported.”
 
 ## Import preview behavior
 
