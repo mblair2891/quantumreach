@@ -112,15 +112,19 @@ export async function listKnowledgeDocuments(workspaceId: string) {
 
 export async function getKnowledgeCoverageSummary(workspaceId: string) {
   await requireWorkspaceAccess(workspaceId);
-  const documents = await prisma.knowledgeDocument.findMany({ where: { workspaceId }, select: { status: true, authorityLevel: true, documentType: true, priority: true } });
+  const documents = await prisma.knowledgeDocument.findMany({ where: { workspaceId }, select: { title: true, status: true, authorityLevel: true, documentType: true, priority: true, usages: { select: { id: true }, take: 1 }, sourceReferences: { select: { id: true }, take: 1 } } });
   const active = documents.filter((doc) => doc.status === "ACTIVE");
   const countActive = (levels: string[]) => active.filter((doc) => levels.includes(doc.authorityLevel) || levels.includes(doc.documentType)).length;
+  const activeTestDocuments = active.filter((doc) => doc.title.startsWith("Test")).length;
   const summary = {
     activeGlobalDoctrineCount: active.filter((doc) => doc.priority === "GLOBAL" && ["SYSTEM_DOCTRINE", "PRODUCT_DOCTRINE", "UX_COPY_DOCTRINE"].includes(doc.authorityLevel)).length,
     activeReportFrameworkCount: countActive(["REPORT_FRAMEWORK"]),
     activeRoadmapFrameworkCount: countActive(["ROADMAP_FRAMEWORK"]),
     activeProposalFrameworkCount: countActive(["PROPOSAL_FRAMEWORK"]),
     activeDiagnosticTranscriptFrameworkCount: countActive(["DIAGNOSTIC_FRAMEWORK"]),
+    activeExecutionHandoffFrameworkCount: countActive(["EXECUTION_HANDOFF"]),
+    activeTestDocuments,
+    usedDocuments: documents.filter((doc) => doc.usages.length > 0 || doc.sourceReferences.length > 0).length,
     draftDocumentsNeedingReview: documents.filter((doc) => doc.status === "DRAFT").length,
     archivedDocuments: documents.filter((doc) => doc.status === "ARCHIVED").length
   };
@@ -128,8 +132,11 @@ export async function getKnowledgeCoverageSummary(workspaceId: string) {
     summary.activeReportFrameworkCount === 0 ? "No active report framework found." : null,
     summary.activeRoadmapFrameworkCount === 0 ? "No active roadmap framework found." : null,
     summary.activeProposalFrameworkCount === 0 ? "No active proposal framework found." : null,
-    summary.activeDiagnosticTranscriptFrameworkCount === 0 ? "No active diagnostic/transcript framework found." : null,
-    summary.activeGlobalDoctrineCount > 0 ? "Global doctrine is active." : "No active global doctrine found."
+    summary.activeDiagnosticTranscriptFrameworkCount === 0 ? "No active diagnostic framework found." : null,
+    summary.activeExecutionHandoffFrameworkCount === 0 ? "No active execution handoff framework found." : null,
+    summary.activeGlobalDoctrineCount > 0 ? "Global doctrine active." : "No active global doctrine found.",
+    summary.activeTestDocuments > 0 ? "Test source documents are active and may influence production outputs." : null,
+    summary.draftDocumentsNeedingReview > 0 ? "Draft source documents need review." : null
   ].filter((warning): warning is string => Boolean(warning));
   return { ...summary, warnings };
 }

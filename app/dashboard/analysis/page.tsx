@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { getCurrentWorkspace } from "@/lib/workspaces/service";
 import { listAnalysisRecords } from "@/lib/reports/service";
+import { EmptyState, emptyStateCopy } from "@/components/dashboard/empty-state";
 
 function StatusBadge({ status }: { status: string }) {
   const tone = status === "FINAL"
@@ -77,11 +78,7 @@ export default async function Page() {
             </div>
           </Link>;
         })}
-        {records.length === 0 ? <div className="rounded-2xl border border-dashed border-border p-8 text-center">
-          <h2 className="text-lg font-semibold">No analysis records yet</h2>
-          <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Run a diagnostic analyzer to create the first workspace-scoped analysis record. This empty state only appears when no AnalysisRecord rows exist for the active workspace.</p>
-          <Button asChild className="mt-4"><Link href="/dashboard/diagnostics">Go to diagnostics</Link></Button>
-        </div> : null}
+        {records.length === 0 ? <EmptyState {...emptyStateCopy.analysis} /> : null}
       </CardContent>
     </Card>
   </div>;

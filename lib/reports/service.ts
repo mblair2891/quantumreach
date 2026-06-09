@@ -262,7 +262,7 @@ export async function listAnalysisRecords(workspaceId: string) {
 
 export async function getAnalysisDetail(workspaceId: string, id: string) {
   await requireWorkspaceAccess(workspaceId);
-  const analysis = await prisma.analysisRecord.findFirst({ where: { id, workspaceId }, include: { session: true, constraints: true, bottlenecks: true, recommendations: true, reports: { orderBy: { updatedAt: "desc" } }, roadmaps: { orderBy: { updatedAt: "desc" } }, proposals: { orderBy: { updatedAt: "desc" } }, roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } });
+  const analysis = await prisma.analysisRecord.findFirst({ where: { id, workspaceId }, include: { session: { include: { callSession: true } }, constraints: true, bottlenecks: true, recommendations: true, reports: { orderBy: { updatedAt: "desc" } }, roadmaps: { orderBy: { updatedAt: "desc" } }, proposals: { orderBy: { updatedAt: "desc" } }, roiModels: { orderBy: { updatedAt: "desc" }, take: 1 }, costOfInactionModels: { orderBy: { updatedAt: "desc" }, take: 1 } } });
   if (!analysis) notFound();
   const events = await prisma.auditLog.findMany({ where: { workspaceId, entityId: id }, orderBy: { createdAt: "desc" }, take: 12 });
   const sources = await getSourcesForEntity(workspaceId, "AnalysisRecord", id);

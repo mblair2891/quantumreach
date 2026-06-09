@@ -31,7 +31,7 @@ export async function listDiagnostics(workspaceId: string) {
 
 export async function getDiagnosticDetail(workspaceId: string, id: string) {
   await requireWorkspaceAccess(workspaceId);
-  const session = await prisma.diagnosticSession.findFirst({ where: { id, workspaceId }, include: { transcripts: { orderBy: { updatedAt: "desc" } }, analyzerRuns: { orderBy: { createdAt: "desc" }, include: { executions: { orderBy: { createdAt: "desc" }, take: 1 }, artifacts: { orderBy: { createdAt: "desc" }, take: 1 } } }, analyses: { orderBy: { updatedAt: "desc" }, include: { constraints: true, bottlenecks: true, recommendations: true } } } });
+  const session = await prisma.diagnosticSession.findFirst({ where: { id, workspaceId }, include: { callSession: true, transcripts: { orderBy: { updatedAt: "desc" } }, analyzerRuns: { orderBy: { createdAt: "desc" }, include: { executions: { orderBy: { createdAt: "desc" }, take: 1 }, artifacts: { orderBy: { createdAt: "desc" }, take: 1 } } }, analyses: { orderBy: { updatedAt: "desc" }, include: { constraints: true, bottlenecks: true, recommendations: true } } } });
   if (!session) notFound();
   const crmContext = await getCrmRecordContext(workspaceId, session.relatedType, session.relatedId);
   return { session, crmContext };

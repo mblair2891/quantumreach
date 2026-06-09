@@ -228,3 +228,105 @@ export async function createDiagnosticFromCallSession(workspaceId: string, callS
   await audit(workspaceId, "call_session.status_updated", "CallSession", call.id, user.id, { from: call.status, to: "DIAGNOSTIC_CREATED" });
   return session;
 }
+
+export type WorkflowAction = { title: string; detail: string; href: string; tone: "amber" | "blue" | "green" | "slate" };
+
+function hasTranscriptFilter() {
+  return { not: null } as const;
+}
+
+export async function getWorkflowStatusSummary(workspaceId: string) {
+  await requireWorkspaceAccess(workspaceId);
+  const [
+    leadsNotStarted,
+    leadsInOutreach,
+    leadsReplied,
+    callsScheduled,
+    callsNeedingTranscript,
+    callsTranscriptReady,
+    diagnosticsReadyForAnalysis,
+    analysesNeedingReview,
+    analysesReviewedFinal,
+    reportsGenerated,
+    roadmapsGenerated,
+    proposalsGenerated,
+    recentCalls,
+    recentAudit,
+    activeCampaigns,
+    activeKnowledge,
+    draftKnowledge,
+    activeTestKnowledge,
+    usedKnowledge
+  ] = await Promise.all([
+    prisma.lead.count({ where: { workspaceId, outreachStatuses: { none: {} }, status: { not: "ARCHIVED" } } }),
+    prisma.leadOutreachStatus.count({ where: { workspaceId, status: { in: ["QUEUED", "SENT", "OPENED"] } } }),
+    prisma.leadOutreachStatus.count({ where: { workspaceId, status: { in: ["REPLIED", "CALL_BOOKED", "CALL_COMPLETED", "TRANSCRIPT_READY", "ANALYZED"] } } }),
+    prisma.callSession.count({ where: { workspaceId, status: "SCHEDULED" } }),
+    prisma.callSession.count({ where: { workspaceId, status: "COMPLETED", transcriptText: null } }),
+    prisma.callSession.count({ where: { workspaceId, transcriptText: hasTranscriptFilter(), diagnostics: { none: {} }, status: { not: "ARCHIVED" } } }),
+    prisma.diagnosticSession.count({ where: { workspaceId, status: "TRANSCRIPT_READY", analyses: { none: {} } } }),
+    prisma.analysisRecord.count({ where: { workspaceId, status: { in: ["DRAFT", "NEEDS_REVIEW"] } } }),
+    prisma.analysisRecord.count({ where: { workspaceId, status: { in: ["REVIEWED", "FINAL"] } } }),
+    prisma.executiveReport.count({ where: { workspaceId, status: { in: ["GENERATED", "REVIEWED", "FINAL"] } } }),
+    prisma.strategicRoadmap.count({ where: { workspaceId, status: { in: ["GENERATED", "REVIEWED", "FINAL"] } } }),
+    prisma.proposal.count({ where: { workspaceId, status: { in: ["GENERATED", "REVIEWED", "FINAL"] } } }),
+    prisma.callSession.findMany({ where: { workspaceId }, include: { lead: true, opportunity: true, diagnostics: { include: { analyses: { include: { reports: true, roadmaps: true, proposals: true }, orderBy: { updatedAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 5 }),
+    prisma.auditLog.findMany({ where: { workspaceId }, select: { id: true, action: true, entityType: true, entityId: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 8 }),
+    prisma.outreachCampaign.count({ where: { workspaceId, status: "ACTIVE" } }),
+    prisma.knowledgeDocument.findMany({ where: { workspaceId, status: "ACTIVE" }, select: { title: true, authorityLevel: true, documentType: true, priority: true } }),
+    prisma.knowledgeDocument.count({ where: { workspaceId, status: "DRAFT" } }),
+    prisma.knowledgeDocument.count({ where: { workspaceId, status: "ACTIVE", title: { startsWith: "Test" } } }),
+    prisma.knowledgeDocument.count({ where: { workspaceId, OR: [{ usages: { some: {} } }, { sourceReferences: { some: {} } }] } })
+  ]);
+
+  const countActive = (levels: string[]) => activeKnowledge.filter((doc) => levels.includes(doc.authorityLevel) || levels.includes(doc.documentType)).length;
+  const knowledgeCoverage = {
+    globalDoctrine: activeKnowledge.filter((doc) => doc.priority === "GLOBAL" && ["SYSTEM_DOCTRINE", "PRODUCT_DOCTRINE", "UX_COPY_DOCTRINE"].includes(doc.authorityLevel)).length,
+    diagnosticFramework: countActive(["DIAGNOSTIC_FRAMEWORK"]),
+    reportFramework: countActive(["REPORT_FRAMEWORK"]),
+    roadmapFramework: countActive(["ROADMAP_FRAMEWORK"]),
+    proposalFramework: countActive(["PROPOSAL_FRAMEWORK"]),
+    executionHandoffFramework: countActive(["EXECUTION_HANDOFF"]),
+    draftDocuments: draftKnowledge,
+    activeTestDocuments: activeTestKnowledge,
+    usedDocuments: usedKnowledge
+  };
+  const knowledgeCoverageWarnings = [
+    knowledgeCoverage.globalDoctrine > 0 ? "Global doctrine active." : "No active global doctrine found.",
+    knowledgeCoverage.diagnosticFramework === 0 ? "No active diagnostic framework found." : null,
+    knowledgeCoverage.reportFramework === 0 ? "No active report framework found." : null,
+    knowledgeCoverage.roadmapFramework === 0 ? "No active roadmap framework found." : null,
+    knowledgeCoverage.proposalFramework === 0 ? "No active proposal framework found." : null,
+    knowledgeCoverage.executionHandoffFramework === 0 ? "No active execution handoff framework found." : null,
+    knowledgeCoverage.activeTestDocuments > 0 ? "Test source documents are active and may influence production outputs." : null,
+    knowledgeCoverage.draftDocuments > 0 ? "Draft source documents need review." : null
+  ].filter((warning): warning is string => Boolean(warning));
+
+  const deliverablesGenerated = reportsGenerated + roadmapsGenerated + proposalsGenerated;
+  const nextRecommendedActions: WorkflowAction[] = [];
+  if (callsNeedingTranscript > 0) nextRecommendedActions.push({ title: `Add transcript to ${callsNeedingTranscript} completed call${callsNeedingTranscript === 1 ? "" : "s"}.`, detail: "Completed calls need transcript text before diagnostic creation.", href: "/dashboard/calls", tone: "amber" });
+  if (callsTranscriptReady > 0) nextRecommendedActions.push({ title: `Create diagnostic from ${callsTranscriptReady} transcript-ready call${callsTranscriptReady === 1 ? "" : "s"}.`, detail: "A transcript is present and no diagnostic is linked yet.", href: "/dashboard/calls", tone: "blue" });
+  if (diagnosticsReadyForAnalysis > 0) nextRecommendedActions.push({ title: `Run analysis on ${diagnosticsReadyForAnalysis} diagnostic${diagnosticsReadyForAnalysis === 1 ? "" : "s"}.`, detail: "Transcript-ready diagnostics are waiting for source-guided analysis.", href: "/dashboard/diagnostics", tone: "blue" });
+  if (analysesNeedingReview > 0) nextRecommendedActions.push({ title: `Review ${analysesNeedingReview} analysis record${analysesNeedingReview === 1 ? "" : "s"}.`, detail: "Human review is required before reports, roadmaps, or proposals are production-ready.", href: "/dashboard/analysis", tone: "amber" });
+  if (analysesReviewedFinal > deliverablesGenerated) nextRecommendedActions.push({ title: "Generate report, roadmap, or proposal from reviewed analysis.", detail: "Reviewed intelligence is ready for downstream deliverables.", href: "/dashboard/analysis", tone: "green" });
+  if (knowledgeCoverage.reportFramework === 0) nextRecommendedActions.push({ title: "Activate a report framework before generating reports.", detail: "Report generation should use active production source-of-truth documents.", href: "/dashboard/knowledge", tone: "amber" });
+  if (knowledgeCoverage.proposalFramework === 0) nextRecommendedActions.push({ title: "No active proposal framework found.", detail: "Activate proposal framework coverage before proposal generation.", href: "/dashboard/knowledge", tone: "amber" });
+  if (knowledgeCoverage.activeTestDocuments > 0) nextRecommendedActions.push({ title: "Archive temporary test source documents.", detail: "Active documents whose title begins with Test may influence production outputs.", href: "/dashboard/knowledge?filter=test", tone: "amber" });
+  if (nextRecommendedActions.length === 0) nextRecommendedActions.push({ title: "No immediate workflow blockers detected.", detail: "Continue moving leads through outreach, calls, analysis review, and deliverables.", href: "/dashboard/leads", tone: "slate" });
+
+  const readinessChecklist = [
+    { label: "Active global doctrine exists", complete: knowledgeCoverage.globalDoctrine > 0 },
+    { label: "Active diagnostic framework exists", complete: knowledgeCoverage.diagnosticFramework > 0 },
+    { label: "Active report framework exists", complete: knowledgeCoverage.reportFramework > 0 },
+    { label: "Active roadmap framework exists", complete: knowledgeCoverage.roadmapFramework > 0 },
+    { label: "Active proposal framework exists", complete: knowledgeCoverage.proposalFramework > 0 },
+    { label: "At least one lead exists", complete: leadsNotStarted + leadsInOutreach + leadsReplied > 0 },
+    { label: "At least one outreach campaign exists", complete: activeCampaigns > 0 },
+    { label: "At least one call has transcript", complete: callsTranscriptReady > 0 || diagnosticsReadyForAnalysis > 0 || analysesNeedingReview > 0 || analysesReviewedFinal > 0 },
+    { label: "At least one analysis has been reviewed", complete: analysesReviewedFinal > 0 },
+    { label: "No temporary test documents are active", complete: knowledgeCoverage.activeTestDocuments === 0 },
+    { label: "No major required setup missing", complete: knowledgeCoverage.globalDoctrine > 0 && knowledgeCoverage.diagnosticFramework > 0 && knowledgeCoverage.reportFramework > 0 && knowledgeCoverage.roadmapFramework > 0 && knowledgeCoverage.proposalFramework > 0 && knowledgeCoverage.activeTestDocuments === 0 }
+  ];
+
+  return { leadsNotStarted, leadsInOutreach, leadsReplied, callsScheduled, callsNeedingTranscript, callsTranscriptReady, diagnosticsReadyForAnalysis, analysesNeedingReview, analysesReviewedFinal, deliverablesGenerated, reportsGenerated, roadmapsGenerated, proposalsGenerated, activeCampaigns, recentCalls, recentAudit, knowledgeCoverage, knowledgeCoverageWarnings, nextRecommendedActions, readinessChecklist };
+}
