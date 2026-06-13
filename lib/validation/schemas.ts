@@ -75,6 +75,7 @@ export const knowledgeBulkImportPayloadSchema = z.object({
     version: z.string().trim().default("1.0"),
     status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
     sourceFileName: z.string().trim().min(1),
+    clientId: optionalText,
     sourceMimeType: optionalText,
     sourceFileSizeBytes: z.coerce.number().int().nonnegative().optional(),
     storageKey: optionalText,
