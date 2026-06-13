@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { KnowledgeAuthorityLevel, KnowledgePriority, WorkflowStage } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
@@ -6,6 +7,7 @@ import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { audit } from "@/lib/audit/service";
 import { toPrismaJson } from "@/lib/db/json";
 import { TXT_IMPORT_MAX_FILES } from "@/lib/knowledge/import";
+import { deleteKnowledgeOriginalFile, isWorkspaceKnowledgeStorageKey, putKnowledgeOriginalFile, KnowledgeStorageError } from "@/lib/storage/r2";
 
 export const knowledgeAuthorityLevels = ["SYSTEM_DOCTRINE", "PRODUCT_DOCTRINE", "UX_COPY_DOCTRINE", "STRATEGY_FRAMEWORK", "DIAGNOSTIC_FRAMEWORK", "ROI_FRAMEWORK", "REPORT_FRAMEWORK", "ROADMAP_FRAMEWORK", "PROPOSAL_FRAMEWORK", "EXECUTION_HANDOFF", "AUTHORITY_TEMPLATE", "TRAINING_CURRICULUM", "COURSE_TEMPLATE", "REFERENCE"] as const;
 export const knowledgePriorities = ["GLOBAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -41,6 +43,7 @@ export const knowledgeDocumentSchema = z.object({
   sourceMimeType: optionalText,
   sourceFileSizeBytes: z.coerce.number().int().nonnegative().optional(),
   storageKey: optionalText,
+  clientId: optionalText,
   supersedesDocumentId: optionalText,
   sourceText: z.string().trim().min(10)
 });
@@ -143,7 +146,7 @@ export async function getKnowledgeCoverageSummary(workspaceId: string) {
 
 export async function getKnowledgeDocument(workspaceId: string, id: string) {
   await requireWorkspaceAccess(workspaceId);
-  const document = await prisma.knowledgeDocument.findFirst({ where: { id, workspaceId }, include: { chunks: { orderBy: { chunkIndex: "asc" } }, childVersions: { select: { id: true, title: true, version: true, status: true, createdAt: true }, orderBy: { createdAt: "desc" } }, supersedesDocument: { select: { id: true, title: true, version: true, status: true } }, usages: { include: { chunk: { select: { id: true, chunkIndex: true } } }, orderBy: { createdAt: "desc" }, take: 50 } } });
+  const document = await prisma.knowledgeDocument.findFirst({ where: { id, workspaceId }, include: { chunks: { orderBy: { chunkIndex: "asc" } }, childVersions: { select: { id: true, title: true, version: true, status: true, createdAt: true }, orderBy: { createdAt: "desc" } }, parentDocument: { select: { id: true, title: true, version: true, status: true } }, supersedesDocument: { select: { id: true, title: true, version: true, status: true } }, supersededBy: { select: { id: true, title: true, version: true, status: true, createdAt: true }, orderBy: { createdAt: "desc" } }, usages: { include: { chunk: { select: { id: true, chunkIndex: true } } }, orderBy: { createdAt: "desc" }, take: 50 } } });
   if (!document) notFound();
   return document;
 }
@@ -158,7 +161,7 @@ export async function createKnowledgeDocument(workspaceId: string, input: unknow
   return document;
 }
 
-export async function bulkCreateKnowledgeDocuments(workspaceId: string, input: unknown) {
+export async function bulkCreateKnowledgeDocuments(workspaceId: string, input: unknown, originalFiles: Map<string, File> = new Map()) {
   const { user } = await requireWorkspaceAccess(workspaceId);
   const { documents } = bulkKnowledgeImportSchema.parse(input);
   const imported = [];
@@ -169,10 +172,32 @@ export async function bulkCreateKnowledgeDocuments(workspaceId: string, input: u
       const superseded = await prisma.knowledgeDocument.findFirst({ where: { id: supersedesDocumentId, workspaceId }, select: { id: true } });
       if (!superseded) throw new Error("Superseded document must be in the active workspace.");
     }
-    const document = await prisma.knowledgeDocument.create({ data: { workspaceId, title: item.title, description: emptyToNull(item.description), documentType: item.documentType, authorityLevel: item.authorityLevel, priority: item.priority, workflowStages: toPrismaJson(stages), offerLine: emptyToNull(item.offerLine), audience: emptyToNull(item.audience), industry: emptyToNull(item.industry), tags: toPrismaJson(parseTags(item.tags)), status: item.status, version: item.version || "1.0", sourceFileName: emptyToNull(item.sourceFileName), sourceMimeType: emptyToNull(item.sourceMimeType) || "text/plain", sourceFileSizeBytes: item.sourceFileSizeBytes, storageKey: emptyToNull(item.storageKey), sourceText: item.sourceText, parentDocumentId: supersedesDocumentId, supersedesDocumentId, createdById: user.id, approvedById: item.status === "ACTIVE" ? user.id : null, approvedAt: item.status === "ACTIVE" ? new Date() : null, lastReviewedAt: new Date() } });
-    const chunkCount = await regenerateKnowledgeChunks(workspaceId, document.id, user.id);
-    await audit(workspaceId, "knowledge.document_imported", "KnowledgeDocument", document.id, user.id, { status: document.status, authorityLevel: document.authorityLevel, sourceFileName: document.sourceFileName, chunkCount });
-    imported.push({ id: document.id, title: document.title, status: document.status, chunkCount });
+    const documentId = randomUUID();
+    const originalFile = item.clientId ? originalFiles.get(item.clientId) : undefined;
+    let storageKey: string | null = null;
+    if (originalFile) {
+      try {
+        const stored = await putKnowledgeOriginalFile({ workspaceId, documentId, file: originalFile, fileName: item.sourceFileName, mimeType: emptyToNull(item.sourceMimeType) || originalFile.type || "application/octet-stream" });
+        storageKey = stored.key;
+      } catch (error) {
+        await audit(workspaceId, "knowledge.original_file_storage_failed", "KnowledgeDocument", documentId, user.id, { sourceFileName: item.sourceFileName, sourceFileSizeBytes: item.sourceFileSizeBytes, sourceMimeType: item.sourceMimeType });
+        if (error instanceof KnowledgeStorageError) throw error;
+        throw new KnowledgeStorageError();
+      }
+    } else if (!emptyToNull(item.storageKey)) {
+      throw new KnowledgeStorageError("Original file bytes were not received for final import. Please re-select the source file and try again.");
+    }
+    const sourceFileName = emptyToNull(item.sourceFileName);
+    const sourceMimeType = emptyToNull(item.sourceMimeType) || originalFile?.type || "text/plain";
+    const status = supersedesDocumentId ? "DRAFT" : item.status;
+    const chunks = chunkSourceText(item.sourceText).map((chunk, index) => ({ workspaceId, documentId, chunkIndex: index, heading: chunk.heading, text: chunk.text, characterCount: chunk.characterCount, workflowStages: toPrismaJson(stages), documentType: item.documentType, authorityLevel: item.authorityLevel, status }));
+    const [document] = await prisma.$transaction([
+      prisma.knowledgeDocument.create({ data: { id: documentId, workspaceId, title: item.title, description: emptyToNull(item.description), documentType: item.documentType, authorityLevel: item.authorityLevel, priority: item.priority, workflowStages: toPrismaJson(stages), offerLine: emptyToNull(item.offerLine), audience: emptyToNull(item.audience), industry: emptyToNull(item.industry), tags: toPrismaJson(parseTags(item.tags)), status, version: item.version || "1.0", sourceFileName, sourceMimeType, sourceFileSizeBytes: item.sourceFileSizeBytes ?? originalFile?.size, storageKey, sourceText: item.sourceText, parentDocumentId: supersedesDocumentId, supersedesDocumentId, createdById: user.id, approvedById: status === "ACTIVE" ? user.id : null, approvedAt: status === "ACTIVE" ? new Date() : null, lastReviewedAt: new Date() } }),
+      prisma.knowledgeChunk.createMany({ data: chunks }),
+      prisma.auditLog.create({ data: { workspaceId, action: supersedesDocumentId ? "knowledge.document_version_created" : "knowledge.document_imported", entityType: "KnowledgeDocument", entityId: documentId, actorId: user.id, metadata: toPrismaJson({ status, authorityLevel: item.authorityLevel, sourceFileName, chunkCount: chunks.length, supersedesDocumentId }) } }),
+      ...(storageKey ? [prisma.auditLog.create({ data: { workspaceId, action: "knowledge.original_file_stored", entityType: "KnowledgeDocument", entityId: documentId, actorId: user.id, metadata: toPrismaJson({ sourceFileName, sourceFileSizeBytes: item.sourceFileSizeBytes ?? originalFile?.size, sourceMimeType, documentId }) } })] : [])
+    ]);
+    imported.push({ id: document.id, title: document.title, status: document.status, chunkCount: chunks.length });
   }
   return { importedCount: imported.length, imported };
 }
@@ -183,7 +208,7 @@ export async function updateKnowledgeDocument(workspaceId: string, id: string, i
   if (!existing) notFound();
   const data = knowledgeDocumentSchema.parse(input);
   const stages = parseStages(data.workflowStages);
-  const document = await prisma.knowledgeDocument.update({ where: { id }, data: { title: data.title, description: emptyToNull(data.description), documentType: data.documentType, authorityLevel: data.authorityLevel, priority: data.priority, workflowStages: toPrismaJson(stages), offerLine: emptyToNull(data.offerLine), audience: emptyToNull(data.audience), industry: emptyToNull(data.industry), tags: toPrismaJson(parseTags(data.tags)), status: data.status, version: data.version || existing.version, sourceFileName: emptyToNull(data.sourceFileName), sourceMimeType: emptyToNull(data.sourceMimeType), sourceFileSizeBytes: data.sourceFileSizeBytes, storageKey: emptyToNull(data.storageKey), sourceText: data.sourceText } });
+  const document = await prisma.knowledgeDocument.update({ where: { id }, data: { title: data.title, description: emptyToNull(data.description), documentType: data.documentType, authorityLevel: data.authorityLevel, priority: data.priority, workflowStages: toPrismaJson(stages), offerLine: emptyToNull(data.offerLine), audience: emptyToNull(data.audience), industry: emptyToNull(data.industry), tags: toPrismaJson(parseTags(data.tags)), status: data.status, version: data.version || existing.version, sourceFileName: emptyToNull(data.sourceFileName) ?? existing.sourceFileName, sourceMimeType: emptyToNull(data.sourceMimeType) ?? existing.sourceMimeType, sourceFileSizeBytes: data.sourceFileSizeBytes ?? existing.sourceFileSizeBytes, storageKey: existing.storageKey, sourceText: data.sourceText } });
   await regenerateKnowledgeChunks(workspaceId, id, user.id);
   await audit(workspaceId, "knowledge.document_edited", "KnowledgeDocument", id, user.id, { status: document.status });
   return document;
@@ -200,7 +225,7 @@ export async function setKnowledgeDocumentStatus(workspaceId: string, id: string
 
 export async function deleteKnowledgeDocument(workspaceId: string, documentId: string) {
   const { user } = await requireWorkspaceAccess(workspaceId);
-  const document = await prisma.knowledgeDocument.findFirst({ where: { id: documentId, workspaceId }, select: { id: true, workspaceId: true, title: true, status: true, authorityLevel: true, documentType: true, version: true, chunks: { select: { id: true } } } });
+  const document = await prisma.knowledgeDocument.findFirst({ where: { id: documentId, workspaceId }, select: { id: true, workspaceId: true, title: true, status: true, authorityLevel: true, documentType: true, version: true, storageKey: true, sourceFileName: true, sourceMimeType: true, sourceFileSizeBytes: true, chunks: { select: { id: true } } } });
   if (!document) throw new KnowledgeDocumentDeleteError(genericKnowledgeDeleteMessage);
   if (document.status === "ACTIVE") throw new KnowledgeDocumentDeleteError(activeKnowledgeDeleteMessage);
 
@@ -210,8 +235,18 @@ export async function deleteKnowledgeDocument(workspaceId: string, documentId: s
   ]);
   if (usageCount > 0 || sourceReferenceCount > 0) throw new KnowledgeDocumentDeleteError(usedKnowledgeDeleteMessage);
 
+  if (document.storageKey) {
+    if (!isWorkspaceKnowledgeStorageKey(document.storageKey, workspaceId, documentId)) throw new KnowledgeDocumentDeleteError(genericKnowledgeDeleteMessage);
+    try {
+      await deleteKnowledgeOriginalFile(document.storageKey);
+      await audit(workspaceId, "knowledge.original_file_deleted", "KnowledgeDocument", documentId, user.id, { sourceFileName: document.sourceFileName, sourceMimeType: document.sourceMimeType, sourceFileSizeBytes: document.sourceFileSizeBytes, documentId });
+    } catch {
+      throw new KnowledgeDocumentDeleteError("Original file cleanup failed, so the document was not deleted. Please try again later.");
+    }
+  }
+
   await prisma.$transaction([
-    prisma.auditLog.create({ data: { workspaceId, action: "knowledge.document_deleted", entityType: "KnowledgeDocument", entityId: documentId, actorId: user.id, metadata: toPrismaJson({ title: document.title, status: document.status, authorityLevel: document.authorityLevel, documentType: document.documentType, version: document.version, chunkCount: document.chunks.length }) } }),
+    prisma.auditLog.create({ data: { workspaceId, action: "knowledge.document_deleted", entityType: "KnowledgeDocument", entityId: documentId, actorId: user.id, metadata: toPrismaJson({ title: document.title, status: document.status, authorityLevel: document.authorityLevel, documentType: document.documentType, version: document.version, chunkCount: document.chunks.length, originalFileDeleted: Boolean(document.storageKey) }) } }),
     prisma.knowledgeChunk.deleteMany({ where: { workspaceId, documentId } }),
     prisma.knowledgeDocument.delete({ where: { id: documentId } })
   ]);

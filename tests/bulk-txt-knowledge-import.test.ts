@@ -40,7 +40,7 @@ describe("bulk TXT knowledge import", () => {
     expect(service).toContain("bulkCreateKnowledgeDocuments(workspaceId");
     expect(service).toContain("await requireWorkspaceAccess(workspaceId)");
     expect(service).toContain("workspaceId, title: item.title");
-    expect(service).toContain("await regenerateKnowledgeChunks(workspaceId, document.id, user.id)");
+    expect(service).toContain("prisma.knowledgeChunk.createMany({ data: chunks })");
   });
 
   it("links the import workflow from the knowledge dashboard", () => {
