@@ -160,6 +160,7 @@ enum LeadImportMethod {
   CRM_IMPORT
   APPROVED_DATA_PROVIDER
   OTHER
+  QUANTUM_REACH_MEETINGS
 }
 
 enum OutreachPermissionStatus {
@@ -179,6 +180,36 @@ enum OutreachStatus {
   CALL_COMPLETED
   TRANSCRIPT_READY
   ANALYZED
+}
+
+enum MeetingRoomStatus {
+  DRAFT
+  SCHEDULED
+  OPEN
+  IN_PROGRESS
+  ENDED
+  CANCELLED
+  ARCHIVED
+}
+
+enum MeetingParticipantRole {
+  HOST
+  CO_HOST
+  PARTICIPANT
+  GUEST
+}
+
+enum MeetingEventType {
+  ROOM_CREATED
+  ROOM_OPENED
+  PARTICIPANT_JOINED
+  PARTICIPANT_LEFT
+  SCREEN_SHARE_STARTED
+  SCREEN_SHARE_STOPPED
+  ROOM_ENDED
+  TOKEN_ISSUED
+  INVITATION_CREATED
+  INVITATION_REVOKED
 }
 
 enum CallProvider {
@@ -208,9 +239,12 @@ model UserProfile {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
-  auditLogs       AuditLog[]
-  memberships     WorkspaceMember[]
-  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
+  auditLogs           AuditLog[]
+  memberships         WorkspaceMember[]
+  ownedWorkspaces     Workspace[]          @relation("WorkspaceOwner")
+  createdMeetingRooms MeetingRoom[]        @relation("MeetingRoomCreator")
+  hostedMeetingRooms  MeetingRoom[]        @relation("MeetingRoomHost")
+  meetingParticipants MeetingParticipant[]
 }
 
 model Workspace {
@@ -267,6 +301,10 @@ model Workspace {
   outreachSteps             OutreachStep[]
   leadOutreachStatuses      LeadOutreachStatus[]
   callSessions              CallSession[]
+  meetingRooms              MeetingRoom[]
+  meetingParticipants       MeetingParticipant[]
+  meetingInvitations        MeetingInvitation[]
+  meetingEvents             MeetingEvent[]
 
   @@index([slug])
   @@index([ownerId])
@@ -393,6 +431,7 @@ model Company {
   contacts      Contact[]
   opportunities Opportunity[]
   callSessions  CallSession[]
+  meetingRooms  MeetingRoom[]
 
   @@index([workspaceId, name])
   @@index([workspaceId, status])
@@ -416,6 +455,7 @@ model Contact {
   workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   opportunities Opportunity[]
   callSessions  CallSession[]
+  MeetingRoom   MeetingRoom[]
 
   @@index([workspaceId, email])
   @@index([workspaceId, companyId])
@@ -444,6 +484,7 @@ model Lead {
   workspace        Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   outreachStatuses LeadOutreachStatus[]
   callSessions     CallSession[]
+  meetingRooms     MeetingRoom[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, email])
@@ -491,6 +532,7 @@ model Opportunity {
   projects     ImplementationProject[]
   proposals    Proposal[]
   callSessions CallSession[]
+  meetingRooms MeetingRoom[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, stageId])
@@ -1167,44 +1209,44 @@ model KnowledgeCollection {
 }
 
 model KnowledgeDocument {
-  id             String                  @id @default(cuid())
-  workspaceId    String
-  collectionId   String?
-  title          String
-  description    String?
-  documentType   KnowledgeAuthorityLevel
-  authorityLevel KnowledgeAuthorityLevel
-  priority       KnowledgePriority       @default(MEDIUM)
-  workflowStages Json                    @default("[]")
-  offerLine      String?
-  audience       String?
-  industry       String?
-  tags           Json                    @default("[]")
-  status         KnowledgeStatus         @default(DRAFT)
-  version        String                  @default("1.0")
-  sourceFileName String?
-  sourceMimeType String?
-  sourceFileSizeBytes Int?
-  storageKey     String?
-  sourceText     String
-  createdById    String?
-  approvedById   String?
-  approvedAt     DateTime?
-  lastReviewedAt DateTime?
-  parentDocumentId String?
+  id                   String                  @id @default(cuid())
+  workspaceId          String
+  collectionId         String?
+  title                String
+  description          String?
+  documentType         KnowledgeAuthorityLevel
+  authorityLevel       KnowledgeAuthorityLevel
+  priority             KnowledgePriority       @default(MEDIUM)
+  workflowStages       Json                    @default("[]")
+  offerLine            String?
+  audience             String?
+  industry             String?
+  tags                 Json                    @default("[]")
+  status               KnowledgeStatus         @default(DRAFT)
+  version              String                  @default("1.0")
+  sourceFileName       String?
+  sourceMimeType       String?
+  sourceFileSizeBytes  Int?
+  storageKey           String?
+  sourceText           String
+  createdById          String?
+  approvedById         String?
+  approvedAt           DateTime?
+  lastReviewedAt       DateTime?
+  parentDocumentId     String?
   supersedesDocumentId String?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
-  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  collection       KnowledgeCollection?       @relation(fields: [collectionId], references: [id], onDelete: SetNull)
-  parentDocument   KnowledgeDocument?         @relation("KnowledgeDocumentParent", fields: [parentDocumentId], references: [id], onDelete: SetNull)
-  childVersions    KnowledgeDocument[]        @relation("KnowledgeDocumentParent")
-  supersedesDocument KnowledgeDocument?       @relation("KnowledgeDocumentSupersedes", fields: [supersedesDocumentId], references: [id], onDelete: SetNull)
-  supersededBy     KnowledgeDocument[]        @relation("KnowledgeDocumentSupersedes")
-  chunks           KnowledgeChunk[]
-  usages           KnowledgeDocumentUsage[]
-  sourceReferences KnowledgeSourceReference[]
+  workspace          Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  collection         KnowledgeCollection?       @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  parentDocument     KnowledgeDocument?         @relation("KnowledgeDocumentParent", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  childVersions      KnowledgeDocument[]        @relation("KnowledgeDocumentParent")
+  supersedesDocument KnowledgeDocument?         @relation("KnowledgeDocumentSupersedes", fields: [supersedesDocumentId], references: [id], onDelete: SetNull)
+  supersededBy       KnowledgeDocument[]        @relation("KnowledgeDocumentSupersedes")
+  chunks             KnowledgeChunk[]
+  usages             KnowledgeDocumentUsage[]
+  sourceReferences   KnowledgeSourceReference[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, authorityLevel, priority])
@@ -1347,16 +1389,114 @@ model CallSession {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  lead        Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  contact     Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  company     Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  opportunity Opportunity?        @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  diagnostics DiagnosticSession[]
+  workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead         Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact      Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  opportunity  Opportunity?        @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  diagnostics  DiagnosticSession[]
+  meetingRooms MeetingRoom[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, leadId])
   @@index([workspaceId, opportunityId])
+}
+
+model MeetingRoom {
+  id            String            @id @default(cuid())
+  workspaceId   String
+  createdById   String
+  title         String
+  description   String?
+  roomName      String            @unique
+  slug          String            @unique
+  status        MeetingRoomStatus @default(DRAFT)
+  scheduledAt   DateTime?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  hostUserId    String?
+  leadId        String?
+  contactId     String?
+  companyId     String?
+  opportunityId String?
+  callSessionId String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    UserProfile          @relation("MeetingRoomCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  hostUser     UserProfile?         @relation("MeetingRoomHost", fields: [hostUserId], references: [id], onDelete: SetNull)
+  lead         Lead?                @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact      Contact?             @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  opportunity  Opportunity?         @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  callSession  CallSession?         @relation(fields: [callSessionId], references: [id], onDelete: SetNull)
+  participants MeetingParticipant[]
+  invitations  MeetingInvitation[]
+  events       MeetingEvent[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, slug])
+  @@index([workspaceId, callSessionId])
+}
+
+model MeetingParticipant {
+  id              String                 @id @default(cuid())
+  workspaceId     String
+  meetingRoomId   String
+  userId          String?
+  guestName       String?
+  guestEmail      String?
+  livekitIdentity String
+  role            MeetingParticipantRole @default(PARTICIPANT)
+  joinedAt        DateTime?
+  leftAt          DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meetingRoom MeetingRoom    @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
+  user        UserProfile?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  events      MeetingEvent[]
+
+  @@unique([meetingRoomId, livekitIdentity])
+  @@index([workspaceId, meetingRoomId])
+  @@index([userId])
+}
+
+model MeetingInvitation {
+  id            String                 @id @default(cuid())
+  workspaceId   String
+  meetingRoomId String
+  email         String?
+  displayName   String?
+  tokenHash     String                 @unique
+  role          MeetingParticipantRole @default(GUEST)
+  expiresAt     DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meetingRoom MeetingRoom @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, meetingRoomId])
+}
+
+model MeetingEvent {
+  id            String           @id @default(cuid())
+  workspaceId   String
+  meetingRoomId String
+  participantId String?
+  type          MeetingEventType
+  metadata      Json?
+  createdAt     DateTime         @default(now())
+
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meetingRoom MeetingRoom         @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
+  participant MeetingParticipant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, meetingRoomId, createdAt])
 }
 
 model KnowledgeRecord {

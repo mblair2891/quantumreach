@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { issueMeetingToken } from "@/lib/meetings/service";
+import { LiveKitConfigurationError } from "@/lib/meetings/livekit";
+export async function POST(req: Request, { params }: { params: { id: string } }) { try { const body = await req.json(); const token = await issueMeetingToken({ meetingId: params.id, workspaceId: body.workspaceId, invitationToken: body.invitationToken, displayName: body.displayName || "Guest" }); return NextResponse.json({ url: token.url, expiresAt: token.expiresAt, participantId: token.participantId, role: token.role }); } catch (e) { const msg = e instanceof LiveKitConfigurationError ? e.message : e instanceof Error ? e.message : "Unable to issue meeting token."; return NextResponse.json({ error: msg }, { status: 400 }); } }
