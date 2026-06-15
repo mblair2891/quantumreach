@@ -1461,11 +1461,16 @@ model MeetingInvitation {
   workspaceId String
   meetingId   String
   tokenHash   String                 @unique
+  tokenVersion Int                   @default(1)
+  displayName String?
+  email       String?
   role        MeetingParticipantRole @default(GUEST)
   expiresAt   DateTime?
   revokedAt   DateTime?
   createdById String?
   createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  lastCopiedAt DateTime?
 
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   meeting      MeetingRoom          @relation(fields: [meetingId], references: [id], onDelete: Cascade)

@@ -44,10 +44,11 @@ describe("Phase 9A LiveKit meetings", () => {
   it("hashes, expires, revokes, and meeting-scopes guest invitations", () => {
     const service = source("lib/meetings/service.ts");
     expect(service).toContain('createHash("sha256").update(token).digest("hex")');
-    expect(service).toContain("meetingId: meeting.id, tokenHash: hashInvitationToken(invitationToken)");
+    expect(service).toContain("findValidInvitation(meeting.id, invitationToken)");
+    expect(source("lib/meetings/invitations.ts")).toContain("createHmac");
     expect(service).toContain("if (invitation.revokedAt)");
     expect(service).toContain("invitation.expiresAt <= new Date()");
-    expect(service).toContain('role: "GUEST"');
+    expect(service).toContain("parseGuestRole");
     expect(source("middleware.ts")).toContain('"/dashboard(.*)"');
   });
 
