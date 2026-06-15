@@ -1,0 +1,428 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  LiveKitRoom,
+  RoomAudioRenderer,
+  StartAudio,
+  VideoTrack,
+  useConnectionState,
+  useLocalParticipant,
+  useParticipants,
+  useRoomContext,
+  useSpeakingParticipants,
+  useTracks
+} from "@livekit/components-react";
+import { ConnectionState, Track } from "livekit-client";
+import { Camera, CameraOff, LogOut, Mic, MicOff, MonitorUp, PhoneOff, RefreshCw, Users } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+type MeetingClientProps = {
+  meeting: { id: string; title: string; description?: string | null; scheduledAt?: string | null };
+  invitationToken?: string;
+  defaultDisplayName?: string;
+  dashboardReturnUrl?: string;
+};
+
+type Access = {
+  token: string;
+  url: string;
+  identity: string;
+  displayName: string;
+  role: "HOST" | "CO_HOST" | "PARTICIPANT" | "GUEST";
+  meeting: { id: string; title: string; status: string };
+};
+
+type DeviceChoice = {
+  displayName: string;
+  cameraEnabled: boolean;
+  microphoneEnabled: boolean;
+  cameraDeviceId: string;
+  microphoneDeviceId: string;
+};
+
+function readableMediaError(error: unknown, kind?: MediaDeviceKind) {
+  const name = error instanceof DOMException ? error.name : "";
+  if (!window.isSecureContext) return "Camera and microphone access require a secure browser context.";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") return `${kind === "videoinput" ? "Camera" : kind === "audioinput" ? "Microphone" : "Media"} permission was denied. Update browser permissions and try again.`;
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") return kind === "videoinput" ? "No camera was found." : kind === "audioinput" ? "No microphone was found." : "No camera or microphone was found.";
+  if (name === "NotReadableError") return "The selected device is already in use or unavailable.";
+  return "The selected camera or microphone could not be started.";
+}
+
+function stopStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
+function PreJoin({
+  meeting,
+  defaultDisplayName,
+  onJoin
+}: {
+  meeting: MeetingClientProps["meeting"];
+  defaultDisplayName?: string;
+  onJoin: (choice: DeviceChoice) => Promise<void>;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const animationRef = useRef<number>();
+  const [displayName, setDisplayName] = useState(defaultDisplayName ?? "");
+  const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
+  const [cameraDeviceId, setCameraDeviceId] = useState("");
+  const [microphoneDeviceId, setMicrophoneDeviceId] = useState("");
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [microphoneLevel, setMicrophoneLevel] = useState(0);
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const cleanup = useCallback(() => {
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    animationRef.current = undefined;
+    audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+    stopStream(streamRef.current);
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
+  const startPreview = useCallback(async () => {
+    cleanup();
+    setError(undefined);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(window.isSecureContext ? "This browser does not support camera and microphone access." : "Camera and microphone access require a secure browser context.");
+      return;
+    }
+    if (!cameraEnabled && !microphoneEnabled) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: cameraEnabled ? { deviceId: cameraDeviceId ? { exact: cameraDeviceId } : undefined } : false,
+        audio: microphoneEnabled ? { deviceId: microphoneDeviceId ? { exact: microphoneDeviceId } : undefined } : false
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => undefined);
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const nextCameras = devices.filter((device) => device.kind === "videoinput");
+      const nextMicrophones = devices.filter((device) => device.kind === "audioinput");
+      setCameras(nextCameras);
+      setMicrophones(nextMicrophones);
+      if (!cameraDeviceId && nextCameras[0]) setCameraDeviceId(nextCameras[0].deviceId);
+      if (!microphoneDeviceId && nextMicrophones[0]) setMicrophoneDeviceId(nextMicrophones[0].deviceId);
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        const context = new AudioContext();
+        audioContextRef.current = context;
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        context.createMediaStreamSource(new MediaStream([audioTrack])).connect(analyser);
+        const samples = new Uint8Array(analyser.frequencyBinCount);
+        const measure = () => {
+          analyser.getByteFrequencyData(samples);
+          setMicrophoneLevel(Math.min(100, Math.round(samples.reduce((sum, value) => sum + value, 0) / samples.length)));
+          animationRef.current = requestAnimationFrame(measure);
+        };
+        measure();
+      }
+    } catch (previewError) {
+      setError(readableMediaError(previewError));
+    }
+  }, [cameraDeviceId, cameraEnabled, cleanup, microphoneDeviceId, microphoneEnabled]);
+
+  useEffect(() => {
+    void startPreview();
+    return cleanup;
+  }, [startPreview, cleanup]);
+
+  async function join() {
+    if (!displayName.trim()) {
+      setError("Enter your display name before joining.");
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    cleanup();
+    try {
+      await onJoin({ displayName: displayName.trim(), cameraEnabled, microphoneEnabled, cameraDeviceId, microphoneDeviceId });
+    } catch (joinError) {
+      setError(joinError instanceof Error ? joinError.message : "Meeting access could not be requested.");
+      setBusy(false);
+      void startPreview();
+    }
+  }
+
+  return <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-50">
+    <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+      <section className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900">
+        <div className="relative aspect-video bg-slate-950">
+          {cameraEnabled ? <video ref={videoRef} muted playsInline className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center"><div className="rounded-full bg-slate-800 p-8 text-3xl font-semibold">{displayName.trim().slice(0, 2).toUpperCase() || "QR"}</div></div>}
+          <div className="absolute bottom-4 left-4 rounded-full bg-black/60 px-3 py-1 text-sm">Preview</div>
+        </div>
+      </section>
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
+        <p className="text-sm font-medium text-blue-300">Quantum Reach Meetings</p>
+        <h1 className="mt-2 text-2xl font-semibold">{meeting.title}</h1>
+        {meeting.description ? <p className="mt-2 text-sm text-slate-300">{meeting.description}</p> : null}
+        {meeting.scheduledAt ? <p className="mt-2 text-xs text-slate-400">{new Date(meeting.scheduledAt).toLocaleString()}</p> : null}
+        <div className="mt-6 space-y-4">
+          <label className="grid gap-1 text-sm">Display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={80} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" /></label>
+          <label className="grid gap-1 text-sm">Camera<select value={cameraDeviceId} onChange={(event) => setCameraDeviceId(event.target.value)} disabled={!cameraEnabled} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2"><option value="">Default camera</option>{cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>
+          <label className="grid gap-1 text-sm">Microphone<select value={microphoneDeviceId} onChange={(event) => setMicrophoneDeviceId(event.target.value)} disabled={!microphoneEnabled} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2"><option value="">Default microphone</option>{microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-emerald-400 transition-all" style={{ width: `${microphoneEnabled ? microphoneLevel : 0}%` }} /></div>
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setMicrophoneEnabled((enabled) => !enabled)} className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm", microphoneEnabled ? "border-slate-700" : "border-red-500/50 bg-red-500/10 text-red-200")}>{microphoneEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}{microphoneEnabled ? "Microphone on" : "Microphone off"}</button>
+            <button type="button" onClick={() => setCameraEnabled((enabled) => !enabled)} className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm", cameraEnabled ? "border-slate-700" : "border-red-500/50 bg-red-500/10 text-red-200")}>{cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}{cameraEnabled ? "Camera on" : "Camera off"}</button>
+          </div>
+          {error ? <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+          <Button type="button" onClick={join} disabled={busy} className="w-full bg-blue-500 text-white hover:bg-blue-400">{busy ? "Requesting access…" : "Join meeting"}</Button>
+          <p className="text-xs leading-5 text-slate-400">Your browser may ask for camera and microphone permission. You can join with either device disabled.</p>
+        </div>
+      </section>
+    </div>
+  </main>;
+}
+
+function participantRole(metadata?: string) {
+  try {
+    const value = JSON.parse(metadata ?? "{}") as { role?: string };
+    return value.role?.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) ?? "Participant";
+  } catch {
+    return "Participant";
+  }
+}
+
+function ParticipantGrid() {
+  const participants = useParticipants();
+  const speaking = useSpeakingParticipants();
+  const cameraTracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }]);
+  const screenTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: false });
+  const activeIds = new Set(speaking.map((participant) => participant.identity));
+  const activeScreen = screenTracks.find((track) => track.publication && !track.publication.isMuted);
+
+  const tiles = participants.map((participant) => {
+    const camera = cameraTracks.find((track) => track.participant.identity === participant.identity);
+    const hasVideo = Boolean(camera && camera.publication && !camera.publication.isMuted);
+    return <div key={participant.identity} className={cn("relative aspect-video overflow-hidden rounded-2xl border bg-slate-900", activeIds.has(participant.identity) ? "border-blue-400 ring-2 ring-blue-400/30" : "border-slate-800")}>
+      {hasVideo && camera && camera.publication ? <VideoTrack trackRef={camera} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center"><div className="rounded-full bg-slate-800 px-6 py-5 text-2xl font-semibold">{(participant.name || "Participant").slice(0, 2).toUpperCase()}</div></div>}
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/80 to-transparent p-3 pt-10 text-sm">
+        <span>{participant.name || "Participant"}{participant.isLocal ? " (You)" : ""}<span className="ml-2 text-xs text-slate-300">{participantRole(participant.metadata)}</span></span>
+        <span className="flex items-center gap-2">{participant.isMicrophoneEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4 text-red-300" />}{participant.isCameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4 text-red-300" />}</span>
+      </div>
+    </div>;
+  });
+
+  if (activeScreen) {
+    return <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="overflow-hidden rounded-2xl border border-blue-400/40 bg-black"><VideoTrack trackRef={activeScreen} className="h-full max-h-[72vh] w-full object-contain" /></div>
+      <div className="grid content-start gap-3 overflow-auto">{tiles}</div>
+    </div>;
+  }
+  return <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-1 gap-4 overflow-auto sm:grid-cols-2 xl:grid-cols-3">{tiles}</div>;
+}
+
+function connectionLabel(state: ConnectionState) {
+  if (state === ConnectionState.Connected) return "Connected";
+  if (state === ConnectionState.Reconnecting || state === ConnectionState.SignalReconnecting) return "Reconnecting";
+  if (state === ConnectionState.Connecting) return "Connecting";
+  return "Disconnected";
+}
+
+function RoomExperience({
+  meeting,
+  access,
+  invitationToken,
+  onExit,
+  onFailure
+}: {
+  meeting: MeetingClientProps["meeting"];
+  access: Access;
+  invitationToken?: string;
+  onExit: (ended: boolean) => void;
+  onFailure: (message: string) => void;
+}) {
+  const room = useRoomContext();
+  const connectionState = useConnectionState();
+  const participants = useParticipants();
+  const { localParticipant, isCameraEnabled, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
+  const [controlError, setControlError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const previousShare = useRef(false);
+  const intentionalLeave = useRef(false);
+
+  const postEvent = useCallback(async (type: string, eventId?: string, keepalive = false) => {
+    await fetch(`/api/meetings/${meeting.id}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, eventId, invitationToken, displayName: access.displayName }),
+      keepalive
+    });
+  }, [access.displayName, invitationToken, meeting.id]);
+
+  useEffect(() => {
+    if (connectionState === ConnectionState.Connected) void postEvent("PARTICIPANT_JOINED");
+  }, [connectionState, postEvent]);
+
+  useEffect(() => {
+    if (isScreenShareEnabled !== previousShare.current) {
+      previousShare.current = isScreenShareEnabled;
+      void postEvent(isScreenShareEnabled ? "SCREEN_SHARE_STARTED" : "SCREEN_SHARE_STOPPED", crypto.randomUUID());
+    }
+  }, [isScreenShareEnabled, postEvent]);
+
+  useEffect(() => {
+    const interval = window.setInterval(async () => {
+      try {
+        const response = await fetch(`/api/meetings/${meeting.id}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ invitationToken, displayName: access.displayName })
+        });
+        const data = await response.json() as { status?: string };
+        if (data.status === "ENDED") {
+          intentionalLeave.current = true;
+          await room.disconnect(true);
+          onExit(true);
+        }
+      } catch {
+        // A transient status check failure should not interrupt an active room.
+      }
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [access.displayName, invitationToken, meeting.id, onExit, room]);
+
+  useEffect(() => {
+    const pagehide = () => {
+      if (!intentionalLeave.current) void postEvent("PARTICIPANT_LEFT", undefined, true);
+    };
+    window.addEventListener("pagehide", pagehide);
+    return () => window.removeEventListener("pagehide", pagehide);
+  }, [postEvent]);
+
+  async function runControl(action: () => Promise<unknown>, fallback: string) {
+    setControlError(undefined);
+    try {
+      await action();
+    } catch {
+      setControlError(fallback);
+    }
+  }
+
+  async function leave() {
+    if (busy) return;
+    setBusy(true);
+    intentionalLeave.current = true;
+    await room.disconnect(true);
+    await postEvent("PARTICIPANT_LEFT").catch(() => undefined);
+    onExit(false);
+  }
+
+  async function end() {
+    if (!window.confirm("End this meeting for all participants?")) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/meetings/${meeting.id}/end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: access.displayName })
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "The meeting could not be ended.");
+      intentionalLeave.current = true;
+      await room.disconnect(true);
+      onExit(true);
+    } catch (error) {
+      setControlError(error instanceof Error ? error.message : "The meeting could not be ended.");
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (connectionState === ConnectionState.Disconnected && !intentionalLeave.current) onFailure("The meeting connection was interrupted. You can retry safely.");
+  }, [connectionState, onFailure]);
+
+  return <div className="flex min-h-screen flex-col bg-slate-950 p-3 text-slate-50 md:p-5">
+    <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+      <div><h1 className="font-semibold">{meeting.title}</h1><p className="text-xs text-slate-400">{connectionLabel(connectionState)} · {access.role.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}</p></div>
+      <div className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-sm"><Users className="h-4 w-4" />{participants.length}</div>
+    </header>
+    {connectionState === ConnectionState.Reconnecting || connectionState === ConnectionState.SignalReconnecting ? <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Connection interrupted. Reconnecting…</div> : null}
+    {controlError ? <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{controlError}</div> : null}
+    <ParticipantGrid />
+    <RoomAudioRenderer />
+    <StartAudio label="Enable meeting audio" className="fixed left-1/2 top-20 z-20 -translate-x-1/2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white" />
+    <footer className="mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-800 bg-slate-900 p-3">
+      <button type="button" aria-label="Toggle microphone" onClick={() => void runControl(() => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled), "The microphone could not be updated.")} className={cn("rounded-xl p-3", isMicrophoneEnabled ? "bg-slate-800" : "bg-red-500/20 text-red-200")}>{isMicrophoneEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}</button>
+      <button type="button" aria-label="Toggle camera" onClick={() => void runControl(() => localParticipant.setCameraEnabled(!isCameraEnabled), "The camera could not be updated.")} className={cn("rounded-xl p-3", isCameraEnabled ? "bg-slate-800" : "bg-red-500/20 text-red-200")}>{isCameraEnabled ? <Camera className="h-5 w-5" /> : <CameraOff className="h-5 w-5" />}</button>
+      <button type="button" aria-label="Toggle screen share" onClick={() => void runControl(() => localParticipant.setScreenShareEnabled(!isScreenShareEnabled), "Screen sharing was canceled or could not be started.")} className={cn("rounded-xl p-3", isScreenShareEnabled ? "bg-blue-500 text-white" : "bg-slate-800")}><MonitorUp className="h-5 w-5" /></button>
+      <button type="button" onClick={leave} disabled={busy} className="flex items-center gap-2 rounded-xl bg-red-500 px-4 py-3 text-sm font-medium text-white"><LogOut className="h-5 w-5" />Leave</button>
+      {access.role === "HOST" || access.role === "CO_HOST" ? <button type="button" onClick={end} disabled={busy} className="flex items-center gap-2 rounded-xl border border-red-400/50 px-4 py-3 text-sm font-medium text-red-200"><PhoneOff className="h-5 w-5" />End meeting</button> : null}
+    </footer>
+  </div>;
+}
+
+export function MeetingClient(props: MeetingClientProps) {
+  const [choice, setChoice] = useState<DeviceChoice>();
+  const [access, setAccess] = useState<Access>();
+  const [state, setState] = useState<"preparing" | "requesting" | "connecting" | "connected" | "disconnected" | "failed" | "ended">("preparing");
+  const [error, setError] = useState<string>();
+  const requestRef = useRef<Promise<void> | null>(null);
+
+  const requestAccess = useCallback(async (nextChoice: DeviceChoice) => {
+    if (requestRef.current) return requestRef.current;
+    const request = (async () => {
+      setChoice(nextChoice);
+      setState("requesting");
+      setError(undefined);
+      const response = await fetch(`/api/meetings/${props.meeting.id}/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invitationToken: props.invitationToken, displayName: nextChoice.displayName })
+      });
+      const data = await response.json() as Access & { error?: string };
+      if (!response.ok) throw new Error(data.error || "Meeting access could not be granted.");
+      setAccess(data);
+      setState("connecting");
+    })();
+    requestRef.current = request;
+    try {
+      await request;
+    } finally {
+      requestRef.current = null;
+    }
+  }, [props.invitationToken, props.meeting.id]);
+
+  if (state === "failed") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><RefreshCw className="mx-auto h-7 w-7 text-blue-300" /><h1 className="mt-3 text-xl font-semibold">Connection interrupted</h1><p className="mt-2 text-sm text-slate-300">{error}</p><Button className="mt-5" onClick={() => { setAccess(undefined); setChoice(undefined); setState("preparing"); setError(undefined); }}>Return to pre-join</Button></div></div>;
+
+  if (!access || !choice) {
+    return <PreJoin meeting={props.meeting} defaultDisplayName={props.defaultDisplayName} onJoin={requestAccess} />;
+  }
+
+  if (state === "ended") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><PhoneOff className="mx-auto h-8 w-8 text-blue-300" /><h1 className="mt-3 text-2xl font-semibold">Meeting ended</h1><p className="mt-2 text-sm text-slate-300">This Quantum Reach meeting has ended.</p>{props.dashboardReturnUrl ? <Button href={props.dashboardReturnUrl} className="mt-5">Return to meeting details</Button> : null}</div></div>;
+  if (state === "disconnected") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><LogOut className="mx-auto h-8 w-8 text-blue-300" /><h1 className="mt-3 text-2xl font-semibold">You left the meeting</h1>{props.dashboardReturnUrl ? <Button href={props.dashboardReturnUrl} className="mt-5">Return to meeting details</Button> : null}</div></div>;
+
+  return <LiveKitRoom
+    serverUrl={access.url}
+    token={access.token}
+    connect
+    audio={choice.microphoneEnabled ? { deviceId: choice.microphoneDeviceId || undefined } : false}
+    video={choice.cameraEnabled ? { deviceId: choice.cameraDeviceId || undefined } : false}
+    options={{ adaptiveStream: true, dynacast: true }}
+    onConnected={() => setState("connected")}
+    onError={() => { setError("The meeting room could not be connected. Check your network and try again."); setState("failed"); }}
+    onMediaDeviceFailure={(_, kind) => setError(readableMediaError(undefined, kind))}
+    className="min-h-screen"
+  >
+    <RoomExperience
+      meeting={props.meeting}
+      access={access}
+      invitationToken={props.invitationToken}
+      onExit={(ended) => setState(ended ? "ended" : "disconnected")}
+      onFailure={(message) => { setError(message); setState("failed"); }}
+    />
+  </LiveKitRoom>;
+}
