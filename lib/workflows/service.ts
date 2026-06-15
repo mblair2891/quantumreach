@@ -129,6 +129,7 @@ export async function getCallSessionDetail(workspaceId: string, id: string) {
       contact: { include: { company: true } },
       company: true,
       opportunity: { include: { company: true, contact: true } },
+      meetingRoom: true,
       diagnostics: {
         orderBy: { updatedAt: "desc" },
         include: {
