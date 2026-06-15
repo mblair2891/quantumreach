@@ -253,6 +253,7 @@ function RoomExperience({
   const [busy, setBusy] = useState(false);
   const previousShare = useRef(false);
   const intentionalLeave = useRef(false);
+  const hasConnected = useRef(false);
 
   const postEvent = useCallback(async (type: string, eventId?: string, keepalive = false) => {
     await fetch(`/api/meetings/${meeting.id}/events`, {
@@ -264,7 +265,10 @@ function RoomExperience({
   }, [access.displayName, invitationToken, meeting.id]);
 
   useEffect(() => {
-    if (connectionState === ConnectionState.Connected) void postEvent("PARTICIPANT_JOINED");
+    if (connectionState === ConnectionState.Connected && !hasConnected.current) {
+      hasConnected.current = true;
+      void postEvent("PARTICIPANT_JOINED");
+    }
   }, [connectionState, postEvent]);
 
   useEffect(() => {
@@ -342,7 +346,13 @@ function RoomExperience({
   }
 
   useEffect(() => {
-    if (connectionState === ConnectionState.Disconnected && !intentionalLeave.current) onFailure("The meeting connection was interrupted. You can retry safely.");
+    if (
+      connectionState === ConnectionState.Disconnected &&
+      hasConnected.current &&
+      !intentionalLeave.current
+    ) {
+      onFailure("The meeting connection was interrupted. You can retry safely.");
+    }
   }, [connectionState, onFailure]);
 
   return <div className="flex min-h-screen flex-col bg-slate-950 p-3 text-slate-50 md:p-5">

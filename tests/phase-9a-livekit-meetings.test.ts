@@ -121,4 +121,40 @@ describe("Phase 9A LiveKit meetings", () => {
     expect(client).not.toContain("localStorage");
     expect(pages).not.toContain("JSON.stringify");
   });
+
+  it("guards initial LiveKit disconnected state until after first successful connection", () => {
+    const client = source("components/meetings/meeting-client.tsx");
+    expect(client).toContain("const hasConnected = useRef(false)");
+    expect(client).toContain("connectionState === ConnectionState.Connected && !hasConnected.current");
+    expect(client).toContain("hasConnected.current = true");
+    expect(client).toContain('void postEvent("PARTICIPANT_JOINED")');
+    expect(client).toContain("connectionState === ConnectionState.Disconnected &&\n      hasConnected.current &&\n      !intentionalLeave.current");
+    expect(client).not.toContain("connectionState === ConnectionState.Disconnected && !intentionalLeave.current");
+  });
+
+  it("keeps initial connection failures on the LiveKitRoom error path with readable copy", () => {
+    const client = source("components/meetings/meeting-client.tsx");
+    expect(client).toContain('onError={() => { setError("The meeting room could not be connected. Check your network and try again."); setState("failed"); }}');
+    expect(client).not.toContain("setError(error instanceof Error ? error.message");
+    expect(client).not.toContain("setError(String(");
+  });
+
+  it("preserves intentional leave and ended-meeting disconnect handling", () => {
+    const client = source("components/meetings/meeting-client.tsx");
+    expect(client).toContain('if (data.status === "ENDED")');
+    expect(client).toContain("intentionalLeave.current = true;\n          await room.disconnect(true);\n          onExit(true);");
+    expect(client).toContain("async function leave()");
+    expect(client).toContain('intentionalLeave.current = true;\n    await room.disconnect(true);\n    await postEvent("PARTICIPANT_LEFT")');
+    expect(client).toContain("async function end()");
+    expect(client).toContain("intentionalLeave.current = true;\n      await room.disconnect(true);\n      onExit(true);");
+  });
+
+  it("does not duplicate access requests, room connections, or participant joined events", () => {
+    const client = source("components/meetings/meeting-client.tsx");
+    expect(client).toContain("if (requestRef.current) return requestRef.current");
+    expect(client.match(/<LiveKitRoom/g)?.length).toBe(1);
+    expect(client.match(/connect\n/g)?.length).toBe(1);
+    expect(client.match(/postEvent\("PARTICIPANT_JOINED"\)/g)?.length).toBe(1);
+  });
+
 });
