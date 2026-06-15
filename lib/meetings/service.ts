@@ -8,6 +8,7 @@ import { audit } from "@/lib/audit/service";
 import { prisma } from "@/lib/db/prisma";
 import { toPrismaJson } from "@/lib/db/json";
 import { requireWorkspaceAccess } from "@/lib/auth/rbac";
+import { buildMeetingInvitationUrl, maxInvitationExpiry, signMeetingInvitationCredential, verifyMeetingInvitationCredential } from "@/lib/meetings/invitations";
 
 type MeetingInput = {
   title: string;
@@ -23,8 +24,11 @@ type MeetingInput = {
 type JoinAuthorizationInput = {
   meetingId: string;
   invitationToken?: string;
+  invitationCredential?: string;
   displayName?: string;
 };
+
+type InvitationInput = { displayName?: string; email?: string; role?: string; expiresAt?: string };
 
 function clean(value?: string | null) {
   const normalized = value?.trim();
@@ -185,29 +189,69 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
       callSessionId
     }
   });
+  if (meeting.scheduledAt) {
+    const maxExpiry = maxInvitationExpiry(meeting.scheduledAt);
+    await prisma.meetingInvitation.updateMany({ where: { meetingId: meeting.id, workspaceId, revokedAt: null, expiresAt: { gt: maxExpiry } }, data: { expiresAt: maxExpiry, tokenVersion: { increment: 1 } } });
+  }
   await audit(workspaceId, "meeting.updated", "MeetingRoom", meeting.id, user.id, { scheduledAt: meeting.scheduledAt, callSessionId });
   if (existing.callSessionId !== callSessionId && callSessionId) await audit(workspaceId, "meeting.call_session_linked", "MeetingRoom", meeting.id, user.id, { callSessionId });
   return meeting;
 }
 
-export async function createMeetingInvitation(workspaceId: string, meetingId: string, expiresAt?: string) {
+function parseGuestRole(role?: string): MeetingParticipantRole {
+  return role === "PARTICIPANT" ? "PARTICIPANT" : "GUEST";
+}
+
+function resolveInvitationExpiry(meeting: { scheduledAt: Date | null }, expiresAt?: string) {
+  const max = maxInvitationExpiry(meeting.scheduledAt);
+  const requested = clean(expiresAt) ? new Date(String(expiresAt)) : max;
+  if (Number.isNaN(requested.getTime())) throw new Error("Invitation expiration is invalid.");
+  if (requested > max) throw new Error("Invitation cannot expire later than 24 hours after the scheduled meeting time.");
+  return requested;
+}
+
+export async function createMeetingInvitation(workspaceId: string, meetingId: string, input: InvitationInput = {}) {
   const { user } = await requireWorkspaceAccess(workspaceId);
   const meeting = await prisma.meetingRoom.findFirst({ where: { id: meetingId, workspaceId } });
   if (!meeting) notFound();
-  const token = randomBytes(32).toString("base64url");
-  const expiration = clean(expiresAt);
+  const legacyToken = randomBytes(32).toString("base64url");
   const invitation = await prisma.meetingInvitation.create({
     data: {
       workspaceId,
       meetingId,
-      tokenHash: hashInvitationToken(token),
-      role: "GUEST",
-      expiresAt: expiration ? new Date(expiration) : undefined,
+      tokenHash: hashInvitationToken(legacyToken),
+      displayName: clean(input.displayName)?.slice(0, 80),
+      email: clean(input.email)?.slice(0, 254),
+      role: parseGuestRole(input.role),
+      expiresAt: resolveInvitationExpiry(meeting, input.expiresAt),
       createdById: user.id
     }
   });
-  await audit(workspaceId, "meeting.invitation_created", "MeetingRoom", meetingId, user.id, { invitationId: invitation.id, expiresAt: invitation.expiresAt });
-  return { invitation, token };
+  await audit(workspaceId, "meeting.invitation_created", "MeetingRoom", meetingId, user.id, { invitationId: invitation.id, displayName: invitation.displayName, email: invitation.email, role: invitation.role, expiresAt: invitation.expiresAt });
+  return { invitation, url: await getMeetingInvitationUrl(workspaceId, meetingId, invitation.id) };
+}
+
+export async function getMeetingInvitationUrl(workspaceId: string, meetingId: string, invitationId: string) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const invitation = await prisma.meetingInvitation.findFirst({ where: { id: invitationId, meetingId, workspaceId }, include: { meeting: true } });
+  if (!invitation) notFound();
+  if (invitation.revokedAt) throw new Error("This invitation has been revoked.");
+  if (!invitation.expiresAt || invitation.expiresAt <= new Date()) throw new Error("This invitation has expired.");
+  const credential = signMeetingInvitationCredential({ invitationId: invitation.id, meetingId: invitation.meetingId, tokenVersion: invitation.tokenVersion, expiresAt: invitation.expiresAt });
+  await prisma.meetingInvitation.update({ where: { id: invitation.id }, data: { lastCopiedAt: new Date() } });
+  await audit(workspaceId, "meeting.invitation_link_copied", "MeetingRoom", meetingId, user.id, { invitationId: invitation.id, action: "copy_link" });
+  return buildMeetingInvitationUrl(invitation.meeting.slug, credential);
+}
+
+export async function updateMeetingInvitation(workspaceId: string, meetingId: string, invitationId: string, input: InvitationInput) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const invitation = await prisma.meetingInvitation.findFirst({ where: { id: invitationId, meetingId, workspaceId }, include: { meeting: true } });
+  if (!invitation) notFound();
+  if (invitation.revokedAt) throw new Error("Revoked invitations cannot be edited.");
+  const expiresAt = resolveInvitationExpiry(invitation.meeting, input.expiresAt);
+  const updated = await prisma.meetingInvitation.update({ where: { id: invitation.id }, data: { displayName: clean(input.displayName)?.slice(0, 80), email: clean(input.email)?.slice(0, 254), role: parseGuestRole(input.role), expiresAt, tokenVersion: { increment: 1 } } });
+  await audit(workspaceId, "meeting.invitation_edited", "MeetingRoom", meetingId, user.id, { invitationId, displayName: updated.displayName, email: updated.email, role: updated.role, expiresAt: updated.expiresAt });
+  return updated;
 }
 
 export async function revokeMeetingInvitation(workspaceId: string, meetingId: string, invitationId: string) {
@@ -218,11 +262,20 @@ export async function revokeMeetingInvitation(workspaceId: string, meetingId: st
   await audit(workspaceId, "meeting.invitation_revoked", "MeetingRoom", meetingId, user.id, { invitationId });
 }
 
+
+async function findValidInvitation(meetingId: string, token: string) {
+  const credential = verifyMeetingInvitationCredential(token);
+  if (credential) {
+    return prisma.meetingInvitation.findFirst({ where: { id: credential.invitationId, meetingId, tokenVersion: credential.version } });
+  }
+  return prisma.meetingInvitation.findFirst({ where: { meetingId, tokenHash: hashInvitationToken(token) } });
+}
+
 export async function getPublicMeeting(slug: string, invitationToken?: string) {
-  const meeting = await prisma.meetingRoom.findUnique({ where: { slug }, select: { id: true, slug: true, title: true, description: true, scheduledAt: true, status: true } });
+  const meeting = await prisma.meetingRoom.findUnique({ where: { slug }, select: { id: true, workspaceId: true, slug: true, title: true, description: true, scheduledAt: true, status: true } });
   if (!meeting) return { meeting: null, accessError: "This meeting link is not valid." };
   if (!invitationToken) return { meeting, accessError: "A valid invitation is required to join this meeting." };
-  const invitation = await prisma.meetingInvitation.findFirst({ where: { meetingId: meeting.id, tokenHash: hashInvitationToken(invitationToken) } });
+  const invitation = await findValidInvitation(meeting.id, invitationToken);
   if (!invitation) return { meeting, accessError: "This invitation is not valid." };
   if (invitation.revokedAt) return { meeting, accessError: "This invitation has been revoked." };
   if (invitation.expiresAt && invitation.expiresAt <= new Date()) return { meeting, accessError: "This invitation has expired." };
@@ -257,11 +310,11 @@ export async function authorizeMeetingJoin(input: JoinAuthorizationInput) {
 
   const invitationToken = clean(input.invitationToken);
   if (!invitationToken) throw new Error("A valid invitation is required.");
-  const invitation = await prisma.meetingInvitation.findFirst({ where: { meetingId: meeting.id, tokenHash: hashInvitationToken(invitationToken) } });
+  const invitation = await findValidInvitation(meeting.id, invitationToken);
   if (!invitation) throw new Error("This invitation is not valid.");
   if (invitation.revokedAt) throw new Error("This invitation has been revoked.");
   if (invitation.expiresAt && invitation.expiresAt <= new Date()) throw new Error("This invitation has expired.");
-  const displayName = safeDisplayName(input.displayName, "Guest");
+  const displayName = safeDisplayName(input.displayName, invitation.displayName ?? "Guest");
   const identity = participantIdentity(meeting.id, `invitation:${invitation.id}`);
   const participant = await prisma.meetingParticipant.upsert({
     where: { meetingId_identity: { meetingId: meeting.id, identity } },
