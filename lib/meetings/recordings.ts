@@ -8,7 +8,7 @@ import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { authorizeMeetingJoin } from "@/lib/meetings/service";
 import { buildMeetingRecordingKey, mapLiveKitStatus, queryRoomCompositeRecording, sanitizeProviderError, startRoomCompositeRecording, stopRoomCompositeRecording } from "@/lib/meetings/egress";
 import { deleteMeetingRecordingObject } from "@/lib/storage/meeting-recordings";
-import type { MeetingRecordingEventType } from "@prisma/client";
+import type { MeetingRecording, MeetingRecordingEventType } from "@prisma/client";
 
 const activeStatuses = ["CONSENT_REQUIRED","READY","STARTING","RECORDING","STOPPING","PROCESSING"] as const;
 export function safeRecordingError(error: unknown, fallback="Recording action failed.") { const msg=error instanceof Error?error.message:String(error||fallback); return /secret|token|credential|authorization|key/i.test(msg)?fallback:msg.slice(0,240); }
@@ -18,6 +18,43 @@ export async function listMeetingRecordings(workspaceId:string, meetingId:string
 export async function requestRecordingConsent(workspaceId:string, meetingId:string){ const {user,meeting}=await assertHost(workspaceId,meetingId); if(meeting.status==="ENDED"||meeting.status==="CANCELED") throw new Error("Ended meetings cannot be recorded."); const duplicate=await prisma.meetingRecording.findFirst({where:{workspaceId,meetingRoomId:meetingId,status:{in:[...activeStatuses]}}}); if(duplicate) return duplicate; const participants=await prisma.meetingParticipant.findMany({where:{workspaceId,meetingId,leftAt:null}}); const recording=await prisma.meetingRecording.create({data:{workspaceId,meetingRoomId:meetingId,requestedById:user.id,status:"CONSENT_REQUIRED",storageKey:buildMeetingRecordingKey(workspaceId,meetingId,"pending")}}); await prisma.meetingRecording.update({where:{id:recording.id},data:{storageKey:buildMeetingRecordingKey(workspaceId,meetingId,recording.id),bucketName:process.env.MEETING_RECORDINGS_R2_BUCKET,fileName:"recording.mp4",mimeType:"video/mp4"}});
  await prisma.meetingRecordingConsent.createMany({data:participants.map(p=>({workspaceId,meetingRoomId:meetingId,recordingId:recording.id,meetingParticipantId:p.id,userId:p.userId,livekitIdentity:p.identity,displayName:p.displayName,consentStatus:"PENDING"})), skipDuplicates:true}); await event(recording,"CONSENT_REQUESTED",{participantCount:participants.length},`consent-requested:${recording.id}`); await audit(workspaceId,"meeting.recording_consent_requested","MeetingRecording",recording.id,user.id,{meetingId,participantCount:participants.length}); return recording; }
 export async function getActiveRecordingForParticipant(meetingId:string, identity:string){ return prisma.meetingRecording.findFirst({where:{meetingRoomId:meetingId,status:{in:[...activeStatuses,"AVAILABLE"]}}, include:{consents:{where:{livekitIdentity:identity}}}, orderBy:{createdAt:"desc"}}); }
+
+function publicRecording(recording: MeetingRecording | null) {
+  if (!recording) return null;
+  return { id: recording.id, status: recording.status, transcriptionStatus: recording.transcriptionStatus, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, completedAt: recording.completedAt, safeFailureMessage: recording.safeFailureMessage };
+}
+
+export async function ensureParticipantConsentRow(recordingId:string, participant:{id:string; userId:string|null; identity:string; displayName:string}, meeting:{id:string; workspaceId:string}) {
+  const recording = await prisma.meetingRecording.findFirst({ where: { id: recordingId, workspaceId: meeting.workspaceId, meetingRoomId: meeting.id } });
+  if (!recording) notFound();
+  return prisma.meetingRecordingConsent.upsert({
+    where: { recordingId_livekitIdentity: { recordingId, livekitIdentity: participant.identity } },
+    update: { displayName: participant.displayName, meetingParticipantId: participant.id, userId: participant.userId },
+    create: { workspaceId: meeting.workspaceId, meetingRoomId: meeting.id, recordingId, meetingParticipantId: participant.id, userId: participant.userId, livekitIdentity: participant.identity, displayName: participant.displayName, consentStatus: "PENDING" }
+  });
+}
+
+export async function assertRecordingConsentForToken(meeting:{id:string; workspaceId:string}, participant:{id:string; userId:string|null; identity:string; displayName:string}, actorId?:string) {
+  const recording = await prisma.meetingRecording.findFirst({ where: { workspaceId: meeting.workspaceId, meetingRoomId: meeting.id, status: { in: ["CONSENT_REQUIRED", "READY", "STARTING"] } }, include: { consents: { where: { livekitIdentity: participant.identity } } }, orderBy: { createdAt: "desc" } });
+  if (!recording) return;
+  const consent = recording.consents[0] ?? await ensureParticipantConsentRow(recording.id, participant, meeting);
+  if (consent.consentStatus === "CONSENTED") { await promoteReady(recording.id); return; }
+  await audit(meeting.workspaceId, "meeting.recording_token_denied_consent_missing", "MeetingRecording", recording.id, actorId, { meetingId: meeting.id, participantId: participant.id, consentStatus: consent.consentStatus });
+  if (consent.consentStatus === "DECLINED") throw new Error("You declined recording consent and cannot join this recorded session.");
+  if (consent.consentStatus === "REVOKED") throw new Error("Your recording consent is no longer active.");
+  throw new Error("Recording consent is required before joining.");
+}
+
+export async function getRecordingRoomStatus(authorization: Awaited<ReturnType<typeof authorizeMeetingJoin>>) {
+  const { meeting, participant } = authorization;
+  const recording = await prisma.meetingRecording.findFirst({ where: { workspaceId: meeting.workspaceId, meetingRoomId: meeting.id, status: { in: [...activeStatuses, "AVAILABLE", "FAILED"] } }, include: { consents: { orderBy: { displayName: "asc" } } }, orderBy: { createdAt: "desc" } });
+  const isHost = participant.role === "HOST" || participant.role === "CO_HOST";
+  const consent = recording ? (recording.consents.find(c => c.livekitIdentity === participant.identity) ?? await ensureParticipantConsentRow(recording.id, participant, meeting)) : null;
+  const participants = recording?.consents.map(c => ({ displayName: c.displayName, role: c.meetingParticipantId === participant.id ? participant.role : "PARTICIPANT", status: c.consentStatus })) ?? [];
+  const counts = (status:string) => participants.filter(p => p.status === status).length;
+  const required = Boolean(recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recording.status));
+  return { meetingStatus: meeting.status, recording: publicRecording(recording), currentParticipantConsent: consent ? { status: consent.consentStatus, respondedAt: consent.respondedAt } : null, consentSummary: { required, consented: counts("CONSENTED"), pending: counts("PENDING"), declined: counts("DECLINED"), revoked: counts("REVOKED"), participants }, permissions: { canRequestConsent: isHost && !recording, canStartRecording: isHost && recording?.status === "READY", canStopRecording: isHost && recording?.status === "RECORDING", canRefreshRecording: isHost && Boolean(recording && ["STARTING","STOPPING","PROCESSING","FAILED"].includes(recording.status)) } };
+}
 export async function respondToRecordingConsent(meetingId:string,input:{invitationToken?:string; displayName?:string; recordingId:string; consent:boolean}){ const auth=await authorizeMeetingJoin({meetingId,invitationToken:input.invitationToken,displayName:input.displayName}); const {meeting,participant,actorId}=auth; const recording=await prisma.meetingRecording.findFirst({where:{id:input.recordingId,workspaceId:meeting.workspaceId,meetingRoomId:meeting.id}}); if(!recording) notFound(); const status=input.consent?"CONSENTED":"DECLINED"; const consent=await prisma.meetingRecordingConsent.upsert({where:{recordingId_livekitIdentity:{recordingId:recording.id,livekitIdentity:participant.identity}},update:{consentStatus:status,respondedAt:new Date(),revokedAt:null,displayName:participant.displayName,meetingParticipantId:participant.id,userId:participant.userId},create:{workspaceId:meeting.workspaceId,meetingRoomId:meeting.id,recordingId:recording.id,meetingParticipantId:participant.id,userId:participant.userId,livekitIdentity:participant.identity,displayName:participant.displayName,consentStatus:status,respondedAt:new Date()}}); await event(recording,input.consent?"CONSENT_GRANTED":"CONSENT_DECLINED",{displayName:participant.displayName},`${recording.id}:${participant.identity}:${status}`); if(!input.consent) await prisma.meetingRecording.update({where:{id:recording.id},data:{status:"CONSENT_REQUIRED",safeFailureMessage:"A participant declined recording consent."}}); else await promoteReady(recording.id); await audit(meeting.workspaceId,input.consent?"meeting.recording_consent_granted":"meeting.recording_consent_declined","MeetingRecording",recording.id,actorId,{meetingId:meeting.id,role:participant.role,displayName:participant.displayName}); return consent; }
 export async function revokeRecordingConsent(meetingId:string,input:{invitationToken?:string; displayName?:string; recordingId:string}){ const auth=await authorizeMeetingJoin({meetingId,invitationToken:input.invitationToken,displayName:input.displayName}); const {meeting,participant,actorId}=auth; const recording=await prisma.meetingRecording.findFirst({where:{id:input.recordingId,workspaceId:meeting.workspaceId,meetingRoomId:meeting.id}}); if(!recording) notFound(); await prisma.meetingRecordingConsent.updateMany({where:{recordingId:recording.id,livekitIdentity:participant.identity},data:{consentStatus:"REVOKED",revokedAt:new Date()}}); await event(recording,"CONSENT_REVOKED",{displayName:participant.displayName}); await audit(meeting.workspaceId,"meeting.recording_consent_revoked","MeetingRecording",recording.id,actorId,{meetingId:meeting.id}); if(recording.status==="RECORDING") await stopRecording(meeting.workspaceId,meeting.id,recording.id,true); }
 async function promoteReady(recordingId:string){ const rec=await prisma.meetingRecording.findUnique({where:{id:recordingId},include:{consents:true}}); if(rec && rec.consents.length>0 && rec.consents.every(c=>c.consentStatus==="CONSENTED")) await prisma.meetingRecording.update({where:{id:recordingId},data:{status:"READY",safeFailureMessage:null}}); }

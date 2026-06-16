@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createLiveKitAccessToken, getLiveKitUrl } from "@/lib/meetings/livekit";
 import { authorizeMeetingJoin, recordTokenIssued } from "@/lib/meetings/service";
 import { safeMeetingError } from "@/lib/meetings/errors";
+import { assertRecordingConsentForToken } from "@/lib/meetings/recordings";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       displayName: body.displayName
     });
     const { meeting, participant, actorId } = authorization;
+    await assertRecordingConsentForToken(meeting, participant, actorId);
     const token = createLiveKitAccessToken({
       roomName: meeting.roomName,
       identity: participant.identity,
