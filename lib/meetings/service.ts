@@ -303,13 +303,13 @@ async function findValidInvitation(meetingId: string, token: string) {
 export async function getPublicMeeting(slug: string, invitationToken?: string) {
   const meeting = await prisma.meetingRoom.findUnique({ where: { slug }, select: { id: true, workspaceId: true, slug: true, title: true, description: true, scheduledAt: true, status: true } });
   if (!meeting) return { meeting: null, accessError: "This meeting link is not valid." };
-  if (!invitationToken) return { meeting, accessError: "A valid invitation is required to join this meeting." };
+  if (!invitationToken) return { meeting: { ...meeting, invitationDisplayName: null }, accessError: "A valid invitation is required to join this meeting." };
   const invitation = await findValidInvitation(meeting.id, invitationToken);
-  if (!invitation) return { meeting, accessError: "This invitation is not valid." };
-  if (invitation.revokedAt) return { meeting, accessError: "This invitation has been revoked." };
-  if (invitation.expiresAt && invitation.expiresAt <= new Date()) return { meeting, accessError: "This invitation has expired." };
-  if (meeting.status === "ENDED" || meeting.status === "CANCELED") return { meeting, accessError: "This meeting is no longer joinable." };
-  return { meeting, accessError: null };
+  if (!invitation) return { meeting: { ...meeting, invitationDisplayName: null }, accessError: "This invitation is not valid." };
+  if (invitation.revokedAt) return { meeting: { ...meeting, invitationDisplayName: null }, accessError: "This invitation has been revoked." };
+  if (invitation.expiresAt && invitation.expiresAt <= new Date()) return { meeting: { ...meeting, invitationDisplayName: null }, accessError: "This invitation has expired." };
+  if (meeting.status === "ENDED" || meeting.status === "CANCELED") return { meeting: { ...meeting, invitationDisplayName: null }, accessError: "This meeting is no longer joinable." };
+  return { meeting: { ...meeting, invitationDisplayName: invitation.displayName }, accessError: null };
 }
 
 export async function authorizeMeetingJoin(input: JoinAuthorizationInput) {
