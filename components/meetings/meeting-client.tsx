@@ -23,6 +23,7 @@ type MeetingClientProps = {
   invitationToken?: string;
   defaultDisplayName?: string;
   dashboardReturnUrl?: string;
+  workspaceId?: string;
 };
 
 type Access = {
@@ -32,6 +33,14 @@ type Access = {
   displayName: string;
   role: "HOST" | "CO_HOST" | "PARTICIPANT" | "GUEST";
   meeting: { id: string; title: string; status: string };
+};
+
+type RecordingRoomStatus = {
+  meetingStatus?: string;
+  recording: { id: string; status: string; transcriptionStatus?: string; startedAt?: string | null; stoppedAt?: string | null; completedAt?: string | null; safeFailureMessage?: string | null } | null;
+  currentParticipantConsent: { status: string; respondedAt?: string | null } | null;
+  consentSummary: { required: boolean; consented: number; pending: number; declined: number; revoked: number; participants: { displayName: string; role: string; status: string }[] };
+  permissions: { canRequestConsent: boolean; canStartRecording: boolean; canStopRecording: boolean; canRefreshRecording: boolean };
 };
 
 type DeviceChoice = {
@@ -58,10 +67,12 @@ function stopStream(stream: MediaStream | null) {
 function PreJoin({
   meeting,
   defaultDisplayName,
-  onJoin
+  onJoin,
+  invitationToken
 }: {
   meeting: MeetingClientProps["meeting"];
   defaultDisplayName?: string;
+  invitationToken?: string;
   onJoin: (choice: DeviceChoice) => Promise<void>;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -78,6 +89,9 @@ function PreJoin({
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [recordingStatus, setRecordingStatus] = useState<RecordingRoomStatus | null>(null);
+  const [declined, setDeclined] = useState(false);
+  const consentRequired = Boolean(recordingStatus?.recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recordingStatus.recording.status) && recordingStatus.currentParticipantConsent?.status !== "CONSENTED");
 
   const cleanup = useCallback(() => {
     if (animationRef.current) cancelAnimationFrame(animationRef.current);
@@ -139,15 +153,55 @@ function PreJoin({
     return cleanup;
   }, [startPreview, cleanup]);
 
-  async function join() {
+  async function refreshPreJoinStatus(name = displayName) {
+    if (!name.trim()) return null;
+    const response = await fetch(`/api/meetings/${meeting.id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invitationToken, displayName: name.trim() })
+    });
+    const data = await response.json() as RecordingRoomStatus & { error?: string };
+    if (!response.ok) throw new Error(data.error || "Meeting status is unavailable.");
+    setRecordingStatus(data);
+    return data;
+  }
+
+  async function answerPreJoinConsent(consent: boolean) {
+    if (!recordingStatus?.recording) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const response = await fetch(`/api/meetings/${meeting.id}/recordings/${recordingStatus.recording.id}/consent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invitationToken, displayName: displayName.trim(), consent })
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Recording consent could not be saved.");
+      if (!consent) { setDeclined(true); setBusy(false); return; }
+      await refreshPreJoinStatus(displayName);
+      cleanup();
+      await onJoin({ displayName: displayName.trim(), cameraEnabled, microphoneEnabled, cameraDeviceId, microphoneDeviceId });
+    } catch (consentError) {
+      setError(consentError instanceof Error ? consentError.message : "Recording consent could not be saved.");
+      setBusy(false);
+    }
+  }
+
+  async function join(consentAlreadyChecked = false) {
     if (!displayName.trim()) {
       setError("Enter your display name before joining.");
       return;
     }
     setBusy(true);
     setError(undefined);
-    cleanup();
     try {
+      const latest = consentAlreadyChecked ? recordingStatus : await refreshPreJoinStatus(displayName);
+      if (latest?.recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(latest.recording.status) && latest.currentParticipantConsent?.status !== "CONSENTED") {
+        setBusy(false);
+        return;
+      }
+      cleanup();
       await onJoin({ displayName: displayName.trim(), cameraEnabled, microphoneEnabled, cameraDeviceId, microphoneDeviceId });
     } catch (joinError) {
       setError(joinError instanceof Error ? joinError.message : "Meeting access could not be requested.");
@@ -178,8 +232,10 @@ function PreJoin({
             <button type="button" onClick={() => setMicrophoneEnabled((enabled) => !enabled)} className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm", microphoneEnabled ? "border-slate-700" : "border-red-500/50 bg-red-500/10 text-red-200")}>{microphoneEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}{microphoneEnabled ? "Microphone on" : "Microphone off"}</button>
             <button type="button" onClick={() => setCameraEnabled((enabled) => !enabled)} className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm", cameraEnabled ? "border-slate-700" : "border-red-500/50 bg-red-500/10 text-red-200")}>{cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}{cameraEnabled ? "Camera on" : "Camera off"}</button>
           </div>
+          {consentRequired ? <div className="rounded-2xl border border-blue-400/40 bg-blue-500/10 p-4 text-sm text-blue-50"><p className="font-semibold">This meeting may be recorded</p><ul className="mt-2 list-disc space-y-1 pl-5 text-blue-100"><li>Recording may include audio, video, and screen sharing.</li><li>The recording may be used to create a meeting transcript.</li><li>The transcript may enter the Quantum Reach CallSession and diagnostic workflow.</li><li>Recording is stored privately.</li><li>Consent applies to this recording instance.</li></ul><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void answerPreJoinConsent(true)} disabled={busy} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">I consent and continue</button><button type="button" onClick={() => void answerPreJoinConsent(false)} disabled={busy} className="rounded-lg border border-blue-200/50 px-3 py-2 font-medium text-blue-50">I do not consent</button></div></div> : null}
+          {declined ? <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-100">You chose not to consent to this recording, so you cannot join while recording consent is required.<div className="mt-3"><button type="button" onClick={() => { setDeclined(false); setRecordingStatus(null); }} className="rounded-lg border border-amber-200/50 px-3 py-1">Return</button></div></div> : null}
           {error ? <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
-          <Button type="button" onClick={join} disabled={busy} className="w-full bg-blue-500 text-white hover:bg-blue-400">{busy ? "Requesting access…" : "Join meeting"}</Button>
+          <Button type="button" onClick={() => void join()} disabled={busy || consentRequired || declined} className="w-full bg-blue-500 text-white hover:bg-blue-400">{busy ? "Requesting access…" : "Join meeting"}</Button>
           <p className="text-xs leading-5 text-slate-400">Your browser may ask for camera and microphone permission. You can join with either device disabled.</p>
         </div>
       </section>
@@ -237,20 +293,24 @@ function RoomExperience({
   access,
   invitationToken,
   onExit,
-  onFailure
+  onFailure,
+  propsWorkspaceId
 }: {
   meeting: MeetingClientProps["meeting"];
   access: Access;
   invitationToken?: string;
   onExit: (ended: boolean) => void;
   onFailure: (message: string) => void;
+  propsWorkspaceId?: string;
 }) {
   const room = useRoomContext();
   const connectionState = useConnectionState();
   const participants = useParticipants();
   const { localParticipant, isCameraEnabled, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
   const [controlError, setControlError] = useState<string>();
-  const [recording, setRecording] = useState<{ id: string; status: string; consentStatus: string } | null>(null);
+  const [roomStatus, setRoomStatus] = useState<RecordingRoomStatus | null>(null);
+  const recording = roomStatus?.recording ?? null;
+  const currentConsent = roomStatus?.currentParticipantConsent?.status;
   const [busy, setBusy] = useState(false);
   const previousShare = useRef(false);
   const intentionalLeave = useRef(false);
@@ -280,15 +340,19 @@ function RoomExperience({
   }, [isScreenShareEnabled, postEvent]);
 
   useEffect(() => {
-    const interval = window.setInterval(async () => {
+    let cancelled = false;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
       try {
         const response = await fetch(`/api/meetings/${meeting.id}/status`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ invitationToken, displayName: access.displayName })
         });
-        const data = await response.json() as { status?: string; recording?: { id: string; status: string; consentStatus: string } | null };
-        setRecording(data.recording ?? null);
+        const data = await response.json() as RecordingRoomStatus & { status?: string };
+        if (!cancelled) setRoomStatus(data);
         if (data.status === "ENDED") {
           intentionalLeave.current = true;
           await room.disconnect(true);
@@ -296,9 +360,13 @@ function RoomExperience({
         }
       } catch {
         // A transient status check failure should not interrupt an active room.
+      } finally {
+        inFlight = false;
       }
-    }, 5000);
-    return () => window.clearInterval(interval);
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 5000);
+    return () => { cancelled = true; window.clearInterval(interval); };
   }, [access.displayName, invitationToken, meeting.id, onExit, room]);
 
   useEffect(() => {
@@ -357,13 +425,25 @@ function RoomExperience({
     });
     const data = await response.json() as { error?: string };
     if (!response.ok) setControlError(data.error || "Recording consent could not be saved.");
-    setRecording((current) => current ? { ...current, consentStatus: consent ? "CONSENTED" : "DECLINED" } : current);
+    setRoomStatus((current) => current ? { ...current, currentParticipantConsent: { status: consent ? "CONSENTED" : "DECLINED" } } : current);
     if (!consent) { await leave(); }
   }
+  async function recordingAction(path: string, body: Record<string, unknown> = {}) {
+    setBusy(true); setControlError(undefined);
+    try {
+      const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Recording action failed.");
+      const statusResponse = await fetch(`/api/meetings/${meeting.id}/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken, displayName: access.displayName }) });
+      if (statusResponse.ok) setRoomStatus(await statusResponse.json() as RecordingRoomStatus);
+    } catch (error) { setControlError(error instanceof Error ? error.message : "Recording action failed."); }
+    finally { setBusy(false); }
+  }
+
   async function revokeConsent() {
     if (!recording) return;
     await fetch(`/api/meetings/${meeting.id}/recordings/${recording.id}/revoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken, displayName: access.displayName }) });
-    setRecording((current) => current ? { ...current, consentStatus: "REVOKED" } : current);
+    setRoomStatus((current) => current ? { ...current, currentParticipantConsent: { status: "REVOKED" } } : current);
   }
 
   useEffect(() => {
@@ -381,8 +461,11 @@ function RoomExperience({
       <div><h1 className="font-semibold">{meeting.title}</h1><p className="text-xs text-slate-400">{connectionLabel(connectionState)} · {access.role.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}</p></div>
       <div className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-sm"><Users className="h-4 w-4" />{participants.length}</div>
     </header>
+    {recording?.status === "RECORDING" ? <div className="mb-3 rounded-full bg-red-600 px-4 py-2 text-center text-sm font-semibold text-white">● Recording</div> : null}
+    {recording && ["STOPPING", "PROCESSING"].includes(recording.status) ? <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Recording finalizing…</div> : null}
+    {access.role === "HOST" || access.role === "CO_HOST" ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Recording controls</p><p className="text-slate-400">{recording ? recording.status.replaceAll("_", " ").toLowerCase() : "No recording request"}</p></div><div className="flex flex-wrap gap-2">{roomStatus?.permissions.canRequestConsent ? <button disabled={busy || !propsWorkspaceId} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Request recording consent</button> : null}{roomStatus?.permissions.canStartRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/start`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Start recording</button> : null}{roomStatus?.permissions.canStopRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/stop`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-red-300/60 px-3 py-2 font-medium text-red-100">Stop recording</button> : null}{roomStatus?.permissions.canRefreshRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/refresh`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-slate-600 px-3 py-2">Refresh status</button> : null}</div></div>{roomStatus?.consentSummary ? <p className="mt-3 text-slate-300">Consent: {roomStatus.consentSummary.consented} consented · {roomStatus.consentSummary.pending} pending · {roomStatus.consentSummary.declined} declined · {roomStatus.consentSummary.revoked} revoked</p> : null}{roomStatus?.consentSummary?.participants.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">{roomStatus.consentSummary.participants.map((p) => <span key={`${p.displayName}:${p.status}`} className="rounded-lg bg-slate-800 px-2 py-1 text-xs">{p.displayName}: {p.status.toLowerCase()}</span>)}</div> : null}{recording?.safeFailureMessage ? <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-amber-100">{recording.safeFailureMessage}</p> : null}</div> : null}
 
-    {recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recording.status) && recording.consentStatus !== "CONSENTED" ? <div className="mb-4 rounded-xl border border-blue-400/40 bg-blue-500/10 p-4 text-sm text-blue-50"><p className="font-semibold">Recording consent requested</p><p className="mt-1 text-blue-100">This Quantum Reach meeting may record audio, video, and screen sharing for the meeting record and transcript workflow. The recording is stored in private Quantum Reach recording storage.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void respondConsent(true)} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">I consent to recording</button><button type="button" onClick={() => void respondConsent(false)} className="rounded-lg border border-blue-200/50 px-3 py-2 font-medium text-blue-50">I do not consent</button></div></div> : null}
+    {recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recording.status) && currentConsent !== "CONSENTED" ? <div className="mb-4 rounded-xl border border-blue-400/40 bg-blue-500/10 p-4 text-sm text-blue-50"><p className="font-semibold">Recording consent requested</p><p className="mt-1 text-blue-100">This Quantum Reach meeting may record audio, video, and screen sharing for the meeting record and transcript workflow. The recording is stored in private Quantum Reach recording storage.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void respondConsent(true)} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">I consent to recording</button><button type="button" onClick={() => void respondConsent(false)} className="rounded-lg border border-blue-200/50 px-3 py-2 font-medium text-blue-50">I do not consent</button></div></div> : null}
     {recording?.status === "RECORDING" ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100"><span className="font-semibold">● Recording is active. Audio, video, and screen sharing may be recorded.</span><button type="button" onClick={() => void revokeConsent()} className="rounded-lg border border-red-200/50 px-3 py-1">Revoke consent</button></div> : null}
     {connectionState === ConnectionState.Reconnecting || connectionState === ConnectionState.SignalReconnecting ? <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Connection interrupted. Reconnecting…</div> : null}
     {controlError ? <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{controlError}</div> : null}
@@ -433,7 +516,7 @@ export function MeetingClient(props: MeetingClientProps) {
   if (state === "failed") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><RefreshCw className="mx-auto h-7 w-7 text-blue-300" /><h1 className="mt-3 text-xl font-semibold">Connection interrupted</h1><p className="mt-2 text-sm text-slate-300">{error}</p><Button className="mt-5" onClick={() => { setAccess(undefined); setChoice(undefined); setState("preparing"); setError(undefined); }}>Return to pre-join</Button></div></div>;
 
   if (!access || !choice) {
-    return <PreJoin meeting={props.meeting} defaultDisplayName={props.defaultDisplayName} onJoin={requestAccess} />;
+    return <PreJoin meeting={props.meeting} defaultDisplayName={props.defaultDisplayName} invitationToken={props.invitationToken} onJoin={requestAccess} />;
   }
 
   if (state === "ended") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><PhoneOff className="mx-auto h-8 w-8 text-blue-300" /><h1 className="mt-3 text-2xl font-semibold">Meeting ended</h1><p className="mt-2 text-sm text-slate-300">This Quantum Reach meeting has ended.</p>{props.dashboardReturnUrl ? <Button href={props.dashboardReturnUrl} className="mt-5">Return to meeting details</Button> : null}</div></div>;
@@ -457,6 +540,7 @@ export function MeetingClient(props: MeetingClientProps) {
       invitationToken={props.invitationToken}
       onExit={(ended) => setState(ended ? "ended" : "disconnected")}
       onFailure={(message) => { setError(message); setState("failed"); }}
+      propsWorkspaceId={props.workspaceId}
     />
   </LiveKitRoom>;
 }

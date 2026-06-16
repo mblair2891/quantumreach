@@ -12,5 +12,6 @@ export default async function Page({ params }: { params: { id: string } }) {
     meeting={{ id: meeting.id, title: meeting.title, description: meeting.description, scheduledAt: meeting.scheduledAt?.toISOString() }}
     defaultDisplayName={displayName}
     dashboardReturnUrl={`/dashboard/meetings/${meeting.id}`}
+    workspaceId={workspace.id}
   />;
 }
