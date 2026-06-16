@@ -35,11 +35,14 @@ type Access = {
   meeting: { id: string; title: string; status: string };
 };
 
+type LobbyStatus = { lobbyEnabled: boolean; bypass: boolean; status: string | null; displayName: string; meetingStatus: string; waitingCount: number; entries: { id: string; displayName: string; email?: string | null; role: string; status: string; requestedAt: string; consentStatus: string }[] };
+
 type RecordingRoomStatus = {
   meetingStatus?: string;
   recording: { id: string; status: string; transcriptionStatus?: string; startedAt?: string | null; stoppedAt?: string | null; completedAt?: string | null; safeFailureMessage?: string | null } | null;
   currentParticipantConsent: { status: string; respondedAt?: string | null } | null;
   consentSummary: { required: boolean; consented: number; pending: number; declined: number; revoked: number; participants: { displayName: string; role: string; status: string }[] };
+  lobby?: LobbyStatus;
   permissions: { canRequestConsent: boolean; canStartRecording: boolean; canStopRecording: boolean; canRefreshRecording: boolean };
 };
 
@@ -68,12 +71,14 @@ function PreJoin({
   meeting,
   defaultDisplayName,
   onJoin,
+  onLobby,
   invitationToken
 }: {
   meeting: MeetingClientProps["meeting"];
   defaultDisplayName?: string;
   invitationToken?: string;
   onJoin: (choice: DeviceChoice) => Promise<void>;
+  onLobby: (choice: DeviceChoice) => Promise<void>;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -180,6 +185,11 @@ function PreJoin({
       if (!response.ok) throw new Error(data.error || "Recording consent could not be saved.");
       if (!consent) { setDeclined(true); setBusy(false); return; }
       await refreshPreJoinStatus(displayName);
+      if (recordingStatus?.lobby?.lobbyEnabled && !recordingStatus.lobby.bypass) {
+        cleanup();
+        await onLobby({ displayName: displayName.trim(), cameraEnabled, microphoneEnabled, cameraDeviceId, microphoneDeviceId });
+        return;
+      }
       cleanup();
       await onJoin({ displayName: displayName.trim(), cameraEnabled, microphoneEnabled, cameraDeviceId, microphoneDeviceId });
     } catch (consentError) {
@@ -199,6 +209,16 @@ function PreJoin({
       const latest = consentAlreadyChecked ? recordingStatus : await refreshPreJoinStatus(displayName);
       if (latest?.recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(latest.recording.status) && latest.currentParticipantConsent?.status !== "CONSENTED") {
         setBusy(false);
+        return;
+      }
+      if (recordingStatus?.lobby?.lobbyEnabled && !recordingStatus.lobby.bypass) {
+        cleanup();
+        await onLobby({ displayName: displayName.trim(), cameraEnabled, microphoneEnabled, cameraDeviceId, microphoneDeviceId });
+        return;
+      }
+      if (latest?.lobby?.lobbyEnabled && !latest.lobby.bypass) {
+        cleanup();
+        await onLobby({ displayName: displayName.trim(), cameraEnabled, microphoneEnabled, cameraDeviceId, microphoneDeviceId });
         return;
       }
       cleanup();
@@ -440,6 +460,12 @@ function RoomExperience({
     finally { setBusy(false); }
   }
 
+  async function lobbyAction(entryId: string, action: "admit" | "deny") {
+    const response = await fetch(`/api/meetings/${meeting.id}/lobby/${entryId}/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: access.displayName }) });
+    const data = await response.json() as { error?: string };
+    if (!response.ok) setControlError(data.error || `Participant could not be ${action === "admit" ? "admitted" : "denied"}.`);
+  }
+
   async function revokeConsent() {
     if (!recording) return;
     await fetch(`/api/meetings/${meeting.id}/recordings/${recording.id}/revoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken, displayName: access.displayName }) });
@@ -459,11 +485,22 @@ function RoomExperience({
   return <div className="flex min-h-screen flex-col bg-slate-950 p-3 text-slate-50 md:p-5">
     <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
       <div><h1 className="font-semibold">{meeting.title}</h1><p className="text-xs text-slate-400">{connectionLabel(connectionState)} · {access.role.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}</p></div>
-      <div className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-sm"><Users className="h-4 w-4" />{participants.length}</div>
+      <div className="flex flex-wrap items-center gap-2"><div className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-sm"><Users className="h-4 w-4" />{participants.length}</div>{(access.role === "HOST" || access.role === "CO_HOST") && roomStatus?.lobby?.waitingCount ? <div className="rounded-full bg-violet-500 px-3 py-1 text-sm font-semibold text-white">Lobby {roomStatus.lobby.waitingCount}</div> : null}{recording ? <div className="rounded-full bg-slate-800 px-3 py-1 text-sm">{recording.status === "RECORDING" ? "Recording active" : "Planned recording"}</div> : null}</div>
     </header>
     {recording?.status === "RECORDING" ? <div className="mb-3 rounded-full bg-red-600 px-4 py-2 text-center text-sm font-semibold text-white">● Recording</div> : null}
     {recording && ["STOPPING", "PROCESSING"].includes(recording.status) ? <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Recording finalizing…</div> : null}
     {access.role === "HOST" || access.role === "CO_HOST" ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Recording controls</p><p className="text-slate-400">{recording ? recording.status.replaceAll("_", " ").toLowerCase() : "No recording request"}</p></div><div className="flex flex-wrap gap-2">{roomStatus?.permissions.canRequestConsent ? <button disabled={busy || !propsWorkspaceId} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Request recording consent</button> : null}{roomStatus?.permissions.canStartRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/start`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Start recording</button> : null}{roomStatus?.permissions.canStopRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/stop`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-red-300/60 px-3 py-2 font-medium text-red-100">Stop recording</button> : null}{roomStatus?.permissions.canRefreshRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/refresh`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-slate-600 px-3 py-2">Refresh status</button> : null}</div></div>{roomStatus?.consentSummary ? <p className="mt-3 text-slate-300">Consent: {roomStatus.consentSummary.consented} consented · {roomStatus.consentSummary.pending} pending · {roomStatus.consentSummary.declined} declined · {roomStatus.consentSummary.revoked} revoked</p> : null}{roomStatus?.consentSummary?.participants.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">{roomStatus.consentSummary.participants.map((p) => <span key={`${p.displayName}:${p.status}`} className="rounded-lg bg-slate-800 px-2 py-1 text-xs">{p.displayName}: {p.status.toLowerCase()}</span>)}</div> : null}{recording?.safeFailureMessage ? <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-amber-100">{recording.safeFailureMessage}</p> : null}</div> : null}
+    {(access.role === "HOST" || access.role === "CO_HOST") && roomStatus?.lobby?.lobbyEnabled ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm">
+      <p className="font-semibold">Waiting lobby</p>
+      <p className="text-slate-400">{roomStatus.lobby.waitingCount} waiting participant{roomStatus.lobby.waitingCount === 1 ? "" : "s"}</p>
+      <div className="mt-3 grid gap-2">
+        {roomStatus.lobby.entries.map((entry) => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-800 p-3">
+          <div><p className="font-medium">{entry.displayName}</p><p className="text-xs text-slate-400">{entry.email || "Guest/authenticated participant"} · {entry.role.toLowerCase()} · consent {entry.consentStatus.toLowerCase()}</p></div>
+          <div className="flex gap-2"><button type="button" onClick={() => void lobbyAction(entry.id, "admit")} className="rounded-lg bg-emerald-500 px-3 py-2 font-medium text-white">Admit</button><button type="button" onClick={() => void lobbyAction(entry.id, "deny")} className="rounded-lg border border-red-300/60 px-3 py-2 text-red-100">Deny</button></div>
+        </div>)}
+        {roomStatus.lobby.entries.length === 0 ? <p className="text-slate-400">No one is waiting.</p> : null}
+      </div>
+    </div> : null}
 
     {recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recording.status) && currentConsent !== "CONSENTED" ? <div className="mb-4 rounded-xl border border-blue-400/40 bg-blue-500/10 p-4 text-sm text-blue-50"><p className="font-semibold">Recording consent requested</p><p className="mt-1 text-blue-100">This Quantum Reach meeting may record audio, video, and screen sharing for the meeting record and transcript workflow. The recording is stored in private Quantum Reach recording storage.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void respondConsent(true)} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">I consent to recording</button><button type="button" onClick={() => void respondConsent(false)} className="rounded-lg border border-blue-200/50 px-3 py-2 font-medium text-blue-50">I do not consent</button></div></div> : null}
     {recording?.status === "RECORDING" ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100"><span className="font-semibold">● Recording is active. Audio, video, and screen sharing may be recorded.</span><button type="button" onClick={() => void revokeConsent()} className="rounded-lg border border-red-200/50 px-3 py-1">Revoke consent</button></div> : null}
@@ -485,7 +522,8 @@ function RoomExperience({
 export function MeetingClient(props: MeetingClientProps) {
   const [choice, setChoice] = useState<DeviceChoice>();
   const [access, setAccess] = useState<Access>();
-  const [state, setState] = useState<"preparing" | "requesting" | "connecting" | "connected" | "disconnected" | "failed" | "ended">("preparing");
+  const [state, setState] = useState<"preparing" | "lobby" | "requesting" | "connecting" | "connected" | "disconnected" | "failed" | "ended">("preparing");
+  const [lobbyStatus, setLobbyStatus] = useState<LobbyStatus | null>(null);
   const [error, setError] = useState<string>();
   const requestRef = useRef<Promise<void> | null>(null);
 
@@ -513,10 +551,43 @@ export function MeetingClient(props: MeetingClientProps) {
     }
   }, [props.invitationToken, props.meeting.id]);
 
+  const enterLobby = useCallback(async (nextChoice: DeviceChoice) => {
+    setChoice(nextChoice);
+    setState("lobby");
+    const response = await fetch(`/api/meetings/${props.meeting.id}/lobby/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken: props.invitationToken, displayName: nextChoice.displayName }) });
+    const data = await response.json();
+    if (!response.ok) { setError(data.error || "Lobby access could not be requested."); setState("failed"); return; }
+  }, [props.invitationToken, props.meeting.id]);
+
+  useEffect(() => {
+    if (state !== "lobby" || !choice) return;
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/meetings/${props.meeting.id}/lobby/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken: props.invitationToken, displayName: choice.displayName }) });
+        const data = await response.json() as LobbyStatus & { error?: string };
+        if (!response.ok) throw new Error(data.error || "Lobby status is unavailable.");
+        if (cancelled) return;
+        setLobbyStatus(data);
+        if (data.meetingStatus === "ENDED" || data.meetingStatus === "CANCELED") { setError("This meeting is no longer accepting participants."); setState("failed"); return; }
+        if (data.status === "ADMITTED") await requestAccess(choice);
+      } catch (lobbyError) { if (!cancelled) setError(lobbyError instanceof Error ? lobbyError.message : "Lobby status is unavailable."); }
+      finally { inFlight = false; }
+    };
+    void poll();
+    const interval = window.setInterval(() => void poll(), 3000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [choice, props.invitationToken, props.meeting.id, requestAccess, state]);
+
   if (state === "failed") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><RefreshCw className="mx-auto h-7 w-7 text-blue-300" /><h1 className="mt-3 text-xl font-semibold">Connection interrupted</h1><p className="mt-2 text-sm text-slate-300">{error}</p><Button className="mt-5" onClick={() => { setAccess(undefined); setChoice(undefined); setState("preparing"); setError(undefined); }}>Return to pre-join</Button></div></div>;
 
+  if (state === "lobby" && choice) return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><Users className="mx-auto h-8 w-8 text-violet-300" /><h1 className="mt-3 text-2xl font-semibold">Waiting for the host to admit you.</h1><p className="mt-2 text-sm text-slate-300">{props.meeting.title}</p><p className="mt-1 text-sm text-slate-400">{choice.displayName} · {lobbyStatus?.status?.toLowerCase() ?? "waiting"}</p>{lobbyStatus?.status === "DENIED" ? <p className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">You were not admitted to this meeting.</p> : null}<Button className="mt-5" variant="outline" onClick={() => { void fetch(`/api/meetings/${props.meeting.id}/lobby/leave`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken: props.invitationToken, displayName: choice.displayName }) }); setChoice(undefined); setState("preparing"); }}>Leave lobby</Button></div></div>;
+
   if (!access || !choice) {
-    return <PreJoin meeting={props.meeting} defaultDisplayName={props.defaultDisplayName} invitationToken={props.invitationToken} onJoin={requestAccess} />;
+    return <PreJoin meeting={props.meeting} defaultDisplayName={props.defaultDisplayName} invitationToken={props.invitationToken} onJoin={requestAccess} onLobby={enterLobby} />;
   }
 
   if (state === "ended") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><PhoneOff className="mx-auto h-8 w-8 text-blue-300" /><h1 className="mt-3 text-2xl font-semibold">Meeting ended</h1><p className="mt-2 text-sm text-slate-300">This Quantum Reach meeting has ended.</p>{props.dashboardReturnUrl ? <Button href={props.dashboardReturnUrl} className="mt-5">Return to meeting details</Button> : null}</div></div>;
