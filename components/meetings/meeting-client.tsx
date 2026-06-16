@@ -40,11 +40,11 @@ type LobbyStatus = { lobbyEnabled: boolean; bypass: boolean; status: string | nu
 
 type RecordingRoomStatus = {
   meetingStatus?: string;
-  recording: { id: string; status: string; transcriptionStatus?: string; startedAt?: string | null; stoppedAt?: string | null; completedAt?: string | null; safeFailureMessage?: string | null } | null;
+  recording: { id: string; status: string; recordingStatus?: string; transcriptionStatus?: string; startedAt?: string | null; stoppedAt?: string | null; completedAt?: string | null; safeFailureMessage?: string | null; recordedDurationSeconds?: number; activeSegmentStartedAt?: string | null; segments?: { id: string; segmentNumber: number; status: string; durationSeconds?: number | null }[] } | null;
   currentParticipantConsent: { status: string; respondedAt?: string | null } | null;
   consentSummary: { required: boolean; consented: number; pending: number; declined: number; revoked: number; participants: { displayName: string; role: string; status: string }[] };
   lobby?: LobbyStatus;
-  permissions: { canRequestConsent: boolean; canStartRecording: boolean; canStopRecording: boolean; canRefreshRecording: boolean };
+  permissions: { canRequestConsent: boolean; canStartRecording: boolean; canPauseRecording?: boolean; canResumeRecording?: boolean; canStopRecording: boolean; canRefreshRecording: boolean };
 };
 
 type DeviceChoice = {
@@ -66,6 +66,14 @@ function readableMediaError(error: unknown, kind?: MediaDeviceKind) {
 
 function stopStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
+}
+
+function formatRecordingDuration(seconds: number) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function PreJoin({
@@ -333,9 +341,15 @@ function RoomExperience({
   const recording = roomStatus?.recording ?? null;
   const currentConsent = roomStatus?.currentParticipantConsent?.status;
   const [busy, setBusy] = useState(false);
+  const [clockTick, setClockTick] = useState(0);
   const previousShare = useRef(false);
   const intentionalLeave = useRef(false);
   const hasConnected = useRef(false);
+  const baseRecordedSeconds = Number(recording?.recordedDurationSeconds ?? 0);
+  const activeStartedAt = recording?.status === "RECORDING" && recording.activeSegmentStartedAt ? Date.parse(recording.activeSegmentStartedAt) : 0;
+  const recordingSeconds = baseRecordedSeconds + (activeStartedAt ? Math.max(0, Math.floor((Date.now() - activeStartedAt) / 1000)) : 0);
+  const recordingTimer = formatRecordingDuration(recordingSeconds + clockTick * 0);
+  const recordingLabel = recording?.status === "RECORDING" ? "Recording" : recording?.status === "PAUSED" ? "Recording paused" : recording?.status === "STARTING" ? "Recording starting" : recording?.status === "PAUSING" ? "Pausing recording" : recording?.status === "RESUMING" ? "Resuming recording" : ["STOPPING","PROCESSING"].includes(recording?.status ?? "") ? "Recording finalizing" : recording?.status === "AVAILABLE" ? "Recording stopped" : "Planned recording";
 
   const postEvent = useCallback(async (type: string, eventId?: string, keepalive = false) => {
     await fetch(`/api/meetings/${meeting.id}/events`, {
@@ -389,6 +403,12 @@ function RoomExperience({
     const interval = window.setInterval(() => void refresh(), 5000);
     return () => { cancelled = true; window.clearInterval(interval); };
   }, [access.displayName, invitationToken, meeting.id, onExit, room]);
+
+  useEffect(() => {
+    if (recording?.status !== "RECORDING") return;
+    const interval = window.setInterval(() => setClockTick((tick) => tick + 1), 1000);
+    return () => window.clearInterval(interval);
+  }, [recording?.status, recording?.activeSegmentStartedAt]);
 
   useEffect(() => {
     const pagehide = () => {
@@ -502,13 +522,15 @@ function RoomExperience({
       <div><h1 className="font-semibold">{meeting.title}</h1><p className="text-xs text-slate-400">{connectionLabel(connectionState)} · {access.role.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}</p></div>
       <div className="flex flex-wrap items-center gap-2"><div className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-sm"><Users className="h-4 w-4" />{participants.length}</div>{(access.role === "HOST" || access.role === "CO_HOST") && roomStatus?.lobby?.waitingCount ? <div className="rounded-full bg-violet-500 px-3 py-1 text-sm font-semibold text-white">Lobby {roomStatus.lobby.waitingCount}</div> : null}{recording ? <div className="rounded-full bg-slate-800 px-3 py-1 text-sm">{recording.status === "RECORDING" ? "Recording active" : "Planned recording"}</div> : null}</div>
     </header>
-    {recording?.status === "RECORDING" ? <div className="mb-3 rounded-full bg-red-600 px-4 py-2 text-center text-sm font-semibold text-white">● Recording</div> : null}
-    {recording && ["STOPPING", "PROCESSING"].includes(recording.status) ? <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Recording finalizing…</div> : null}
-    {access.role === "HOST" || access.role === "CO_HOST" ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Recording controls</p><p className="text-slate-400">{recording ? recording.status.replaceAll("_", " ").toLowerCase() : "No recording request"}</p></div><div className="flex flex-wrap gap-2">{roomStatus?.permissions.canRequestConsent ? <button disabled={busy || !propsWorkspaceId} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Request recording consent</button> : null}{roomStatus?.permissions.canStartRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/start`) } className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Start recording</button> : null}{roomStatus?.permissions.canStopRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/stop`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-red-300/60 px-3 py-2 font-medium text-red-100">Stop recording</button> : null}{roomStatus?.permissions.canRefreshRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/refresh`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-slate-600 px-3 py-2">Refresh status</button> : null}</div></div>{roomStatus?.consentSummary ? <p className="mt-3 text-slate-300">Consent: {roomStatus.consentSummary.consented} consented · {roomStatus.consentSummary.pending} pending · {roomStatus.consentSummary.declined} declined · {roomStatus.consentSummary.revoked} revoked</p> : null}{roomStatus?.consentSummary?.participants.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">{roomStatus.consentSummary.participants.map((p) => <span key={`${p.displayName}:${p.status}`} className="rounded-lg bg-slate-800 px-2 py-1 text-xs">{p.displayName}: {p.status.toLowerCase()}</span>)}</div> : null}{recording?.safeFailureMessage ? <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-amber-100">{recording.safeFailureMessage}</p> : null}</div> : null}
+    {recording?.status === "RECORDING" ? <div className="mb-3 rounded-full bg-red-600 px-4 py-2 text-center text-sm font-semibold text-white">● Recording · {recordingTimer}</div> : null}
+    {recording?.status === "PAUSED" ? <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm font-semibold text-amber-100">Recording paused · {recordingTimer}</div> : null}
+    {recording && ["STOPPING", "PROCESSING"].includes(recording.status) ? <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Recording finalizing… · {recordingTimer}</div> : null}
+    {access.role === "HOST" || access.role === "CO_HOST" ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Recording controls</p><p className="text-slate-400">{recording ? `${recordingLabel} · ${recordingTimer}` : "No recording request"}</p></div><div className="flex flex-wrap gap-2">{roomStatus?.permissions.canRequestConsent ? <button disabled={busy || !propsWorkspaceId} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Request recording consent</button> : null}{roomStatus?.permissions.canStartRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/start`) } className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Start recording</button> : null}{recording?.status === "STARTING" ? <button disabled className="rounded-lg border border-slate-600 px-3 py-2 text-slate-300">Starting recording…</button> : null}{roomStatus?.permissions.canPauseRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/pause`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-amber-300/60 px-3 py-2 font-medium text-amber-100">Pause recording</button> : null}{roomStatus?.permissions.canResumeRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/resume`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Resume recording</button> : null}{roomStatus?.permissions.canStopRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/stop`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-red-300/60 px-3 py-2 font-medium text-red-100">Stop recording</button> : null}{roomStatus?.permissions.canRefreshRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/refresh`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-slate-600 px-3 py-2">Refresh status</button> : null}</div></div>{recording?.status === "AVAILABLE" && recording.segments?.length ? <div className="mt-3 flex flex-wrap gap-2">{recording.segments.filter((s) => s.status === "AVAILABLE").map((segment) => <a key={segment.id} href={`/api/meetings/${meeting.id}/recordings/${recording.id}/segments/${segment.id}/download?workspaceId=${encodeURIComponent(propsWorkspaceId || "")}`} className="rounded-lg border border-slate-600 px-3 py-2">Recording part {segment.segmentNumber}</a>)}</div> : null}{roomStatus?.consentSummary ? <p className="mt-3 text-slate-300">Consent: {roomStatus.consentSummary.consented} consented · {roomStatus.consentSummary.pending} pending · {roomStatus.consentSummary.declined} declined · {roomStatus.consentSummary.revoked} revoked</p> : null}{roomStatus?.consentSummary?.participants.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">{roomStatus.consentSummary.participants.map((p) => <span key={`${p.displayName}:${p.status}`} className="rounded-lg bg-slate-800 px-2 py-1 text-xs">{p.displayName}: {p.status.toLowerCase()}</span>)}</div> : null}{recording?.safeFailureMessage ? <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-amber-100">{recording.safeFailureMessage}</p> : null}</div> : null}
     {(access.role === "HOST" || access.role === "CO_HOST") && roomStatus?.lobby?.lobbyEnabled ? <HostLobbyPanel lobby={roomStatus.lobby} onAction={lobbyAction} /> : null}
 
     {recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recording.status) && currentConsent !== "CONSENTED" ? <div className="mb-4 rounded-xl border border-blue-400/40 bg-blue-500/10 p-4 text-sm text-blue-50"><p className="font-semibold">Recording consent requested</p><p className="mt-1 text-blue-100">This Quantum Reach meeting may record audio, video, and screen sharing for the meeting record and transcript workflow. The recording is stored in private Quantum Reach recording storage.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void respondConsent(true)} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">I consent to recording</button><button type="button" onClick={() => void respondConsent(false)} className="rounded-lg border border-blue-200/50 px-3 py-2 font-medium text-blue-50">I do not consent</button></div></div> : null}
     {recording?.status === "RECORDING" ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100"><span className="font-semibold">● Recording is active. Audio, video, and screen sharing may be recorded.</span><button type="button" onClick={() => void revokeConsent()} className="rounded-lg border border-red-200/50 px-3 py-1">Revoke consent</button></div> : null}
+    {recording && ["STARTING", "PAUSING", "PAUSED", "RESUMING", "STOPPING", "PROCESSING", "AVAILABLE"].includes(recording.status) ? <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-slate-200">{recordingLabel}. Participants remain in the meeting; paused recordings may resume and produce multiple private recording files.</div> : null}
     {connectionState === ConnectionState.Reconnecting || connectionState === ConnectionState.SignalReconnecting ? <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Connection interrupted. Reconnecting…</div> : null}
     {controlError ? <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{controlError}</div> : null}
     <ParticipantGrid />

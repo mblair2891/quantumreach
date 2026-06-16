@@ -43,3 +43,17 @@ Active/processing recordings cannot be deleted. Approved or CallSession-linked r
 
 ## Deferred features
 Native background transcription worker, audio-only egress output/chunking, dynamic LiveKit media permission gating for late joiners, explicit post-meeting guest recording sharing, retention schedules, and reopen-approved-transcript workflow.
+
+## Segmented pause/resume recording repair
+
+LiveKit Egress does not provide a native MP4 pause/resume operation. Quantum Reach therefore implements Pause and Resume as multiple finalized Egress segments under one logical `MeetingRecording` session.
+
+- Start creates segment 1 and writes to `workspaces/{workspaceId}/meetings/{meetingId}/recordings/{recordingId}/segments/1/recording.mp4`.
+- Pause stops and finalizes the active Egress segment, leaves the LiveKit room connected, and marks the logical recording paused after the provider finalizes the segment.
+- Resume rechecks participant consent, creates the next numbered segment, and starts a new RoomComposite Egress with a unique storage key.
+- Stop finalizes the active segment or, when already paused, completes the logical recording without stopping the meeting.
+- The host timer is based on completed segment duration plus the currently active segment start timestamp. Paused/finalizing time is excluded.
+- Paused recordings produce multiple protected recording files (Recording part 1, Recording part 2, etc.); Quantum Reach does not expose public R2 URLs or raw object keys.
+- Transcription runs only after final Stop and all usable segments are available. Segments are transcribed in `segmentNumber` order and merged into one transcript review and one CallSession handoff. The 24 MiB synchronous transcription limit applies per segment.
+- Deployments must run the additive Prisma migration before using segmented recording controls: `npm run prisma:deploy`.
+- Known limitation: this repair does not concatenate MP4 binaries into a combined playable file inside Vercel; users download individual protected parts.
