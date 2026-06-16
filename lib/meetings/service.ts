@@ -9,9 +9,13 @@ import { prisma } from "@/lib/db/prisma";
 import { toPrismaJson } from "@/lib/db/json";
 import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { buildMeetingInvitationUrl, maxInvitationExpiry, signMeetingInvitationCredential, verifyMeetingInvitationCredential } from "@/lib/meetings/invitations";
+import { preparePlannedRecordingConsent } from "@/lib/meetings/recordings";
 
 type MeetingInput = {
   title: string;
+  recordingPlanned?: boolean;
+  recordingConsentRequired?: boolean;
+  lobbyEnabled?: boolean;
   description?: string;
   scheduledAt?: string;
   leadId?: string;
@@ -149,9 +153,16 @@ export async function createMeeting(workspaceId: string, input: MeetingInput) {
       opportunityId,
       callSessionId,
       slug: randomBytes(18).toString("base64url"),
-      roomName: `quantum-reach-${roomEntropy}`
+      roomName: `quantum-reach-${roomEntropy}`,
+      recordingPlanned: Boolean(input.recordingPlanned),
+      recordingConsentRequired: Boolean(input.recordingPlanned),
+      lobbyEnabled: Boolean(input.lobbyEnabled),
+      lobbyPolicyUpdatedAt: input.lobbyEnabled ? new Date() : undefined
     }
   });
+  if (meeting.recordingPlanned) await preparePlannedRecordingConsent(workspaceId, meeting.id, user.id);
+  if (meeting.recordingPlanned) await audit(workspaceId, "meeting.recording_policy_enabled", "MeetingRoom", meeting.id, user.id, { meetingId: meeting.id });
+  if (meeting.lobbyEnabled) await audit(workspaceId, "meeting.lobby_enabled", "MeetingRoom", meeting.id, user.id, { meetingId: meeting.id });
   await audit(workspaceId, "meeting.created", "MeetingRoom", meeting.id, user.id, { scheduledAt: meeting.scheduledAt, callSessionId });
   if (callSessionId) await audit(workspaceId, "meeting.call_session_linked", "MeetingRoom", meeting.id, user.id, { callSessionId });
   return meeting;
@@ -176,6 +187,17 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
     assertWorkspaceLink("opportunity", workspaceId, opportunityId),
     assertAvailableCallSession(workspaceId, callSessionId, meetingId)
   ]);
+  const recordingPlanned = Boolean(input.recordingPlanned);
+  const recordingConsentRequired = recordingPlanned;
+  const lobbyEnabled = Boolean(input.lobbyEnabled);
+  if (!recordingPlanned && existing.recordingPlanned) {
+    const active = await prisma.meetingRecording.count({ where: { workspaceId, meetingRoomId: meetingId, status: { in: ["CONSENT_REQUIRED", "READY", "STARTING", "RECORDING", "STOPPING", "PROCESSING"] } } });
+    if (active) throw new Error("Recording policy cannot be disabled while a recording draft or active recording exists.");
+  }
+  if (!lobbyEnabled && existing.lobbyEnabled) {
+    const waiting = await prisma.meetingLobbyEntry.count({ where: { workspaceId, meetingRoomId: meetingId, status: "WAITING" } });
+    if (waiting) throw new Error("Admit, deny, or cancel waiting participants before disabling the lobby.");
+  }
   const meeting = await prisma.meetingRoom.update({
     where: { id: meetingId },
     data: {
@@ -186,9 +208,16 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
       contactId,
       companyId,
       opportunityId,
-      callSessionId
+      callSessionId,
+      recordingPlanned,
+      recordingConsentRequired,
+      lobbyEnabled,
+      lobbyPolicyUpdatedAt: lobbyEnabled !== existing.lobbyEnabled ? new Date() : existing.lobbyPolicyUpdatedAt
     }
   });
+  if (recordingPlanned && !existing.recordingPlanned) await preparePlannedRecordingConsent(workspaceId, meeting.id, user.id);
+  if (recordingPlanned !== existing.recordingPlanned) await audit(workspaceId, recordingPlanned ? "meeting.recording_policy_enabled" : "meeting.recording_policy_disabled", "MeetingRoom", meeting.id, user.id, { meetingId: meeting.id });
+  if (lobbyEnabled !== existing.lobbyEnabled) await audit(workspaceId, lobbyEnabled ? "meeting.lobby_enabled" : "meeting.lobby_disabled", "MeetingRoom", meeting.id, user.id, { meetingId: meeting.id });
   if (meeting.scheduledAt) {
     const maxExpiry = maxInvitationExpiry(meeting.scheduledAt);
     await prisma.meetingInvitation.updateMany({ where: { meetingId: meeting.id, workspaceId, revokedAt: null, expiresAt: { gt: maxExpiry } }, data: { expiresAt: maxExpiry, tokenVersion: { increment: 1 } } });
@@ -376,6 +405,7 @@ export async function endMeeting(authorization: Awaited<ReturnType<typeof author
     const now = new Date();
     await prisma.$transaction([
       prisma.meetingRoom.update({ where: { id: meeting.id }, data: { status: "ENDED", endedAt: now } }),
+      prisma.meetingLobbyEntry.updateMany({ where: { meetingRoomId: meeting.id, workspaceId: meeting.workspaceId, status: "WAITING" }, data: { status: "CANCELLED", leftAt: now } }),
       prisma.meetingEvent.upsert({
         where: { eventKey: `room-ended:${meeting.id}` },
         update: {},

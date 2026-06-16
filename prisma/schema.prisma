@@ -212,6 +212,11 @@ enum MeetingParticipantRole {
 }
 
 enum MeetingEventType {
+  LOBBY_JOIN_REQUESTED
+  PARTICIPANT_ADMITTED
+  PARTICIPANT_DENIED
+  PARTICIPANT_LEFT_LOBBY
+  RECORDING_CONSENT_PREPARED
   TOKEN_ISSUED
   PARTICIPANT_JOINED
   PARTICIPANT_LEFT
@@ -260,7 +265,16 @@ enum MeetingTranscriptionJobStatus {
   CANCELLED
 }
 
+enum MeetingLobbyStatus {
+  WAITING
+  ADMITTED
+  DENIED
+  CANCELLED
+  EXPIRED
+}
+
 enum MeetingRecordingEventType {
+  RECORDING_CONSENT_PREPARED
   CONSENT_REQUESTED
   CONSENT_GRANTED
   CONSENT_DECLINED
@@ -302,6 +316,7 @@ model UserProfile {
   stoppedRecordings   MeetingRecording[]        @relation("RecordingStoppedBy")
   approvedRecordings  MeetingRecording[]        @relation("TranscriptApprovedBy")
   recordingConsents   MeetingRecordingConsent[]
+  lobbyAdmissions     MeetingLobbyEntry[]
   memberships         WorkspaceMember[]
   ownedWorkspaces     Workspace[]               @relation("WorkspaceOwner")
 }
@@ -322,6 +337,7 @@ model Workspace {
   aiExecutions              AIExecution[]
   analyses                  AnalysisRecord[]
   auditLogs                 AuditLog[]
+  lobbyEntries              MeetingLobbyEntry[]
   clients                   Client[]
   companies                 Company[]
   contacts                  Contact[]
@@ -1483,6 +1499,11 @@ model MeetingRoom {
   scheduledAt   DateTime?
   startedAt     DateTime?
   endedAt       DateTime?
+  recordingPlanned Boolean @default(false)
+  recordingConsentRequired Boolean @default(false)
+  lobbyEnabled Boolean @default(false)
+  recordingConsentPreparedAt DateTime?
+  lobbyPolicyUpdatedAt DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -1500,6 +1521,7 @@ model MeetingRoom {
   MeetingRecording        MeetingRecording[]
   MeetingRecordingEvent   MeetingRecordingEvent[]
   MeetingTranscriptionJob MeetingTranscriptionJob[]
+  lobbyEntries            MeetingLobbyEntry[]
 
   @@index([workspaceId, status, scheduledAt])
   @@index([workspaceId, hostId])
@@ -1552,9 +1574,42 @@ model MeetingInvitation {
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   meeting      MeetingRoom          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   participants MeetingParticipant[]
+  lobbyEntries MeetingLobbyEntry[]
 
   @@index([workspaceId, meetingId])
   @@index([meetingId, revokedAt, expiresAt])
+}
+
+
+model MeetingLobbyEntry {
+  id              String             @id @default(cuid())
+  workspaceId     String
+  meetingRoomId   String
+  invitationId    String?
+  userId          String?
+  livekitIdentity String
+  displayName     String
+  email           String?
+  role            MeetingParticipantRole
+  status          MeetingLobbyStatus @default(WAITING)
+  requestedAt     DateTime           @default(now())
+  admittedAt      DateTime?
+  admittedById    String?
+  deniedAt        DateTime?
+  deniedById      String?
+  leftAt          DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meetingRoom MeetingRoom        @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
+  invitation  MeetingInvitation? @relation(fields: [invitationId], references: [id], onDelete: SetNull)
+  user        UserProfile?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([meetingRoomId, livekitIdentity])
+  @@index([workspaceId, meetingRoomId, status])
+  @@index([meetingRoomId, invitationId])
+  @@index([meetingRoomId, userId])
 }
 
 model MeetingEvent {
