@@ -382,6 +382,11 @@ export async function endMeeting(authorization: Awaited<ReturnType<typeof author
         create: { workspaceId: meeting.workspaceId, meetingId: meeting.id, participantId: participant.id, type: "ROOM_ENDED", eventKey: `room-ended:${meeting.id}`, occurredAt: now }
       })
     ]);
-    await audit(meeting.workspaceId, "meeting.room_ended", "MeetingRoom", meeting.id, actorId, { role: participant.role });
+    const activeRecording = await prisma.meetingRecording.findFirst({ where: { workspaceId: meeting.workspaceId, meetingRoomId: meeting.id, status: { in: ["STARTING", "RECORDING"] } } });
+    if (activeRecording) {
+      const { stopRecording } = await import("@/lib/meetings/recordings");
+      await stopRecording(meeting.workspaceId, meeting.id, activeRecording.id).catch(() => undefined);
+    }
+    await audit(meeting.workspaceId, "meeting.room_ended", "MeetingRoom", meeting.id, actorId, { role: participant.role, activeRecordingId: activeRecording?.id });
   }
 }

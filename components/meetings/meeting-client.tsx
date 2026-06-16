@@ -250,6 +250,7 @@ function RoomExperience({
   const participants = useParticipants();
   const { localParticipant, isCameraEnabled, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
   const [controlError, setControlError] = useState<string>();
+  const [recording, setRecording] = useState<{ id: string; status: string; consentStatus: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const previousShare = useRef(false);
   const intentionalLeave = useRef(false);
@@ -286,7 +287,8 @@ function RoomExperience({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ invitationToken, displayName: access.displayName })
         });
-        const data = await response.json() as { status?: string };
+        const data = await response.json() as { status?: string; recording?: { id: string; status: string; consentStatus: string } | null };
+        setRecording(data.recording ?? null);
         if (data.status === "ENDED") {
           intentionalLeave.current = true;
           await room.disconnect(true);
@@ -345,6 +347,25 @@ function RoomExperience({
     }
   }
 
+
+  async function respondConsent(consent: boolean) {
+    if (!recording) return;
+    const response = await fetch(`/api/meetings/${meeting.id}/recordings/${recording.id}/consent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invitationToken, displayName: access.displayName, consent })
+    });
+    const data = await response.json() as { error?: string };
+    if (!response.ok) setControlError(data.error || "Recording consent could not be saved.");
+    setRecording((current) => current ? { ...current, consentStatus: consent ? "CONSENTED" : "DECLINED" } : current);
+    if (!consent) { await leave(); }
+  }
+  async function revokeConsent() {
+    if (!recording) return;
+    await fetch(`/api/meetings/${meeting.id}/recordings/${recording.id}/revoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken, displayName: access.displayName }) });
+    setRecording((current) => current ? { ...current, consentStatus: "REVOKED" } : current);
+  }
+
   useEffect(() => {
     if (
       connectionState === ConnectionState.Disconnected &&
@@ -360,6 +381,9 @@ function RoomExperience({
       <div><h1 className="font-semibold">{meeting.title}</h1><p className="text-xs text-slate-400">{connectionLabel(connectionState)} · {access.role.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}</p></div>
       <div className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-sm"><Users className="h-4 w-4" />{participants.length}</div>
     </header>
+
+    {recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recording.status) && recording.consentStatus !== "CONSENTED" ? <div className="mb-4 rounded-xl border border-blue-400/40 bg-blue-500/10 p-4 text-sm text-blue-50"><p className="font-semibold">Recording consent requested</p><p className="mt-1 text-blue-100">This Quantum Reach meeting may record audio, video, and screen sharing for the meeting record and transcript workflow. The recording is stored in private Quantum Reach recording storage.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void respondConsent(true)} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">I consent to recording</button><button type="button" onClick={() => void respondConsent(false)} className="rounded-lg border border-blue-200/50 px-3 py-2 font-medium text-blue-50">I do not consent</button></div></div> : null}
+    {recording?.status === "RECORDING" ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100"><span className="font-semibold">● Recording is active. Audio, video, and screen sharing may be recorded.</span><button type="button" onClick={() => void revokeConsent()} className="rounded-lg border border-red-200/50 px-3 py-1">Revoke consent</button></div> : null}
     {connectionState === ConnectionState.Reconnecting || connectionState === ConnectionState.SignalReconnecting ? <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Connection interrupted. Reconnecting…</div> : null}
     {controlError ? <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{controlError}</div> : null}
     <ParticipantGrid />

@@ -18,6 +18,8 @@ import {
   revokeMeetingInvitation,
   updateMeeting
 } from "@/lib/meetings/service";
+import { listMeetingRecordings, requestRecordingConsent, reconcileRecording, startRecording, stopRecording } from "@/lib/meetings/recordings";
+import { processTranscriptionJob } from "@/lib/meetings/transcription";
 
 function label(value: string) {
   return value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -80,7 +82,7 @@ export async function NewMeetingPage() {
 export async function MeetingDetailPage({ id, invitationUrl }: { id: string; invitationUrl?: string }) {
   const workspace = await getCurrentWorkspace();
   if (!workspace) return null;
-  const [meeting, options] = await Promise.all([getMeetingDetail(workspace.id, id), getMeetingFormOptions(workspace.id)]);
+  const [meeting, options, recordings] = await Promise.all([getMeetingDetail(workspace.id, id), getMeetingFormOptions(workspace.id), listMeetingRecordings(workspace.id, id)]);
 
   async function createInvitation(formData: FormData) {
     "use server";
@@ -117,6 +119,27 @@ export async function MeetingDetailPage({ id, invitationUrl }: { id: string; inv
     });
     revalidatePath(`/dashboard/meetings/${id}`);
   }
+
+  async function requestConsent() {
+    "use server";
+    const workspace = await getCurrentWorkspace();
+    if (!workspace) return;
+    await requestRecordingConsent(workspace.id, id);
+    revalidatePath(`/dashboard/meetings/${id}`);
+  }
+  async function recordingAction(formData: FormData) {
+    "use server";
+    const workspace = await getCurrentWorkspace();
+    if (!workspace) return;
+    const recordingId = String(formData.get("recordingId"));
+    const action = String(formData.get("recordingAction"));
+    if (action === "start") await startRecording(workspace.id, id, recordingId);
+    if (action === "stop") await stopRecording(workspace.id, id, recordingId);
+    if (action === "refresh") await reconcileRecording(workspace.id, id, recordingId);
+    if (action === "transcribe") await processTranscriptionJob(workspace.id, id, recordingId);
+    revalidatePath(`/dashboard/meetings/${id}`);
+  }
+
   async function end() {
     "use server";
     const authorization = await authorizeMeetingJoin({ meetingId: id });
@@ -130,6 +153,8 @@ export async function MeetingDetailPage({ id, invitationUrl }: { id: string; inv
       <Card className="lg:col-span-2"><CardHeader><CardTitle>Meeting overview</CardTitle></CardHeader><CardContent className="grid gap-2 text-sm md:grid-cols-2"><p><span className="font-medium">Scheduled:</span> {meeting.scheduledAt?.toLocaleString() ?? "—"}</p><p><span className="font-medium">Started:</span> {meeting.startedAt?.toLocaleString() ?? "—"}</p><p><span className="font-medium">Ended:</span> {meeting.endedAt?.toLocaleString() ?? "—"}</p><p><span className="font-medium">Host:</span> {[meeting.host.firstName, meeting.host.lastName].filter(Boolean).join(" ") || meeting.host.email}</p><p><span className="font-medium">Lead:</span> {meeting.lead ? <Link className="underline" href={`/dashboard/leads/${meeting.lead.id}`}>{meeting.lead.name}</Link> : "—"}</p><p><span className="font-medium">Contact:</span> {meeting.contact ? <Link className="underline" href={`/dashboard/contacts/${meeting.contact.id}`}>{meeting.contact.firstName} {meeting.contact.lastName}</Link> : "—"}</p><p><span className="font-medium">Company:</span> {meeting.company ? <Link className="underline" href={`/dashboard/companies/${meeting.company.id}`}>{meeting.company.name}</Link> : "—"}</p><p><span className="font-medium">Opportunity:</span> {meeting.opportunity ? <Link className="underline" href={`/dashboard/opportunities/${meeting.opportunity.id}`}>{meeting.opportunity.name}</Link> : "—"}</p><p><span className="font-medium">CallSession:</span> {meeting.callSession ? <Link className="underline" href={`/dashboard/calls/${meeting.callSession.id}`}>{label(meeting.callSession.provider)} call</Link> : "—"}</p></CardContent></Card>
       <Card><CardHeader><CardTitle>Room actions</CardTitle><CardDescription>Joining requests a short-lived token only at room entry.</CardDescription></CardHeader><CardContent className="space-y-3">{meeting.status !== "ENDED" && meeting.status !== "CANCELED" ? <Button href={`/dashboard/meetings/${meeting.id}/room`} className="w-full">Open room</Button> : null}{meeting.status !== "ENDED" ? <form action={end}><Button type="submit" variant="outline" className="w-full border-red-300 text-red-700 dark:text-red-300">End meeting</Button></form> : null}</CardContent></Card>
     </div>
+
+    <Card><CardHeader><CardTitle>Recordings and transcripts</CardTitle><CardDescription>Host-controlled recording requires explicit per-recording consent before LiveKit Egress can start.</CardDescription></CardHeader><CardContent className="space-y-4"><form action={requestConsent}><Button type="submit">Request recording consent</Button></form>{recordings.map((recording) => { const consented = recording.consents.filter((consent) => consent.consentStatus === "CONSENTED").length; const pending = recording.consents.filter((consent) => consent.consentStatus === "PENDING").length; const declined = recording.consents.filter((consent) => consent.consentStatus === "DECLINED" || consent.consentStatus === "REVOKED").length; const labelStatus = recording.status === "CONSENT_REQUIRED" ? "Awaiting consent" : recording.status === "READY" ? "Ready to record" : recording.status === "PROCESSING" || recording.status === "STOPPING" ? "Finalizing" : label(recording.status); return <div key={recording.id} className="rounded-xl border p-4 text-sm dark:border-slate-800"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{labelStatus}{recording.status === "RECORDING" ? <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">Recording</span> : null}</p><p className="mt-1 text-slate-500">Consent: {consented} consented · {pending} pending · {declined} declined</p><p className="text-slate-500">Transcription: {recording.transcriptionStatus === "REVIEW_REQUIRED" ? "Transcript needs review" : recording.transcriptionStatus === "APPROVED" ? "Transcript approved" : label(recording.transcriptionStatus)}</p><p className="text-slate-500">Started {recording.startedAt?.toLocaleString() ?? "—"} · Completed {recording.completedAt?.toLocaleString() ?? "—"}</p>{recording.safeFailureMessage ? <p className="mt-2 rounded-lg bg-amber-50 p-2 text-amber-800 dark:bg-amber-950 dark:text-amber-100">{recording.safeFailureMessage}</p> : null}</div><form action={recordingAction} className="flex flex-wrap gap-2"><input type="hidden" name="recordingId" value={recording.id} />{recording.status === "READY" ? <Button name="recordingAction" value="start" type="submit">Start recording</Button> : null}{recording.status === "RECORDING" ? <Button name="recordingAction" value="stop" type="submit" variant="outline">Stop recording</Button> : null}{["STARTING", "STOPPING", "PROCESSING"].includes(recording.status) ? <Button name="recordingAction" value="refresh" type="submit" variant="outline">Refresh recording status</Button> : null}{recording.status === "AVAILABLE" ? <Button href={`/api/meetings/${id}/recordings/${recording.id}/download?workspaceId=${workspace.id}`} variant="outline">Protected download</Button> : null}{recording.status === "AVAILABLE" && ["QUEUED", "FAILED", "NOT_REQUESTED"].includes(recording.transcriptionStatus) ? <Button name="recordingAction" value="transcribe" type="submit" variant="outline">Retry transcription</Button> : null}{["REVIEW_REQUIRED", "APPROVED"].includes(recording.transcriptionStatus) ? <Button href={`/dashboard/meetings/${id}/recordings/${recording.id}/transcript`} variant="outline">Review transcript</Button> : null}{recording.callSessionId ? <Button href={`/dashboard/calls/${recording.callSessionId}`} variant="outline">Open CallSession</Button> : null}</form></div><div className="mt-3 grid gap-2 md:grid-cols-2">{recording.consents.map((consent) => <p key={consent.id} className="rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-900">{consent.displayName}: {label(consent.consentStatus)}</p>)}</div></div>; })}{recordings.length === 0 ? <p className="text-sm text-slate-500">No recording request has been created for this meeting.</p> : null}</CardContent></Card>
     <Card><CardHeader><CardTitle>Edit meeting</CardTitle><CardDescription>Linked CRM and CallSession records remain workspace-scoped.</CardDescription></CardHeader><form action={update} className="grid gap-4 md:grid-cols-2">
       <label className="grid gap-1 text-sm font-medium md:col-span-2">Title<Input name="title" required maxLength={160} defaultValue={meeting.title} /></label>
       <label className="grid gap-1 text-sm font-medium md:col-span-2">Description<Textarea name="description" maxLength={2000} defaultValue={meeting.description ?? ""} /></label>

@@ -1,0 +1,7 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
+import { requireWorkspaceAccess } from "@/lib/auth/rbac";
+import { audit } from "@/lib/audit/service";
+import { getMeetingRecordingObject } from "@/lib/storage/meeting-recordings";
+export const runtime="nodejs";
+export async function GET(request:Request,{params}:{params:{id:string;recordingId:string}}){ const workspaceId=new URL(request.url).searchParams.get("workspaceId")||""; const {user}=await requireWorkspaceAccess(workspaceId); const r=await prisma.meetingRecording.findFirst({where:{id:params.recordingId,workspaceId,meetingRoomId:params.id,status:"AVAILABLE"}}); if(!r?.storageKey) return NextResponse.json({error:"Recording is not available."},{status:404}); const upstream=await getMeetingRecordingObject(r.storageKey, request.headers.get("range")||undefined); await audit(workspaceId,"meeting.recording_downloaded","MeetingRecording",r.id,user.id,{meetingId:params.id,fileSizeBytes:r.fileSizeBytes?.toString()}); return new Response(upstream.body,{status:upstream.status,headers:{"Content-Type":r.mimeType||"video/mp4","Content-Disposition":`attachment; filename="${r.fileName||"recording.mp4"}"`,"Accept-Ranges":"bytes",...(upstream.headers.get("content-range")?{"Content-Range":upstream.headers.get("content-range")!}:{}),...(upstream.headers.get("content-length")?{"Content-Length":upstream.headers.get("content-length")!}:{})}}); }
