@@ -231,6 +231,9 @@ enum MeetingRecordingStatus {
   READY
   STARTING
   RECORDING
+  PAUSING
+  PAUSED
+  RESUMING
   STOPPING
   PROCESSING
   AVAILABLE
@@ -281,6 +284,13 @@ enum MeetingRecordingEventType {
   CONSENT_REVOKED
   RECORDING_START_REQUESTED
   RECORDING_STARTED
+  RECORDING_PAUSE_REQUESTED
+  RECORDING_PAUSED
+  RECORDING_RESUME_REQUESTED
+  RECORDING_RESUMED
+  RECORDING_SEGMENT_STARTED
+  RECORDING_SEGMENT_FINALIZED
+  RECORDING_SEGMENT_FAILED
   RECORDING_STOP_REQUESTED
   RECORDING_STOPPED
   RECORDING_PROCESSING
@@ -295,6 +305,16 @@ enum MeetingRecordingEventType {
   CALL_SESSION_UPDATED
   RECORDING_DOWNLOADED
   RECORDING_DELETED
+}
+
+enum MeetingRecordingSegmentStatus {
+  STARTING
+  RECORDING
+  STOPPING
+  PROCESSING
+  AVAILABLE
+  FAILED
+  CANCELLED
 }
 
 model UserProfile {
@@ -381,6 +401,7 @@ model Workspace {
   meetingInvitations        MeetingInvitation[]
   meetingEvents             MeetingEvent[]
   meetingRecordings         MeetingRecording[]
+  meetingRecordingSegments  MeetingRecordingSegment[]
   meetingRecordingConsents  MeetingRecordingConsent[]
   meetingRecordingEvents    MeetingRecordingEvent[]
   meetingTranscriptionJobs  MeetingTranscriptionJob[]
@@ -1519,6 +1540,7 @@ model MeetingRoom {
   events                  MeetingEvent[]
   recordingConsents       MeetingRecordingConsent[]
   MeetingRecording        MeetingRecording[]
+  MeetingRecordingSegment MeetingRecordingSegment[]
   MeetingRecordingEvent   MeetingRecordingEvent[]
   MeetingTranscriptionJob MeetingTranscriptionJob[]
   lobbyEntries            MeetingLobbyEntry[]
@@ -1674,11 +1696,43 @@ model MeetingRecording {
   transcriptApprovedBy UserProfile?              @relation("TranscriptApprovedBy", fields: [transcriptApprovedById], references: [id], onDelete: SetNull)
   consents             MeetingRecordingConsent[]
   events               MeetingRecordingEvent[]
+  segments             MeetingRecordingSegment[]
   transcriptionJobs    MeetingTranscriptionJob[]
 
   @@index([workspaceId, meetingRoomId, status])
   @@index([workspaceId, transcriptionStatus])
   @@index([workspaceId, callSessionId])
+}
+
+model MeetingRecordingSegment {
+  id                 String                        @id @default(cuid())
+  workspaceId        String
+  meetingRoomId      String
+  recordingId        String
+  segmentNumber      Int
+  providerEgressId   String?                       @unique
+  status             MeetingRecordingSegmentStatus @default(STARTING)
+  storageKey         String?
+  bucketName         String?
+  fileName           String?
+  mimeType           String?
+  fileSizeBytes      BigInt?
+  durationSeconds    Int?
+  startedAt          DateTime?
+  stoppedAt          DateTime?
+  completedAt        DateTime?
+  failedAt           DateTime?
+  safeFailureMessage String?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  meetingRoom MeetingRoom      @relation(fields: [meetingRoomId], references: [id], onDelete: Restrict)
+  recording   MeetingRecording @relation(fields: [recordingId], references: [id], onDelete: Restrict)
+
+  @@unique([recordingId, segmentNumber])
+  @@index([workspaceId, meetingRoomId, status])
+  @@index([recordingId, status])
 }
 
 model MeetingRecordingConsent {
