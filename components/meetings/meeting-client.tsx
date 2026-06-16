@@ -35,7 +35,8 @@ type Access = {
   meeting: { id: string; title: string; status: string };
 };
 
-type LobbyStatus = { lobbyEnabled: boolean; bypass: boolean; status: string | null; displayName: string; meetingStatus: string; waitingCount: number; entries: { id: string; displayName: string; email?: string | null; role: string; status: string; requestedAt: string; consentStatus: string }[] };
+type LobbyEntry = { id: string; displayName: string; email?: string | null; role: string; status: string; requestedAt: string; consentStatus: string };
+type LobbyStatus = { lobbyEnabled: boolean; bypass: boolean; status: string | null; displayName: string; meetingStatus: string; waitingCount: number; entries: LobbyEntry[] };
 
 type RecordingRoomStatus = {
   meetingStatus?: string;
@@ -84,7 +85,7 @@ function PreJoin({
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationRef = useRef<number>();
-  const [displayName, setDisplayName] = useState(defaultDisplayName ?? "");
+  const [displayName, setDisplayName] = useState((defaultDisplayName ?? "").trim().slice(0, 80));
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
   const [cameraDeviceId, setCameraDeviceId] = useState("");
@@ -448,16 +449,30 @@ function RoomExperience({
     setRoomStatus((current) => current ? { ...current, currentParticipantConsent: { status: consent ? "CONSENTED" : "DECLINED" } } : current);
     if (!consent) { await leave(); }
   }
-  async function recordingAction(path: string, body: Record<string, unknown> = {}) {
+  async function readActionResponse(response: Response) {
+    const text = await response.text();
+    if (!text) return {} as { ok?: boolean; error?: string };
+    try { return JSON.parse(text) as { ok?: boolean; error?: string }; }
+    catch { return { ok: false, error: "The recording service returned an unreadable response. Check the deployment logs and try again." }; }
+  }
+
+  async function recordingAction(path: string, body?: Record<string, unknown>) {
+    if (busy) return;
     setBusy(true); setControlError(undefined);
     try {
-      const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(data.error || "Recording action failed.");
+      const response = await fetch(path, { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+      const data = await readActionResponse(response);
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) throw new Error(data.error || "You are not authorized to manage this recording.");
+        if (response.status === 409) throw new Error(data.error || "Recording consent is incomplete.");
+        if (response.status === 503) throw new Error(data.error || "The recording service could not be reached. Check the deployment logs and try again.");
+        throw new Error(data.error || "Recording action failed.");
+      }
       const statusResponse = await fetch(`/api/meetings/${meeting.id}/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken, displayName: access.displayName }) });
       if (statusResponse.ok) setRoomStatus(await statusResponse.json() as RecordingRoomStatus);
-    } catch (error) { setControlError(error instanceof Error ? error.message : "Recording action failed."); }
-    finally { setBusy(false); }
+    } catch (error) {
+      setControlError(error instanceof TypeError ? "The recording service could not be reached. Check the deployment logs and try again." : error instanceof Error ? error.message : "Recording action failed.");
+    } finally { setBusy(false); }
   }
 
   async function lobbyAction(entryId: string, action: "admit" | "deny") {
@@ -489,18 +504,8 @@ function RoomExperience({
     </header>
     {recording?.status === "RECORDING" ? <div className="mb-3 rounded-full bg-red-600 px-4 py-2 text-center text-sm font-semibold text-white">● Recording</div> : null}
     {recording && ["STOPPING", "PROCESSING"].includes(recording.status) ? <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Recording finalizing…</div> : null}
-    {access.role === "HOST" || access.role === "CO_HOST" ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Recording controls</p><p className="text-slate-400">{recording ? recording.status.replaceAll("_", " ").toLowerCase() : "No recording request"}</p></div><div className="flex flex-wrap gap-2">{roomStatus?.permissions.canRequestConsent ? <button disabled={busy || !propsWorkspaceId} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Request recording consent</button> : null}{roomStatus?.permissions.canStartRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/start`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Start recording</button> : null}{roomStatus?.permissions.canStopRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/stop`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-red-300/60 px-3 py-2 font-medium text-red-100">Stop recording</button> : null}{roomStatus?.permissions.canRefreshRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/refresh`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-slate-600 px-3 py-2">Refresh status</button> : null}</div></div>{roomStatus?.consentSummary ? <p className="mt-3 text-slate-300">Consent: {roomStatus.consentSummary.consented} consented · {roomStatus.consentSummary.pending} pending · {roomStatus.consentSummary.declined} declined · {roomStatus.consentSummary.revoked} revoked</p> : null}{roomStatus?.consentSummary?.participants.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">{roomStatus.consentSummary.participants.map((p) => <span key={`${p.displayName}:${p.status}`} className="rounded-lg bg-slate-800 px-2 py-1 text-xs">{p.displayName}: {p.status.toLowerCase()}</span>)}</div> : null}{recording?.safeFailureMessage ? <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-amber-100">{recording.safeFailureMessage}</p> : null}</div> : null}
-    {(access.role === "HOST" || access.role === "CO_HOST") && roomStatus?.lobby?.lobbyEnabled ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm">
-      <p className="font-semibold">Waiting lobby</p>
-      <p className="text-slate-400">{roomStatus.lobby.waitingCount} waiting participant{roomStatus.lobby.waitingCount === 1 ? "" : "s"}</p>
-      <div className="mt-3 grid gap-2">
-        {roomStatus.lobby.entries.map((entry) => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-800 p-3">
-          <div><p className="font-medium">{entry.displayName}</p><p className="text-xs text-slate-400">{entry.email || "Guest/authenticated participant"} · {entry.role.toLowerCase()} · consent {entry.consentStatus.toLowerCase()}</p></div>
-          <div className="flex gap-2"><button type="button" onClick={() => void lobbyAction(entry.id, "admit")} className="rounded-lg bg-emerald-500 px-3 py-2 font-medium text-white">Admit</button><button type="button" onClick={() => void lobbyAction(entry.id, "deny")} className="rounded-lg border border-red-300/60 px-3 py-2 text-red-100">Deny</button></div>
-        </div>)}
-        {roomStatus.lobby.entries.length === 0 ? <p className="text-slate-400">No one is waiting.</p> : null}
-      </div>
-    </div> : null}
+    {access.role === "HOST" || access.role === "CO_HOST" ? <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Recording controls</p><p className="text-slate-400">{recording ? recording.status.replaceAll("_", " ").toLowerCase() : "No recording request"}</p></div><div className="flex flex-wrap gap-2">{roomStatus?.permissions.canRequestConsent ? <button disabled={busy || !propsWorkspaceId} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings`, { workspaceId: propsWorkspaceId })} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Request recording consent</button> : null}{roomStatus?.permissions.canStartRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/start`) } className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">Start recording</button> : null}{roomStatus?.permissions.canStopRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/stop`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-red-300/60 px-3 py-2 font-medium text-red-100">Stop recording</button> : null}{roomStatus?.permissions.canRefreshRecording && recording ? <button disabled={busy} onClick={() => void recordingAction(`/api/meetings/${meeting.id}/recordings/${recording.id}/refresh`, { workspaceId: propsWorkspaceId })} className="rounded-lg border border-slate-600 px-3 py-2">Refresh status</button> : null}</div></div>{roomStatus?.consentSummary ? <p className="mt-3 text-slate-300">Consent: {roomStatus.consentSummary.consented} consented · {roomStatus.consentSummary.pending} pending · {roomStatus.consentSummary.declined} declined · {roomStatus.consentSummary.revoked} revoked</p> : null}{roomStatus?.consentSummary?.participants.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">{roomStatus.consentSummary.participants.map((p) => <span key={`${p.displayName}:${p.status}`} className="rounded-lg bg-slate-800 px-2 py-1 text-xs">{p.displayName}: {p.status.toLowerCase()}</span>)}</div> : null}{recording?.safeFailureMessage ? <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-amber-100">{recording.safeFailureMessage}</p> : null}</div> : null}
+    {(access.role === "HOST" || access.role === "CO_HOST") && roomStatus?.lobby?.lobbyEnabled ? <HostLobbyPanel lobby={roomStatus.lobby} onAction={lobbyAction} /> : null}
 
     {recording && ["CONSENT_REQUIRED", "READY", "STARTING"].includes(recording.status) && currentConsent !== "CONSENTED" ? <div className="mb-4 rounded-xl border border-blue-400/40 bg-blue-500/10 p-4 text-sm text-blue-50"><p className="font-semibold">Recording consent requested</p><p className="mt-1 text-blue-100">This Quantum Reach meeting may record audio, video, and screen sharing for the meeting record and transcript workflow. The recording is stored in private Quantum Reach recording storage.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void respondConsent(true)} className="rounded-lg bg-blue-500 px-3 py-2 font-medium text-white">I consent to recording</button><button type="button" onClick={() => void respondConsent(false)} className="rounded-lg border border-blue-200/50 px-3 py-2 font-medium text-blue-50">I do not consent</button></div></div> : null}
     {recording?.status === "RECORDING" ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100"><span className="font-semibold">● Recording is active. Audio, video, and screen sharing may be recorded.</span><button type="button" onClick={() => void revokeConsent()} className="rounded-lg border border-red-200/50 px-3 py-1">Revoke consent</button></div> : null}
@@ -517,6 +522,16 @@ function RoomExperience({
       {access.role === "HOST" || access.role === "CO_HOST" ? <button type="button" onClick={end} disabled={busy} className="flex items-center gap-2 rounded-xl border border-red-400/50 px-4 py-3 text-sm font-medium text-red-200"><PhoneOff className="h-5 w-5" />End meeting</button> : null}
     </footer>
   </div>;
+}
+
+function HostLobbyPanel({ lobby, onAction }: { lobby: LobbyStatus; onAction: (entryId: string, action: "admit" | "deny") => Promise<void> }) {
+  const waiting = lobby.entries.filter((entry) => entry.status === "WAITING");
+  const denied = lobby.entries.filter((entry) => entry.status === "DENIED");
+  const renderEntry = (entry: LobbyEntry, deniedEntry = false) => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-800 p-3">
+    <div><p className="font-medium">{entry.displayName}</p><p className="text-xs text-slate-400">{entry.email || "Guest/authenticated participant"} · {entry.role.toLowerCase()} · consent {entry.consentStatus.toLowerCase()}</p></div>
+    <div className="flex gap-2"><button type="button" onClick={() => void onAction(entry.id, "admit")} className="rounded-lg bg-emerald-500 px-3 py-2 font-medium text-white">Admit</button>{!deniedEntry ? <button type="button" onClick={() => void onAction(entry.id, "deny")} className="rounded-lg border border-red-300/60 px-3 py-2 text-red-100">Deny</button> : null}</div>
+  </div>;
+  return <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm"><p className="font-semibold">Waiting lobby</p><p className="text-slate-400">{lobby.waitingCount} waiting participant{lobby.waitingCount === 1 ? "" : "s"}</p><div className="mt-3 grid gap-2"><p className="text-xs font-semibold uppercase text-slate-500">Waiting</p>{waiting.map((entry) => renderEntry(entry))}{waiting.length === 0 ? <p className="text-slate-400">No one is waiting.</p> : null}{denied.length ? <><p className="mt-3 text-xs font-semibold uppercase text-slate-500">Denied</p>{denied.map((entry) => renderEntry(entry, true))}</> : null}</div></div>;
 }
 
 export function MeetingClient(props: MeetingClientProps) {
@@ -584,7 +599,7 @@ export function MeetingClient(props: MeetingClientProps) {
 
   if (state === "failed") return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><RefreshCw className="mx-auto h-7 w-7 text-blue-300" /><h1 className="mt-3 text-xl font-semibold">Connection interrupted</h1><p className="mt-2 text-sm text-slate-300">{error}</p><Button className="mt-5" onClick={() => { setAccess(undefined); setChoice(undefined); setState("preparing"); setError(undefined); }}>Return to pre-join</Button></div></div>;
 
-  if (state === "lobby" && choice) return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><Users className="mx-auto h-8 w-8 text-violet-300" /><h1 className="mt-3 text-2xl font-semibold">Waiting for the host to admit you.</h1><p className="mt-2 text-sm text-slate-300">{props.meeting.title}</p><p className="mt-1 text-sm text-slate-400">{choice.displayName} · {lobbyStatus?.status?.toLowerCase() ?? "waiting"}</p>{lobbyStatus?.status === "DENIED" ? <p className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">You were not admitted to this meeting.</p> : null}<Button className="mt-5" variant="outline" onClick={() => { void fetch(`/api/meetings/${props.meeting.id}/lobby/leave`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken: props.invitationToken, displayName: choice.displayName }) }); setChoice(undefined); setState("preparing"); }}>Leave lobby</Button></div></div>;
+  if (state === "lobby" && choice) return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-50"><div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center"><Users className="mx-auto h-8 w-8 text-violet-300" /><h1 className="mt-3 text-2xl font-semibold">{lobbyStatus?.status === "DENIED" ? "You were not admitted to this meeting." : "Waiting for the host to admit you."}</h1><p className="mt-2 text-sm text-slate-300">{props.meeting.title}</p><p className="mt-1 text-sm text-slate-400">{choice.displayName} · {lobbyStatus?.status?.toLowerCase() ?? "waiting"}</p>{lobbyStatus?.status === "DENIED" ? <Button className="mt-5" onClick={() => void enterLobby(choice)}>Request access again</Button> : null}<Button className="mt-5" variant="outline" onClick={() => { void fetch(`/api/meetings/${props.meeting.id}/lobby/leave`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationToken: props.invitationToken, displayName: choice.displayName }) }); setChoice(undefined); setState("preparing"); }}>Leave lobby</Button></div></div>;
 
   if (!access || !choice) {
     return <PreJoin meeting={props.meeting} defaultDisplayName={props.defaultDisplayName} invitationToken={props.invitationToken} onJoin={requestAccess} onLobby={enterLobby} />;

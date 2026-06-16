@@ -37,22 +37,23 @@ export async function requestLobbyEntry(input: { meetingId: string; invitationTo
   await assertConsentBeforeLobby(auth);
   if (auth.meeting.status === "ENDED" || auth.meeting.status === "CANCELED") throw new Error("This meeting is no longer accepting participants.");
   const existing = await prisma.meetingLobbyEntry.findUnique({ where: { meetingRoomId_livekitIdentity: { meetingRoomId: auth.meeting.id, livekitIdentity: auth.participant.identity } } });
-  if (existing?.status === "ADMITTED" || existing?.status === "DENIED") return { ...existing, bypass: false };
+  if (existing?.status === "ADMITTED") return { ...existing, bypass: false };
   const entry = await prisma.meetingLobbyEntry.upsert({
     where: { meetingRoomId_livekitIdentity: { meetingRoomId: auth.meeting.id, livekitIdentity: auth.participant.identity } },
     update: { status: "WAITING", displayName: auth.participant.displayName, role: auth.participant.role, userId: auth.participant.userId, invitationId: auth.participant.invitationId, leftAt: null, requestedAt: new Date() },
     create: { workspaceId: auth.meeting.workspaceId, meetingRoomId: auth.meeting.id, livekitIdentity: auth.participant.identity, displayName: auth.participant.displayName, role: auth.participant.role, userId: auth.participant.userId, invitationId: auth.participant.invitationId, status: "WAITING" }
   });
   await meetingEvent(auth, "LOBBY_JOIN_REQUESTED", entry.id);
-  await audit(auth.meeting.workspaceId, "meeting.participant_entered_lobby", "MeetingLobbyEntry", entry.id, auth.actorId, { meetingId: auth.meeting.id, lobbyEntryId: entry.id, displayName: entry.displayName, role: entry.role, status: entry.status });
+  await audit(auth.meeting.workspaceId, existing?.status === "DENIED" ? "meeting.participant_requested_lobby_again" : "meeting.participant_entered_lobby", "MeetingLobbyEntry", entry.id, auth.actorId, { meetingId: auth.meeting.id, lobbyEntryId: entry.id, displayName: entry.displayName, role: entry.role, status: entry.status, previousStatus: existing?.status });
   return { ...entry, bypass: false };
 }
 
 export async function getLobbyStatus(input: { meetingId: string; invitationToken?: string; displayName?: string }) {
   const auth = await authorizeMeetingJoin(input);
-  const waiting = canBypassLobby(auth) ? await prisma.meetingLobbyEntry.findMany({ where: { workspaceId: auth.meeting.workspaceId, meetingRoomId: auth.meeting.id, status: "WAITING" }, orderBy: { requestedAt: "asc" } }) : [];
+  const hostEntries = canBypassLobby(auth) ? await prisma.meetingLobbyEntry.findMany({ where: { workspaceId: auth.meeting.workspaceId, meetingRoomId: auth.meeting.id, status: { in: ["WAITING", "DENIED"] } }, orderBy: [{ status: "desc" }, { requestedAt: "asc" }] }) : [];
+  const waiting = hostEntries.filter((entry) => entry.status === "WAITING");
   const self = await prisma.meetingLobbyEntry.findUnique({ where: { meetingRoomId_livekitIdentity: { meetingRoomId: auth.meeting.id, livekitIdentity: auth.participant.identity } } });
-  return { lobbyEnabled: auth.meeting.lobbyEnabled, bypass: canBypassLobby(auth), status: self?.status ?? (canBypassLobby(auth) ? "ADMITTED" : null), displayName: auth.participant.displayName, meetingStatus: auth.meeting.status, waitingCount: waiting.length, entries: waiting.map(e => ({ id: e.id, displayName: e.displayName, email: e.email, role: e.role, status: e.status, requestedAt: e.requestedAt, consentStatus: "CONSENTED" })) };
+  return { lobbyEnabled: auth.meeting.lobbyEnabled, bypass: canBypassLobby(auth), status: self?.status ?? (canBypassLobby(auth) ? "ADMITTED" : null), displayName: auth.participant.displayName, meetingStatus: auth.meeting.status, waitingCount: waiting.length, entries: hostEntries.map(e => ({ id: e.id, displayName: e.displayName, email: e.email, role: e.role, status: e.status, requestedAt: e.requestedAt, consentStatus: "CONSENTED" })) };
 }
 
 async function assertLobbyHost(meetingId: string, entryId: string, displayName?: string) {
@@ -69,9 +70,10 @@ export async function admitLobbyEntry(meetingId: string, entryId: string, displa
   const participant = await prisma.meetingParticipant.findUnique({ where: { meetingId_identity: { meetingId, identity: entry.livekitIdentity } } });
   if (!participant) throw new Error("Lobby participant is no longer available.");
   await assertConsentBeforeLobby({ ...auth, participant });
-  const updated = await prisma.meetingLobbyEntry.update({ where: { id: entry.id }, data: { status: "ADMITTED", admittedAt: entry.admittedAt ?? new Date(), admittedById: auth.actorId } });
+  const reconsidered = entry.status === "DENIED";
+  const updated = await prisma.meetingLobbyEntry.update({ where: { id: entry.id }, data: { status: "ADMITTED", admittedAt: new Date(), admittedById: auth.actorId } });
   await meetingEvent({ ...auth, participant }, "PARTICIPANT_ADMITTED", entry.id, auth.actorId);
-  await audit(auth.meeting.workspaceId, "meeting.participant_admitted", "MeetingLobbyEntry", entry.id, auth.actorId, { meetingId, lobbyEntryId: entry.id, displayName: entry.displayName, role: entry.role, status: updated.status });
+  await audit(auth.meeting.workspaceId, reconsidered ? "meeting.denied_participant_admitted" : "meeting.participant_admitted", "MeetingLobbyEntry", entry.id, auth.actorId, { meetingId, lobbyEntryId: entry.id, displayName: entry.displayName, role: entry.role, status: updated.status, previousStatus: entry.status });
   return updated;
 }
 
