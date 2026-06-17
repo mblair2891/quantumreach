@@ -1,3 +1,5 @@
+> **LEGACY / DEPRECATED:** Native LiveKit meeting runtime has been retired from active product flows. See `docs/zoom-only-meeting-runtime.md` for the current Zoom-only runtime direction.
+
 # Phase 9A LiveKit meetings
 
 Quantum Reach meetings use a workspace-scoped meeting record, hashed guest invitations, server-authorized participant identities, short-lived LiveKit grants, and a custom LiveKit React room.

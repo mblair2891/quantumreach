@@ -1,3 +1,5 @@
+> **LEGACY / DEPRECATED:** Native LiveKit meeting runtime has been retired from active product flows. See `docs/zoom-only-meeting-runtime.md` for the current Zoom-only runtime direction.
+
 # Phase 9B Recording, Consent, Transcription, and CallSession Handoff
 
 ## Architecture

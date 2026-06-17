@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-export function CopyManagedInvitationButton({ meetingId, invitationId }: { meetingId: string; invitationId: string }) {
+export function CopyManagedInvitationButton({ meetingId, invitationId, label = "Copy invitation link" }: { meetingId: string; invitationId: string; label?: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "error">("idle");
   return <Button type="button" variant="outline" onClick={async () => {
     setStatus("idle");
@@ -13,5 +13,5 @@ export function CopyManagedInvitationButton({ meetingId, invitationId }: { meeti
     await navigator.clipboard.writeText(url);
     setStatus("copied");
     window.setTimeout(() => setStatus("idle"), 2000);
-  }}>{status === "copied" ? "Invite link copied" : status === "error" ? "Copy failed" : "Copy invite link"}</Button>;
+  }}>{status === "copied" ? "Invitation copied" : status === "error" ? "Copy failed" : label}</Button>;
 }

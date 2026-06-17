@@ -1,3 +1,5 @@
+> **LEGACY / DEPRECATED:** Native LiveKit meeting runtime has been retired from active product flows. See `docs/zoom-only-meeting-runtime.md` for the current Zoom-only runtime direction.
+
 # Meeting policies and waiting lobby
 
 Quantum Reach meeting creation now includes explicit meeting-level policy options for planned recording and host-controlled lobby admission.
