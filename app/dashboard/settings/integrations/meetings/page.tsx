@@ -1,0 +1,15 @@
+import { revalidatePath } from "next/cache";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getCurrentWorkspace } from "@/lib/workspaces/service";
+import { prisma } from "@/lib/db/prisma";
+
+function label(value?: string | null) { return value ? value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase()) : "Not connected"; }
+
+export default async function MeetingIntegrationsPage() {
+  const workspace = await getCurrentWorkspace();
+  if (!workspace) return null;
+  const zoom = await prisma.workspaceMeetingIntegration.findUnique({ where: { workspaceId_provider: { workspaceId: workspace.id, provider: "ZOOM" } }, select: { status:true, providerAccountId:true, providerAccountName:true, connectedAt:true, lastRefreshedAt:true, safeFailureMessage:true } });
+  async function disconnect() { "use server"; const workspace = await getCurrentWorkspace(); if(!workspace) return; await prisma.workspaceMeetingIntegration.updateMany({ where:{ workspaceId:workspace.id, provider:"ZOOM" }, data:{ status:"REVOKED", disconnectedAt:new Date(), safeFailureMessage:"Disconnected by workspace admin." }}); revalidatePath("/dashboard/settings/integrations/meetings"); }
+  return <div className="space-y-6"><div><h1 className="text-3xl font-semibold">Meeting integrations</h1><p className="mt-2 text-slate-600 dark:text-slate-300">Connect provider accounts used for workspace meetings. Secrets and OAuth tokens are never displayed.</p></div><Card><CardHeader><CardTitle>Zoom</CardTitle><CardDescription>Active provider for new meetings when connected. Zoom controls audio, video, waiting room, and cloud recording runtime.</CardDescription></CardHeader><CardContent className="space-y-3 text-sm"><p><span className="font-medium">Status:</span> {label(zoom?.status)}</p><p><span className="font-medium">Account:</span> {zoom?.providerAccountName || "—"} {zoom?.providerAccountId ? `(${zoom.providerAccountId})` : ""}</p><p><span className="font-medium">Connected:</span> {zoom?.connectedAt?.toLocaleString() || "—"}</p><p><span className="font-medium">Last refreshed:</span> {zoom?.lastRefreshedAt?.toLocaleString() || "—"}</p>{zoom?.safeFailureMessage ? <p className="rounded-xl bg-amber-50 p-3 text-amber-800 dark:bg-amber-950 dark:text-amber-100">{zoom.safeFailureMessage}</p> : null}<div className="flex flex-wrap gap-2"><Button href={`/api/integrations/zoom/connect?workspaceId=${workspace.id}`}>{zoom ? "Reconnect Zoom" : "Connect Zoom"}</Button>{zoom ? <form action={disconnect}><Button type="submit" variant="outline">Disconnect Zoom</Button></form> : null}</div></CardContent></Card><div className="grid gap-4 md:grid-cols-2"><Card><CardHeader><CardTitle>Google Meet</CardTitle><CardDescription>Coming later through the provider adapter interface.</CardDescription></CardHeader></Card><Card><CardHeader><CardTitle>Microsoft Teams</CardTitle><CardDescription>Coming later through the provider adapter interface.</CardDescription></CardHeader></Card></div></div>;
+}

@@ -197,6 +197,42 @@ enum CallSessionStatus {
   ARCHIVED
 }
 
+enum MeetingProvider {
+  ZOOM
+  GOOGLE_MEET
+  MICROSOFT_TEAMS
+  NATIVE_LIVEKIT
+  EXTERNAL_LINK
+}
+
+enum IntegrationProvider {
+  ZOOM
+  GOOGLE
+  MICROSOFT
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  EXPIRED
+  REVOKED
+  ERROR
+}
+
+enum ProviderWebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum MeetingProviderArtifactStatus {
+  DISCOVERED
+  IMPORTING
+  IMPORTED
+  FAILED
+  SKIPPED
+}
+
 enum MeetingStatus {
   SCHEDULED
   LIVE
@@ -328,17 +364,18 @@ model UserProfile {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
-  auditLogs           AuditLog[]
-  hostedMeetings      MeetingRoom[]             @relation("MeetingHost")
-  meetingParticipants MeetingParticipant[]      @relation("MeetingParticipantUser")
-  requestedRecordings MeetingRecording[]        @relation("RecordingRequestedBy")
-  startedRecordings   MeetingRecording[]        @relation("RecordingStartedBy")
-  stoppedRecordings   MeetingRecording[]        @relation("RecordingStoppedBy")
-  approvedRecordings  MeetingRecording[]        @relation("TranscriptApprovedBy")
-  recordingConsents   MeetingRecordingConsent[]
-  lobbyAdmissions     MeetingLobbyEntry[]
-  memberships         WorkspaceMember[]
-  ownedWorkspaces     Workspace[]               @relation("WorkspaceOwner")
+  auditLogs                    AuditLog[]
+  hostedMeetings               MeetingRoom[]                 @relation("MeetingHost")
+  connectedMeetingIntegrations WorkspaceMeetingIntegration[]
+  meetingParticipants          MeetingParticipant[]          @relation("MeetingParticipantUser")
+  requestedRecordings          MeetingRecording[]            @relation("RecordingRequestedBy")
+  startedRecordings            MeetingRecording[]            @relation("RecordingStartedBy")
+  stoppedRecordings            MeetingRecording[]            @relation("RecordingStoppedBy")
+  approvedRecordings           MeetingRecording[]            @relation("TranscriptApprovedBy")
+  recordingConsents            MeetingRecordingConsent[]
+  lobbyAdmissions              MeetingLobbyEntry[]
+  memberships                  WorkspaceMember[]
+  ownedWorkspaces              Workspace[]                   @relation("WorkspaceOwner")
 }
 
 model Workspace {
@@ -352,7 +389,7 @@ model Workspace {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  owner                     UserProfile?               @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  owner                     UserProfile?                  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   activities                Activity[]
   aiExecutions              AIExecution[]
   analyses                  AnalysisRecord[]
@@ -381,7 +418,7 @@ model Workspace {
   pipelineStages            PipelineStage[]
   playbooks                 Playbook[]
   promptTemplates           PromptTemplate[]
-  projects                  ImplementationProject[]    @relation("WorkspaceProjects")
+  projects                  ImplementationProject[]       @relation("WorkspaceProjects")
   proposals                 Proposal[]
   reminders                 Reminder[]
   reports                   ExecutiveReport[]
@@ -405,6 +442,9 @@ model Workspace {
   meetingRecordingConsents  MeetingRecordingConsent[]
   meetingRecordingEvents    MeetingRecordingEvent[]
   meetingTranscriptionJobs  MeetingTranscriptionJob[]
+  meetingIntegrations       WorkspaceMeetingIntegration[]
+  providerWebhookEvents     ProviderWebhookEvent[]
+  meetingProviderArtifacts  MeetingProviderArtifact[]
 
   @@index([slug])
   @@index([ownerId])
@@ -1471,6 +1511,87 @@ model LeadOutreachStatus {
   @@index([workspaceId, status])
 }
 
+model WorkspaceMeetingIntegration {
+  id                    String              @id @default(cuid())
+  workspaceId           String
+  provider              IntegrationProvider
+  status                IntegrationStatus   @default(CONNECTED)
+  providerAccountId     String?
+  providerAccountName   String?
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String?
+  accessTokenExpiresAt  DateTime?
+  scopes                Json?
+  connectedById         String
+  connectedAt           DateTime            @default(now())
+  disconnectedAt        DateTime?
+  lastRefreshedAt       DateTime?
+  safeFailureMessage    String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectedBy UserProfile @relation(fields: [connectedById], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, provider])
+  @@index([workspaceId, provider, status])
+  @@index([provider, providerAccountId])
+}
+
+model ProviderWebhookEvent {
+  id                 String                     @id @default(cuid())
+  provider           IntegrationProvider
+  providerEventId    String
+  eventType          String
+  providerMeetingId  String?
+  workspaceId        String?
+  receivedAt         DateTime                   @default(now())
+  processedAt        DateTime?
+  status             ProviderWebhookEventStatus @default(RECEIVED)
+  safeFailureMessage String?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerEventId])
+  @@index([provider, eventType, receivedAt])
+  @@index([provider, providerMeetingId])
+  @@index([workspaceId])
+}
+
+model MeetingProviderArtifact {
+  id                    String                        @id @default(cuid())
+  workspaceId           String
+  meetingRoomId         String
+  recordingId           String?
+  provider              MeetingProvider
+  providerArtifactId    String
+  providerMeetingId     String
+  recordingType         String?
+  fileType              String?
+  mimeType              String?
+  fileSizeBytes         BigInt?
+  startedAt             DateTime?
+  endedAt               DateTime?
+  status                MeetingProviderArtifactStatus @default(DISCOVERED)
+  importedStorageKey    String?
+  providerDownloadState String?
+  transcriptArtifactId  String?
+  safeMetadata          Json?
+  safeFailureMessage    String?
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meetingRoom MeetingRoom       @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
+  recording   MeetingRecording? @relation(fields: [recordingId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, provider, providerArtifactId])
+  @@index([workspaceId, meetingRoomId, status])
+  @@index([provider, providerMeetingId])
+}
+
 model CallSession {
   id               String            @id @default(cuid())
   workspaceId      String
@@ -1504,29 +1625,38 @@ model CallSession {
 }
 
 model MeetingRoom {
-  id            String        @id @default(cuid())
-  workspaceId   String
-  hostId        String
+  id                         String          @id @default(cuid())
+  workspaceId                String
+  hostId                     String
   callSessionId String?       @unique
-  leadId        String?
-  contactId     String?
-  companyId     String?
-  opportunityId String?
-  title         String
-  description   String?
-  slug          String        @unique
-  roomName      String        @unique
-  status        MeetingStatus @default(SCHEDULED)
-  scheduledAt   DateTime?
-  startedAt     DateTime?
-  endedAt       DateTime?
+  leadId                     String?
+  contactId                  String?
+  companyId                  String?
+  opportunityId              String?
+  title                      String
+  description                String?
+  slug                       String          @unique
+  roomName                   String          @unique
+  status                     MeetingStatus   @default(SCHEDULED)
+  scheduledAt                DateTime?
+  startedAt                  DateTime?
+  endedAt                    DateTime?
   recordingPlanned Boolean @default(false)
   recordingConsentRequired Boolean @default(false)
   lobbyEnabled Boolean @default(false)
   recordingConsentPreparedAt DateTime?
-  lobbyPolicyUpdatedAt DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  lobbyPolicyUpdatedAt       DateTime?
+  provider                   MeetingProvider @default(NATIVE_LIVEKIT)
+  providerMeetingId          String?
+  providerHostId             String?
+  providerAccountId          String?
+  providerJoinUrl            String?
+  providerStartUrlEncrypted  String?
+  providerStatus             String?
+  providerMetadata           Json?
+  providerSyncedAt           DateTime?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
 
   workspace               Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   host                    UserProfile               @relation("MeetingHost", fields: [hostId], references: [id], onDelete: Restrict)
@@ -1544,10 +1674,13 @@ model MeetingRoom {
   MeetingRecordingEvent   MeetingRecordingEvent[]
   MeetingTranscriptionJob MeetingTranscriptionJob[]
   lobbyEntries            MeetingLobbyEntry[]
+  providerArtifacts       MeetingProviderArtifact[]
 
   @@index([workspaceId, status, scheduledAt])
   @@index([workspaceId, hostId])
   @@index([workspaceId, callSessionId])
+  @@index([workspaceId, provider, providerMeetingId])
+  @@index([workspaceId, providerAccountId])
 }
 
 model MeetingParticipant {
@@ -1602,9 +1735,8 @@ model MeetingInvitation {
   @@index([meetingId, revokedAt, expiresAt])
 }
 
-
 model MeetingLobbyEntry {
-  id              String             @id @default(cuid())
+  id              String                 @id @default(cuid())
   workspaceId     String
   meetingRoomId   String
   invitationId    String?
@@ -1613,15 +1745,15 @@ model MeetingLobbyEntry {
   displayName     String
   email           String?
   role            MeetingParticipantRole
-  status          MeetingLobbyStatus @default(WAITING)
-  requestedAt     DateTime           @default(now())
+  status          MeetingLobbyStatus     @default(WAITING)
+  requestedAt     DateTime               @default(now())
   admittedAt      DateTime?
   admittedById    String?
   deniedAt        DateTime?
   deniedById      String?
   leftAt          DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   meetingRoom MeetingRoom        @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
@@ -1662,6 +1794,12 @@ model MeetingRecording {
   startedById               String?
   stoppedById               String?
   provider                  String                     @default("LIVEKIT_EGRESS")
+  providerArtifactId        String?
+  providerMeetingId         String?
+  providerRecordingType     String?
+  providerFileType          String?
+  providerDownloadState     String?
+  providerSource            MeetingProvider?
   providerEgressId          String?                    @unique
   status                    MeetingRecordingStatus     @default(CONSENT_REQUIRED)
   storageKey                String?
@@ -1697,11 +1835,14 @@ model MeetingRecording {
   consents             MeetingRecordingConsent[]
   events               MeetingRecordingEvent[]
   segments             MeetingRecordingSegment[]
+  providerArtifacts    MeetingProviderArtifact[]
   transcriptionJobs    MeetingTranscriptionJob[]
 
+  @@unique([workspaceId, provider, providerArtifactId])
   @@index([workspaceId, meetingRoomId, status])
   @@index([workspaceId, transcriptionStatus])
   @@index([workspaceId, callSessionId])
+  @@index([workspaceId, providerSource, providerMeetingId])
 }
 
 model MeetingRecordingSegment {

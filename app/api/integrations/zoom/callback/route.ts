@@ -1,0 +1,5 @@
+import { NextResponse } from "next/server";
+import { requireWorkspaceAdmin } from "@/lib/auth/rbac";
+import { exchangeZoomCode, storeZoomIntegration } from "@/lib/meetings/providers/zoom";
+import { verifyZoomOAuthState } from "@/lib/meetings/providers/zoom-oauth-state";
+export async function GET(request: Request) { const url = new URL(request.url); try { const state = verifyZoomOAuthState(url.searchParams.get("state") || ""); const code = url.searchParams.get("code"); if(!code) throw new Error("Missing Zoom authorization code."); const { user, workspace } = await requireWorkspaceAdmin(state.workspaceId); if(user.id !== state.userId || workspace.id !== state.workspaceId) throw new Error("OAuth callback workspace mismatch."); const token = await exchangeZoomCode(code); await storeZoomIntegration(workspace.id, user.id, token); return NextResponse.redirect(new URL("/dashboard/settings/integrations/meetings?zoom=connected", url.origin)); } catch { return NextResponse.redirect(new URL("/dashboard/settings/integrations/meetings?zoom=error", url.origin)); } }
