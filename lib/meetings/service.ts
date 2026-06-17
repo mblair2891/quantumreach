@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { auth } from "@clerk/nextjs/server";
-import type { MeetingEventType, MeetingParticipantRole } from "@prisma/client";
+import type { MeetingEventType, MeetingParticipantRole, MeetingProvider } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { audit } from "@/lib/audit/service";
 import { prisma } from "@/lib/db/prisma";
@@ -10,6 +10,8 @@ import { toPrismaJson } from "@/lib/db/json";
 import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { buildMeetingInvitationUrl, maxInvitationExpiry, signMeetingInvitationCredential, verifyMeetingInvitationCredential } from "@/lib/meetings/invitations";
 import { preparePlannedRecordingConsent } from "@/lib/meetings/recordings";
+import { encryptSecret, decryptSecret } from "@/lib/security/encryption";
+import { getConnectedZoomIntegration, listZoomUsers, ZoomMeetingAdapter } from "@/lib/meetings/providers/zoom";
 
 type MeetingInput = {
   title: string;
@@ -23,6 +25,9 @@ type MeetingInput = {
   companyId?: string;
   opportunityId?: string;
   callSessionId?: string;
+  provider?: MeetingProvider | string;
+  providerHostId?: string;
+  durationMinutes?: number;
 };
 
 type JoinAuthorizationInput = {
@@ -76,14 +81,16 @@ async function assertAvailableCallSession(workspaceId: string, id?: string, meet
 
 export async function getMeetingFormOptions(workspaceId: string) {
   await requireWorkspaceAccess(workspaceId);
-  const [leads, contacts, companies, opportunities, callSessions] = await Promise.all([
+  const [leads, contacts, companies, opportunities, callSessions, zoomIntegration, zoomHosts] = await Promise.all([
     prisma.lead.findMany({ where: { workspaceId, status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { updatedAt: "desc" }, take: 100 }),
     prisma.contact.findMany({ where: { workspaceId, status: "ACTIVE" }, select: { id: true, firstName: true, lastName: true }, orderBy: { updatedAt: "desc" }, take: 100 }),
     prisma.company.findMany({ where: { workspaceId, status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { updatedAt: "desc" }, take: 100 }),
     prisma.opportunity.findMany({ where: { workspaceId, status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { updatedAt: "desc" }, take: 100 }),
-    prisma.callSession.findMany({ where: { workspaceId, meetingRoom: null }, select: { id: true, provider: true, callDate: true }, orderBy: { updatedAt: "desc" }, take: 100 })
+    prisma.callSession.findMany({ where: { workspaceId, meetingRoom: null }, select: { id: true, provider: true, callDate: true }, orderBy: { updatedAt: "desc" }, take: 100 }),
+    getConnectedZoomIntegration(workspaceId),
+    listZoomUsers(workspaceId).catch(() => [])
   ]);
-  return { leads, contacts, companies, opportunities, callSessions };
+  return { leads, contacts, companies, opportunities, callSessions, zoomConnected: Boolean(zoomIntegration), zoomHosts };
 }
 
 export async function listMeetings(workspaceId: string) {
@@ -132,6 +139,9 @@ export async function createMeeting(workspaceId: string, input: MeetingInput) {
   const opportunityId = clean(input.opportunityId);
   const callSessionId = clean(input.callSessionId);
   const scheduledAt = clean(input.scheduledAt);
+  const requestedProvider = clean(String(input.provider ?? ""));
+  const zoomIntegration = await getConnectedZoomIntegration(workspaceId);
+  const provider = (requestedProvider || (zoomIntegration ? "ZOOM" : "NATIVE_LIVEKIT")) as MeetingProvider;
   await Promise.all([
     assertWorkspaceLink("lead", workspaceId, leadId),
     assertWorkspaceLink("contact", workspaceId, contactId),
@@ -139,6 +149,11 @@ export async function createMeeting(workspaceId: string, input: MeetingInput) {
     assertWorkspaceLink("opportunity", workspaceId, opportunityId),
     assertAvailableCallSession(workspaceId, callSessionId)
   ]);
+  let providerResult: Awaited<ReturnType<ZoomMeetingAdapter["createMeeting"]>> | undefined;
+  if (provider === "ZOOM") {
+    if (!zoomIntegration) throw new Error("Connect Zoom before creating Zoom-backed meetings.");
+    providerResult = await new ZoomMeetingAdapter(zoomIntegration).createMeeting({ workspaceId, title: title.slice(0,160), description: clean(input.description)?.slice(0,2000), scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined, waitingRoom: Boolean(input.lobbyEnabled), recordingPlanned: Boolean(input.recordingPlanned), hostId: clean(input.providerHostId), durationMinutes: input.durationMinutes || 60 });
+  }
   const roomEntropy = randomBytes(18).toString("hex");
   const meeting = await prisma.meetingRoom.create({
     data: {
@@ -157,13 +172,23 @@ export async function createMeeting(workspaceId: string, input: MeetingInput) {
       recordingPlanned: Boolean(input.recordingPlanned),
       recordingConsentRequired: Boolean(input.recordingPlanned),
       lobbyEnabled: Boolean(input.lobbyEnabled),
-      lobbyPolicyUpdatedAt: input.lobbyEnabled ? new Date() : undefined
+      lobbyPolicyUpdatedAt: input.lobbyEnabled ? new Date() : undefined,
+      provider,
+      providerMeetingId: providerResult?.providerMeetingId,
+      providerHostId: providerResult?.providerHostId || clean(input.providerHostId),
+      providerAccountId: providerResult?.providerAccountId,
+      providerJoinUrl: providerResult?.joinUrl,
+      providerStartUrlEncrypted: providerResult?.startUrl ? encryptSecret(providerResult.startUrl) : undefined,
+      providerStatus: providerResult?.status,
+      providerMetadata: providerResult?.metadata ? toPrismaJson(providerResult.metadata) : undefined,
+      providerSyncedAt: providerResult ? new Date() : undefined
     }
   });
   if (meeting.recordingPlanned) await preparePlannedRecordingConsent(workspaceId, meeting.id, user.id);
   if (meeting.recordingPlanned) await audit(workspaceId, "meeting.recording_policy_enabled", "MeetingRoom", meeting.id, user.id, { meetingId: meeting.id });
   if (meeting.lobbyEnabled) await audit(workspaceId, "meeting.lobby_enabled", "MeetingRoom", meeting.id, user.id, { meetingId: meeting.id });
-  await audit(workspaceId, "meeting.created", "MeetingRoom", meeting.id, user.id, { scheduledAt: meeting.scheduledAt, callSessionId });
+  await audit(workspaceId, "meeting.created", "MeetingRoom", meeting.id, user.id, { scheduledAt: meeting.scheduledAt, callSessionId, provider: meeting.provider });
+  if (meeting.provider === "ZOOM") await audit(workspaceId, "zoom.meeting_created", "MeetingRoom", meeting.id, user.id, { providerMeetingId: meeting.providerMeetingId, providerHostId: meeting.providerHostId });
   if (callSessionId) await audit(workspaceId, "meeting.call_session_linked", "MeetingRoom", meeting.id, user.id, { callSessionId });
   return meeting;
 }
@@ -198,6 +223,12 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
     const waiting = await prisma.meetingLobbyEntry.count({ where: { workspaceId, meetingRoomId: meetingId, status: "WAITING" } });
     if (waiting) throw new Error("Admit, deny, or cancel waiting participants before disabling the lobby.");
   }
+  let providerUpdate: Awaited<ReturnType<ZoomMeetingAdapter["updateMeeting"]>> | undefined;
+  if (existing.provider === "ZOOM" && existing.providerMeetingId) {
+    const integration = await getConnectedZoomIntegration(workspaceId);
+    if (!integration) throw new Error("Reconnect Zoom before updating this Zoom-backed meeting.");
+    providerUpdate = await new ZoomMeetingAdapter(integration).updateMeeting(existing.providerMeetingId, { workspaceId, title: title.slice(0,160), description: clean(input.description)?.slice(0,2000), scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined, waitingRoom: lobbyEnabled, recordingPlanned, hostId: existing.providerHostId || undefined, durationMinutes: input.durationMinutes || 60 });
+  }
   const meeting = await prisma.meetingRoom.update({
     where: { id: meetingId },
     data: {
@@ -212,7 +243,9 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
       recordingPlanned,
       recordingConsentRequired,
       lobbyEnabled,
-      lobbyPolicyUpdatedAt: lobbyEnabled !== existing.lobbyEnabled ? new Date() : existing.lobbyPolicyUpdatedAt
+      lobbyPolicyUpdatedAt: lobbyEnabled !== existing.lobbyEnabled ? new Date() : existing.lobbyPolicyUpdatedAt,
+      providerStatus: providerUpdate?.status ?? existing.providerStatus,
+      providerSyncedAt: providerUpdate ? new Date() : existing.providerSyncedAt
     }
   });
   if (recordingPlanned && !existing.recordingPlanned) await preparePlannedRecordingConsent(workspaceId, meeting.id, user.id);
@@ -222,7 +255,8 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
     const maxExpiry = maxInvitationExpiry(meeting.scheduledAt);
     await prisma.meetingInvitation.updateMany({ where: { meetingId: meeting.id, workspaceId, revokedAt: null, expiresAt: { gt: maxExpiry } }, data: { expiresAt: maxExpiry, tokenVersion: { increment: 1 } } });
   }
-  await audit(workspaceId, "meeting.updated", "MeetingRoom", meeting.id, user.id, { scheduledAt: meeting.scheduledAt, callSessionId });
+  await audit(workspaceId, "meeting.updated", "MeetingRoom", meeting.id, user.id, { scheduledAt: meeting.scheduledAt, callSessionId, provider: meeting.provider });
+  if (meeting.provider === "ZOOM") await audit(workspaceId, "zoom.meeting_updated", "MeetingRoom", meeting.id, user.id, { providerMeetingId: meeting.providerMeetingId });
   if (existing.callSessionId !== callSessionId && callSessionId) await audit(workspaceId, "meeting.call_session_linked", "MeetingRoom", meeting.id, user.id, { callSessionId });
   return meeting;
 }
@@ -351,6 +385,26 @@ export async function authorizeMeetingJoin(input: JoinAuthorizationInput) {
     create: { workspaceId: meeting.workspaceId, meetingId: meeting.id, invitationId: invitation.id, identity, displayName, role: invitation.role }
   });
   return { meeting, participant, actorId: undefined };
+}
+
+export async function getZoomJoinUrl(meetingId: string, invitationToken?: string, displayName?: string) {
+  const authorization = await authorizeMeetingJoin({ meetingId, invitationToken, displayName });
+  if (authorization.meeting.provider !== "ZOOM" || !authorization.meeting.providerJoinUrl) throw new Error("This meeting is not Zoom-backed.");
+  if (authorization.meeting.recordingConsentRequired) {
+    const consent = await prisma.meetingRecordingConsent.findFirst({ where: { meetingRoomId: meetingId, meetingParticipantId: authorization.participant.id, consentStatus: "CONSENTED" } });
+    if (!consent) throw new Error("Recording consent is required before joining Zoom.");
+  }
+  await audit(authorization.meeting.workspaceId, "zoom.guest_redirected", "MeetingRoom", meetingId, authorization.actorId, { meetingParticipantId: authorization.participant.id });
+  return authorization.meeting.providerJoinUrl;
+}
+
+export async function getZoomStartUrl(workspaceId: string, meetingId: string) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const meeting = await prisma.meetingRoom.findFirst({ where: { id: meetingId, workspaceId } });
+  if (!meeting || meeting.hostId !== user.id) throw new Error("Only the meeting host can start this Zoom meeting.");
+  if (meeting.provider !== "ZOOM" || !meeting.providerStartUrlEncrypted) throw new Error("This meeting does not have a Zoom host start URL.");
+  await audit(workspaceId, "zoom.host_started_meeting", "MeetingRoom", meetingId, user.id, { providerMeetingId: meeting.providerMeetingId });
+  return decryptSecret(meeting.providerStartUrlEncrypted);
 }
 
 export async function recordTokenIssued(meetingId: string, participantId: string, actorId?: string) {

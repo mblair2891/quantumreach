@@ -32,3 +32,9 @@ export async function createWorkspaceForCurrentUser(name: string) {
   const workspace = await prisma.workspace.create({ data: { name, slug: `${slugBase}-${Date.now().toString(36)}`, ownerId: user.id, members: { create: { userId: user.id, roleKey: "WORKSPACE_OWNER" } } } });
   return workspace;
 }
+
+export async function requireWorkspaceAdmin(workspaceId?: string) {
+  const context = await requireWorkspaceAccess(workspaceId);
+  if (!["WORKSPACE_OWNER", "ADMIN"].includes(String(context.membership.roleKey))) throw new Error("Workspace admin access is required.");
+  return context;
+}
