@@ -139,9 +139,9 @@ export async function createMeeting(workspaceId: string, input: MeetingInput) {
   const opportunityId = clean(input.opportunityId);
   const callSessionId = clean(input.callSessionId);
   const scheduledAt = clean(input.scheduledAt);
-  const requestedProvider = clean(String(input.provider ?? ""));
   const zoomIntegration = await getConnectedZoomIntegration(workspaceId);
-  const provider = (requestedProvider || (zoomIntegration ? "ZOOM" : "NATIVE_LIVEKIT")) as MeetingProvider;
+  if (!zoomIntegration) throw new Error("Connect Zoom to create meetings.");
+  const provider = "ZOOM" as MeetingProvider;
   await Promise.all([
     assertWorkspaceLink("lead", workspaceId, leadId),
     assertWorkspaceLink("contact", workspaceId, contactId),
@@ -335,7 +335,7 @@ async function findValidInvitation(meetingId: string, token: string) {
 }
 
 export async function getPublicMeeting(slug: string, invitationToken?: string) {
-  const meeting = await prisma.meetingRoom.findUnique({ where: { slug }, select: { id: true, workspaceId: true, slug: true, title: true, description: true, scheduledAt: true, status: true } });
+  const meeting = await prisma.meetingRoom.findUnique({ where: { slug }, select: { id: true, workspaceId: true, slug: true, title: true, description: true, scheduledAt: true, status: true, provider: true, recordingConsentRequired: true } });
   if (!meeting) return { meeting: null, accessError: "This meeting link is not valid." };
   if (!invitationToken) return { meeting: { ...meeting, invitationDisplayName: null }, accessError: "A valid invitation is required to join this meeting." };
   const invitation = await findValidInvitation(meeting.id, invitationToken);
@@ -387,14 +387,23 @@ export async function authorizeMeetingJoin(input: JoinAuthorizationInput) {
   return { meeting, participant, actorId: undefined };
 }
 
-export async function getZoomJoinUrl(meetingId: string, invitationToken?: string, displayName?: string) {
+export async function getZoomJoinUrl(meetingId: string, invitationToken?: string, displayName?: string, recordingConsentAccepted = false) {
   const authorization = await authorizeMeetingJoin({ meetingId, invitationToken, displayName });
-  if (authorization.meeting.provider !== "ZOOM" || !authorization.meeting.providerJoinUrl) throw new Error("This meeting is not Zoom-backed.");
-  if (authorization.meeting.recordingConsentRequired) {
-    const consent = await prisma.meetingRecordingConsent.findFirst({ where: { meetingRoomId: meetingId, meetingParticipantId: authorization.participant.id, consentStatus: "CONSENTED" } });
-    if (!consent) throw new Error("Recording consent is required before joining Zoom.");
+  if (authorization.meeting.provider === "NATIVE_LIVEKIT") {
+    await audit(authorization.meeting.workspaceId, "legacy_native_runtime_blocked", "MeetingRoom", meetingId, authorization.actorId, { meetingParticipantId: authorization.participant.id });
+    throw new Error("Native meeting hosting has been retired.");
   }
-  await audit(authorization.meeting.workspaceId, "zoom.guest_redirected", "MeetingRoom", meetingId, authorization.actorId, { meetingParticipantId: authorization.participant.id });
+  if (authorization.meeting.provider !== "ZOOM" || !authorization.meeting.providerJoinUrl) throw new Error("This meeting is not Zoom-backed.");
+  if (authorization.meeting.recordingConsentRequired && !recordingConsentAccepted) throw new Error("Recording consent is required before joining Zoom.");
+  if (authorization.meeting.recordingConsentRequired && recordingConsentAccepted) {
+    const recording = await prisma.meetingRecording.findFirst({ where: { meetingRoomId: meetingId, workspaceId: authorization.meeting.workspaceId }, orderBy: { createdAt: "desc" } });
+    if (recording) await prisma.meetingRecordingConsent.upsert({
+      where: { recordingId_livekitIdentity: { recordingId: recording.id, livekitIdentity: authorization.participant.identity } },
+      update: { consentStatus: "CONSENTED", respondedAt: new Date(), displayName: authorization.participant.displayName },
+      create: { workspaceId: authorization.meeting.workspaceId, meetingRoomId: meetingId, recordingId: recording.id, meetingParticipantId: authorization.participant.id, livekitIdentity: authorization.participant.identity, displayName: authorization.participant.displayName, consentStatus: "CONSENTED", respondedAt: new Date() }
+    });
+  }
+  await audit(authorization.meeting.workspaceId, "zoom.guest_join_redirected", "MeetingRoom", meetingId, authorization.actorId, { meetingParticipantId: authorization.participant.id });
   return authorization.meeting.providerJoinUrl;
 }
 
@@ -403,7 +412,7 @@ export async function getZoomStartUrl(workspaceId: string, meetingId: string) {
   const meeting = await prisma.meetingRoom.findFirst({ where: { id: meetingId, workspaceId } });
   if (!meeting || meeting.hostId !== user.id) throw new Error("Only the meeting host can start this Zoom meeting.");
   if (meeting.provider !== "ZOOM" || !meeting.providerStartUrlEncrypted) throw new Error("This meeting does not have a Zoom host start URL.");
-  await audit(workspaceId, "zoom.host_started_meeting", "MeetingRoom", meetingId, user.id, { providerMeetingId: meeting.providerMeetingId });
+  await audit(workspaceId, "zoom.host_start_redirected", "MeetingRoom", meetingId, user.id, { providerMeetingId: meeting.providerMeetingId });
   return decryptSecret(meeting.providerStartUrlEncrypted);
 }
 
