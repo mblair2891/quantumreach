@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server";
+import { completeLocalRecordingUpload } from "@/lib/meetings/recording-workflow";
+export async function POST(request:Request,{params}:{params:{id:string;recordingId:string}}){try{const workspaceId=new URL(request.url).searchParams.get("workspaceId")||""; const r=await completeLocalRecordingUpload(workspaceId,params.id,params.recordingId); return NextResponse.json({ok:true,recordingId:r.id,status:r.status,importStatus:r.importStatus});}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Upload could not be completed."},{status:400});}}

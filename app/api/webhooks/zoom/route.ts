@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { toPrismaJson } from "@/lib/db/json";
 import { audit } from "@/lib/audit/service";
+import { mimeFromZoomFileType } from "@/lib/meetings/recording-files";
 import { computeZoomValidationToken, verifyZoomWebhookSignature, zoomEventId } from "@/lib/meetings/providers/zoom";
 
 type ZoomPayload = { event?: string; event_ts?: number; payload?: { plainToken?: string; object?: { id?: string | number; uuid?: string; recording_files?: ZoomFile[]; recording_file?: ZoomFile } } };
@@ -29,8 +30,8 @@ export async function POST(request: Request) {
   if (["recording.completed", "recording.completed.all", "recording.transcript_completed", "recording.transcript.completed"].includes(type)) {
     for (const f of files(payload)) {
       const artifactId = String(f.id || f.file_id || `${providerMeetingId}:${f.recording_type}:${f.file_type}`);
-      const artifact = await prisma.meetingProviderArtifact.upsert({ where:{workspaceId_provider_providerArtifactId:{workspaceId:meeting.workspaceId,provider:"ZOOM",providerArtifactId:artifactId}}, update:{ status:"DISCOVERED", providerDownloadState:f.status || "completed" }, create:{ workspaceId:meeting.workspaceId, meetingRoomId:meeting.id, provider:"ZOOM", providerArtifactId:artifactId, providerMeetingId, recordingType:f.recording_type, fileType:f.file_type, mimeType:f.file_type, fileSizeBytes:f.file_size?BigInt(f.file_size):undefined, startedAt:f.recording_start?new Date(f.recording_start):undefined, endedAt:f.recording_end?new Date(f.recording_end):undefined, status:"DISCOVERED", providerDownloadState:f.status || "completed", safeMetadata:toPrismaJson({ source:"zoom_webhook" }) } });
-      await audit(meeting.workspaceId, type.includes("transcript") ? "zoom.transcript_discovered" : "zoom.recording_discovered", "MeetingRoom", meeting.id, undefined, { artifactId: artifact.id, providerArtifactId: artifact.providerArtifactId, fileType: artifact.fileType });
+      const artifact = await prisma.meetingProviderArtifact.upsert({ where:{workspaceId_provider_providerArtifactId:{workspaceId:meeting.workspaceId,provider:"ZOOM",providerArtifactId:artifactId}}, update:{ status:"DISCOVERED", providerDownloadState:f.status || "completed" }, create:{ workspaceId:meeting.workspaceId, meetingRoomId:meeting.id, provider:"ZOOM", providerArtifactId:artifactId, providerMeetingId, recordingType:f.recording_type, fileType:f.file_type, mimeType:mimeFromZoomFileType(f.file_type), fileSizeBytes:f.file_size?BigInt(f.file_size):undefined, startedAt:f.recording_start?new Date(f.recording_start):undefined, endedAt:f.recording_end?new Date(f.recording_end):undefined, status:"DISCOVERED", providerDownloadState:f.status || "completed", safeMetadata:toPrismaJson({ source:"zoom_webhook" }) } });
+      await audit(meeting.workspaceId, type.includes("transcript") ? "zoom.recording_artifact_discovered" : "zoom.recording_artifact_discovered", "MeetingRoom", meeting.id, undefined, { artifactId: artifact.id, providerArtifactId: artifact.providerArtifactId, fileType: artifact.fileType });
     }
   }
   await prisma.providerWebhookEvent.update({ where:{id:event.id}, data:{workspaceId:meeting.workspaceId,status:"PROCESSED",processedAt:new Date()} });

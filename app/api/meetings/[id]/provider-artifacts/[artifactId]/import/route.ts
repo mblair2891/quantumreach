@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server";
+import { importZoomArtifact } from "@/lib/meetings/recording-workflow";
+export async function POST(request:Request,{params}:{params:{id:string;artifactId:string}}){try{const workspaceId=new URL(request.url).searchParams.get("workspaceId")||""; const r=await importZoomArtifact(workspaceId,params.id,params.artifactId); return NextResponse.json({ok:true,recordingId:r.id,status:r.status,importStatus:r.importStatus,transcriptionStatus:r.transcriptionStatus});}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Zoom artifact could not be imported."},{status:400});}}

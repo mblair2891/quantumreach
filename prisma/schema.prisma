@@ -262,6 +262,28 @@ enum MeetingEventType {
   ROOM_ENDED
 }
 
+enum MeetingRecordingPreference {
+  NONE
+  ZOOM_CLOUD
+  LOCAL_UPLOAD
+}
+
+enum MeetingRecordingSource {
+  ZOOM_CLOUD
+  LOCAL_UPLOAD
+  LEGACY_NATIVE
+}
+
+enum MeetingRecordingImportStatus {
+  NOT_REQUESTED
+  PENDING
+  UPLOADING
+  IMPORTING
+  AVAILABLE
+  FAILED
+  CANCELLED
+}
+
 enum MeetingRecordingStatus {
   CONSENT_REQUIRED
   READY
@@ -371,6 +393,7 @@ model UserProfile {
   requestedRecordings          MeetingRecording[]            @relation("RecordingRequestedBy")
   startedRecordings            MeetingRecording[]            @relation("RecordingStartedBy")
   stoppedRecordings            MeetingRecording[]            @relation("RecordingStoppedBy")
+  uploadedRecordings           MeetingRecording[]            @relation("RecordingUploadedBy")
   approvedRecordings           MeetingRecording[]            @relation("TranscriptApprovedBy")
   recordingConsents            MeetingRecordingConsent[]
   lobbyAdmissions              MeetingLobbyEntry[]
@@ -1642,6 +1665,8 @@ model MeetingRoom {
   startedAt                  DateTime?
   endedAt                    DateTime?
   recordingPlanned Boolean @default(false)
+  recordingPreference MeetingRecordingPreference @default(NONE)
+  cloudRecordingReadiness String?
   recordingConsentRequired Boolean @default(false)
   lobbyEnabled Boolean @default(false)
   recordingConsentPreparedAt DateTime?
@@ -1793,6 +1818,8 @@ model MeetingRecording {
   requestedById             String
   startedById               String?
   stoppedById               String?
+  source                    MeetingRecordingSource     @default(LEGACY_NATIVE)
+  importStatus              MeetingRecordingImportStatus @default(NOT_REQUESTED)
   provider                  String                     @default("LIVEKIT_EGRESS")
   providerArtifactId        String?
   providerMeetingId         String?
@@ -1805,6 +1832,12 @@ model MeetingRecording {
   storageKey                String?
   bucketName                String?
   fileName                  String?
+  originalFileName          String?
+  uploadedById              String?
+  uploadedAt                DateTime?
+  importedAt                DateTime?
+  checksum                  String?
+  uploadSessionExpiresAt    DateTime?
   mimeType                  String?
   fileSizeBytes             BigInt?
   durationSeconds           Int?
@@ -1831,6 +1864,7 @@ model MeetingRecording {
   requestedBy          UserProfile               @relation("RecordingRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   startedBy            UserProfile?              @relation("RecordingStartedBy", fields: [startedById], references: [id], onDelete: SetNull)
   stoppedBy            UserProfile?              @relation("RecordingStoppedBy", fields: [stoppedById], references: [id], onDelete: SetNull)
+  uploadedBy           UserProfile?              @relation("RecordingUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
   transcriptApprovedBy UserProfile?              @relation("TranscriptApprovedBy", fields: [transcriptApprovedById], references: [id], onDelete: SetNull)
   consents             MeetingRecordingConsent[]
   events               MeetingRecordingEvent[]
@@ -1839,6 +1873,7 @@ model MeetingRecording {
   transcriptionJobs    MeetingTranscriptionJob[]
 
   @@unique([workspaceId, provider, providerArtifactId])
+  @@index([workspaceId, meetingRoomId, source, importStatus])
   @@index([workspaceId, meetingRoomId, status])
   @@index([workspaceId, transcriptionStatus])
   @@index([workspaceId, callSessionId])

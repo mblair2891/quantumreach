@@ -17,6 +17,7 @@ type MeetingInput = {
   title: string;
   recordingPlanned?: boolean;
   recordingConsentRequired?: boolean;
+  recordingPreference?: "NONE" | "ZOOM_CLOUD" | "LOCAL_UPLOAD";
   lobbyEnabled?: boolean;
   description?: string;
   scheduledAt?: string;
@@ -122,7 +123,8 @@ export async function getMeetingDetail(workspaceId: string, id: string) {
       callSession: true,
       participants: { orderBy: { updatedAt: "desc" } },
       invitations: { orderBy: { createdAt: "desc" } },
-      events: { orderBy: { occurredAt: "desc" }, take: 20, include: { participant: true } }
+      events: { orderBy: { occurredAt: "desc" }, take: 20, include: { participant: true } },
+      providerArtifacts: { orderBy: { createdAt: "desc" } }
     }
   });
   if (!meeting) notFound();
@@ -152,7 +154,7 @@ export async function createMeeting(workspaceId: string, input: MeetingInput) {
   let providerResult: Awaited<ReturnType<ZoomMeetingAdapter["createMeeting"]>> | undefined;
   if (provider === "ZOOM") {
     if (!zoomIntegration) throw new Error("Connect Zoom before creating Zoom-backed meetings.");
-    providerResult = await new ZoomMeetingAdapter(zoomIntegration).createMeeting({ workspaceId, title: title.slice(0,160), description: clean(input.description)?.slice(0,2000), scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined, waitingRoom: Boolean(input.lobbyEnabled), recordingPlanned: Boolean(input.recordingPlanned), hostId: clean(input.providerHostId), durationMinutes: input.durationMinutes || 60 });
+    providerResult = await new ZoomMeetingAdapter(zoomIntegration).createMeeting({ workspaceId, title: title.slice(0,160), description: clean(input.description)?.slice(0,2000), scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined, waitingRoom: Boolean(input.lobbyEnabled), recordingPlanned: Boolean(input.recordingPlanned), recordingPreference: input.recordingPreference || (input.recordingPlanned ? "ZOOM_CLOUD" : "NONE"), hostId: clean(input.providerHostId), durationMinutes: input.durationMinutes || 60 });
   }
   const roomEntropy = randomBytes(18).toString("hex");
   const meeting = await prisma.meetingRoom.create({
@@ -169,8 +171,9 @@ export async function createMeeting(workspaceId: string, input: MeetingInput) {
       callSessionId,
       slug: randomBytes(18).toString("base64url"),
       roomName: `quantum-reach-${roomEntropy}`,
-      recordingPlanned: Boolean(input.recordingPlanned),
-      recordingConsentRequired: Boolean(input.recordingPlanned),
+      recordingPlanned: (input.recordingPreference || (input.recordingPlanned ? "ZOOM_CLOUD" : "NONE")) !== "NONE",
+      recordingPreference: input.recordingPreference || (input.recordingPlanned ? "ZOOM_CLOUD" : "NONE"),
+      recordingConsentRequired: (input.recordingPreference || (input.recordingPlanned ? "ZOOM_CLOUD" : "NONE")) !== "NONE",
       lobbyEnabled: Boolean(input.lobbyEnabled),
       lobbyPolicyUpdatedAt: input.lobbyEnabled ? new Date() : undefined,
       provider,
@@ -212,7 +215,8 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
     assertWorkspaceLink("opportunity", workspaceId, opportunityId),
     assertAvailableCallSession(workspaceId, callSessionId, meetingId)
   ]);
-  const recordingPlanned = Boolean(input.recordingPlanned);
+  const recordingPreference = input.recordingPreference || (input.recordingPlanned ? "ZOOM_CLOUD" : "NONE");
+  const recordingPlanned = recordingPreference !== "NONE";
   const recordingConsentRequired = recordingPlanned;
   const lobbyEnabled = Boolean(input.lobbyEnabled);
   if (!recordingPlanned && existing.recordingPlanned) {
@@ -227,7 +231,7 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
   if (existing.provider === "ZOOM" && existing.providerMeetingId) {
     const integration = await getConnectedZoomIntegration(workspaceId);
     if (!integration) throw new Error("Reconnect Zoom before updating this Zoom-backed meeting.");
-    providerUpdate = await new ZoomMeetingAdapter(integration).updateMeeting(existing.providerMeetingId, { workspaceId, title: title.slice(0,160), description: clean(input.description)?.slice(0,2000), scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined, waitingRoom: lobbyEnabled, recordingPlanned, hostId: existing.providerHostId || undefined, durationMinutes: input.durationMinutes || 60 });
+    providerUpdate = await new ZoomMeetingAdapter(integration).updateMeeting(existing.providerMeetingId, { workspaceId, title: title.slice(0,160), description: clean(input.description)?.slice(0,2000), scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined, waitingRoom: lobbyEnabled, recordingPlanned, recordingPreference, hostId: existing.providerHostId || undefined, durationMinutes: input.durationMinutes || 60 });
   }
   const meeting = await prisma.meetingRoom.update({
     where: { id: meetingId },
@@ -241,6 +245,7 @@ export async function updateMeeting(workspaceId: string, meetingId: string, inpu
       opportunityId,
       callSessionId,
       recordingPlanned,
+      recordingPreference,
       recordingConsentRequired,
       lobbyEnabled,
       lobbyPolicyUpdatedAt: lobbyEnabled !== existing.lobbyEnabled ? new Date() : existing.lobbyPolicyUpdatedAt,
