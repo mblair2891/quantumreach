@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server";
+import { initiateLocalRecordingUpload } from "@/lib/meetings/recording-workflow";
+export async function POST(request:Request,{params}:{params:{id:string}}){try{const workspaceId=new URL(request.url).searchParams.get("workspaceId")||""; const body=await request.json(); const result=await initiateLocalRecordingUpload(workspaceId,params.id,{originalFileName:String(body.originalFileName||""),mimeType:String(body.mimeType||""),fileSizeBytes:Number(body.fileSizeBytes||0)}); return NextResponse.json(result);}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Upload could not be initiated."},{status:400});}}

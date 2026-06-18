@@ -1,7 +1,7 @@
 import type { MeetingProvider } from "@prisma/client";
 
 export type MeetingProviderName = MeetingProvider;
-export type ProviderMeetingInput = { workspaceId: string; title: string; description?: string; scheduledAt?: Date; durationMinutes?: number; timezone?: string; waitingRoom?: boolean; recordingPlanned?: boolean; joinBeforeHost?: boolean; muteOnEntry?: boolean; hostId?: string };
+export type ProviderMeetingInput = { workspaceId: string; title: string; description?: string; scheduledAt?: Date; durationMinutes?: number; timezone?: string; waitingRoom?: boolean; recordingPlanned?: boolean; recordingPreference?: "NONE"|"ZOOM_CLOUD"|"LOCAL_UPLOAD"; joinBeforeHost?: boolean; muteOnEntry?: boolean; hostId?: string };
 export type ProviderMeetingResult = { providerMeetingId: string; providerHostId?: string; providerAccountId?: string; joinUrl: string; startUrl?: string; status?: string; metadata?: Record<string, unknown> };
 export type ProviderJoinDetails = { joinUrl: string; startUrl?: string };
 export type ProviderMeetingStatus = { status: string; endedAt?: Date };
