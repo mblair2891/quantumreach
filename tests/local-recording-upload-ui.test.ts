@@ -20,6 +20,14 @@ describe("local recording upload UI", () => {
     expect(source).toContain("file.size>MAX_BYTES");
   });
 
+  it("derives MIME fallbacks for empty browser types without sending octet-stream for valid recordings", () => {
+    expect(source).toContain("recordingMimeForUpload");
+    expect(source).toContain('".m4a":"audio/mp4"');
+    expect(source).toContain('".wav":"audio/wav"');
+    expect(source).toContain("Type:");
+    expect(source).not.toContain('file.type || "application/octet-stream"');
+  });
+
   it("uses initiate, direct PUT, complete, abort, and refresh without sending media through Next.js", () => {
     expect(source).toContain("recording-uploads/initiate");
     expect(source).toContain("XMLHttpRequest");
