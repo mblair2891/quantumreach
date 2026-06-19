@@ -44,3 +44,14 @@ Then deploy the application with configured Zoom, R2, and OpenAI server environm
 ## Known limitations
 
 This build uses user-triggered bounded imports rather than a background worker, so very large Zoom-to-R2 imports can still hit deployment runtime limits. Multi-file local uploads are represented as separate recording rows in the MVP; operators should select the preferred audio file for transcription and keep video for playback/archive.
+
+## Required Zoom webhook event subscriptions
+
+Configure the Zoom app webhook endpoint to send these event subscriptions to Quantum Reach:
+
+- **Meeting has started** (`meeting.started`) so Quantum Reach can set the meeting start timestamp from Zoom.
+- **Meeting has ended** (`meeting.ended`) so Quantum Reach can set the provider-sourced end timestamp without requiring the manual End meeting action.
+- **All recordings have completed** (`recording.completed`) so Zoom cloud recording artifacts can be discovered quickly.
+- **Recording transcript files have completed** (`recording.transcript_completed`) so transcript artifacts can be discovered for review/import.
+
+The webhook endpoint continues to validate Zoom signatures, reject stale signatures, process duplicate events idempotently, and resolve workspace tenancy from the stored Zoom meeting/account mapping rather than trusting any workspace identifier in the webhook payload.
