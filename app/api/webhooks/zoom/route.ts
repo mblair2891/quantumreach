@@ -2,14 +2,16 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { toPrismaJson } from "@/lib/db/json";
 import { audit } from "@/lib/audit/service";
+import { applyZoomMeetingEnded, applyZoomMeetingStarted, zoomEventTimestamp } from "@/lib/meetings/zoom-lifecycle";
 import { mimeFromZoomFileType } from "@/lib/meetings/recording-files";
 import { computeZoomValidationToken, verifyZoomWebhookSignature, zoomEventId } from "@/lib/meetings/providers/zoom";
 
-type ZoomPayload = { event?: string; event_ts?: number; payload?: { plainToken?: string; object?: { id?: string | number; uuid?: string; recording_files?: ZoomFile[]; recording_file?: ZoomFile } } };
+type ZoomPayload = { event?: string; event_ts?: number; payload?: { plainToken?: string; object?: { id?: string | number; uuid?: string; start_time?: string; end_time?: string; recording_files?: ZoomFile[]; recording_file?: ZoomFile } } };
 type ZoomFile = { id?: string; file_id?: string; recording_type?: string; file_type?: string; file_size?: number; recording_start?: string; recording_end?: string; status?: string };
 function meetingId(payload: ZoomPayload) { return String(payload.payload?.object?.id || payload.payload?.object?.uuid || ""); }
 function files(payload: ZoomPayload): ZoomFile[] { return payload.payload?.object?.recording_files || (payload.payload?.object?.recording_file ? [payload.payload.object.recording_file] : []); }
 async function resolveMeeting(providerMeetingId:string) { return prisma.meetingRoom.findFirst({ where:{ provider:"ZOOM", providerMeetingId }, include:{ MeetingRecording:true } }); }
+function objectTime(payload: ZoomPayload, key: "start_time"|"end_time") { const raw = payload.payload?.object?.[key]; return raw ? new Date(raw) : zoomEventTimestamp(payload.event_ts); }
 
 export async function POST(request: Request) {
   const raw = await request.text();
@@ -23,9 +25,11 @@ export async function POST(request: Request) {
   const meeting = providerMeetingId ? await resolveMeeting(providerMeetingId) : null;
   if (!meeting) { await prisma.providerWebhookEvent.update({where:{id:event.id}, data:{status:"IGNORED", processedAt:new Date(), safeFailureMessage:"No matching Zoom meeting."}}); return NextResponse.json({ ok:true, ignored:true }); }
   const type = String(payload.event || "");
+  if (["meeting.started", "meeting_started"].includes(type)) {
+    await applyZoomMeetingStarted(meeting, providerMeetingId, objectTime(payload, "start_time"));
+  }
   if (["meeting.ended", "meeting_ended"].includes(type)) {
-    await prisma.meetingRoom.update({ where:{id:meeting.id}, data:{ status:"ENDED", endedAt:new Date(), providerStatus:"ended", providerSyncedAt:new Date() } });
-    await audit(meeting.workspaceId,"zoom.meeting_ended","MeetingRoom",meeting.id,undefined,{providerMeetingId});
+    await applyZoomMeetingEnded(meeting, providerMeetingId, objectTime(payload, "end_time"));
   }
   if (["recording.completed", "recording.completed.all", "recording.transcript_completed", "recording.transcript.completed"].includes(type)) {
     for (const f of files(payload)) {

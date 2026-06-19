@@ -472,7 +472,7 @@ export async function endMeeting(authorization: Awaited<ReturnType<typeof author
   if (meeting.status !== "ENDED") {
     const now = new Date();
     await prisma.$transaction([
-      prisma.meetingRoom.update({ where: { id: meeting.id }, data: { status: "ENDED", endedAt: now } }),
+      prisma.meetingRoom.update({ where: { id: meeting.id }, data: { status: "ENDED", endedAt: meeting.endedAt ?? now } }),
       prisma.meetingLobbyEntry.updateMany({ where: { meetingRoomId: meeting.id, workspaceId: meeting.workspaceId, status: "WAITING" }, data: { status: "CANCELLED", leftAt: now } }),
       prisma.meetingEvent.upsert({
         where: { eventKey: `room-ended:${meeting.id}` },
