@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTranscriptArtifact, MAX_UPLOAD_BYTES, mimeFromZoomFileType, recordingObjectKey, safeFileName, validateRecordingFile } from "@/lib/meetings/recording-files";
+import { isTranscriptArtifact, MAX_UPLOAD_BYTES, mimeFromZoomFileType, normalizeRecordingMime, recordingObjectKey, safeFileName, validateRecordingFile } from "@/lib/meetings/recording-files";
 
 describe("zoom recording import and local upload helpers", () => {
   it("maps Zoom media and transcript file types safely", () => {
@@ -9,10 +9,46 @@ describe("zoom recording import and local upload helpers", () => {
     expect(isTranscriptArtifact({ fileType: "VTT", recordingType: "audio_transcript", mimeType: "text/vtt" })).toBe(true);
   });
 
-  it("accepts supported local recording formats and rejects mismatches", () => {
-    expect(() => validateRecordingFile("zoom-audio.m4a", "audio/mp4", BigInt(1024))).not.toThrow();
-    expect(() => validateRecordingFile("zoom-video.mp4", "video/mp4", BigInt(1024))).not.toThrow();
-    expect(() => validateRecordingFile("notes.txt", "video/mp4", BigInt(1024))).toThrow(/Unsupported/);
+  it.each([
+    ["audioMichaelBlair11110210290.m4a", "audio/x-m4a"],
+    ["zoom-audio.m4a", "audio/m4a"],
+    ["zoom-audio.m4a", "audio/mp4"],
+    ["zoom-audio.m4a", ""],
+    ["zoom-audio.m4a", "application/octet-stream"],
+    ["ZOOM-AUDIO.M4A", " AUDIO/X-M4A "],
+  ])("normalizes M4A alias %s / %s to audio/mp4", (name, mime) => {
+    expect(normalizeRecordingMime(name, mime)).toBe("audio/mp4");
+    expect(validateRecordingFile(name, mime, BigInt(1024))).toBe("audio/mp4");
+  });
+
+  it.each([
+    ["zoom-video.mp4", "video/mp4", "video/mp4"],
+    ["zoom-video.mp4", "", "video/mp4"],
+    ["zoom-video.mp4", "application/octet-stream", "video/mp4"],
+    ["zoom-audio.mp3", "audio/mpeg", "audio/mpeg"],
+    ["zoom-audio.mp3", "", "audio/mpeg"],
+    ["zoom-audio.wav", "audio/x-wav", "audio/wav"],
+    ["zoom-audio.wav", "audio/wav", "audio/wav"],
+    ["zoom-audio.wav", "application/octet-stream", "audio/wav"],
+    ["zoom-video.webm", "video/webm", "video/webm"],
+    ["zoom-audio.webm", "audio/webm", "audio/webm"],
+    ["zoom-video.mov", "video/quicktime", "video/quicktime"],
+  ])("normalizes supported recording format %s / %s", (name, mime, normalized) => {
+    expect(validateRecordingFile(name, mime, BigInt(1024))).toBe(normalized);
+  });
+
+  it.each([
+    ["malware.exe", "application/octet-stream"],
+    ["zoom-audio.m4a", "video/quicktime"],
+    ["zoom-audio.mp3", "video/mp4"],
+    ["renamed-audio.exe", "audio/mp4"],
+    ["recording", "application/octet-stream"],
+  ])("rejects unsupported or mismatched recording input %s / %s", (name, mime) => {
+    expect(() => validateRecordingFile(name, mime, BigInt(1024))).toThrow(/Unsupported/);
+  });
+
+  it("rejects invalid upload sizes", () => {
+    expect(() => validateRecordingFile("recording.mp4", "video/mp4", BigInt(0))).toThrow(/empty/);
     expect(() => validateRecordingFile("recording.mp4", "video/mp4", MAX_UPLOAD_BYTES + BigInt(1))).toThrow(/larger/);
   });
 
