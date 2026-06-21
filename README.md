@@ -100,3 +100,20 @@ npm run build
 - A dependency-free in-memory rate-limit helper protects the AI analyzer API during local/runtime MVP use; replace it with Upstash Redis, Vercel KV, or an edge-safe shared limiter before multi-instance production launch.
 
 See `docs/architecture.md` and `docs/manual-test-checklist.md` for detailed architecture and manual validation steps.
+
+
+## Private beta operations
+
+Quantum Reach is configured as a Zoom-first private-beta SaaS workspace. The supported production meeting workflow is: create a Zoom meeting, start it from Quantum Reach, receive lifecycle updates through the Zoom webhook, end the meeting, upload the local recording, and let the transcript/analysis workflow continue. M4A local recordings are supported. Zoom cloud recording import code remains preserved, but cloud recording should be treated as operationally deferred unless the Zoom account plan includes cloud recording.
+
+### Admin, operator, and health checks
+
+Workspace owners and admins can use `/dashboard/settings`, `/dashboard/settings/integrations/meetings`, `/dashboard/admin`, and `/dashboard/billing` for setup and operational visibility. Platform operators are controlled by the comma-separated `ADMIN_EMAILS` environment variable and can use `/dashboard/operator` for safe summaries of workspaces, users, meeting status, failed webhook events, and failed transcription jobs. The public `/api/health` route returns only a minimal liveness response and does not expose secrets.
+
+### Billing setup
+
+Billing is feature-gated for private beta. Set `BILLING_ENABLED=false` unless Stripe is intentionally configured with `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, and one or more `STRIPE_PRICE_ID_*` values. When billing is disabled or incomplete, checkout and portal routes return a safe disabled response and the rest of the app continues to run.
+
+### Deployment and smoke tests
+
+Before production launch, run the validation suite, verify Zoom OAuth and webhook configuration, confirm Cloudflare R2 CORS for browser uploads, upload a local Zoom M4A recording, confirm analysis handoff, and review `docs/private-beta-launch.md` for the full launch checklist and known limitations.
