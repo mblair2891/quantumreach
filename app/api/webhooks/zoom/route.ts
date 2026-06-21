@@ -15,9 +15,17 @@ function objectTime(payload: ZoomPayload, key: "start_time"|"end_time") { const 
 
 export async function POST(request: Request) {
   const raw = await request.text();
-  let payload: ZoomPayload; try { payload = JSON.parse(raw) as ZoomPayload; } catch { return NextResponse.json({ error:"Invalid JSON" }, { status:400 }); }
+  const timestamp = request.headers.get("x-zm-request-timestamp");
+  const signature = request.headers.get("x-zm-signature");
+
+  if (timestamp || signature) {
+    if (!verifyZoomWebhookSignature(raw, timestamp, signature)) return NextResponse.json({ error:"Invalid Zoom signature" }, { status:401 });
+  }
+
+  let payload: ZoomPayload;
+  try { payload = JSON.parse(raw) as ZoomPayload; } catch { return NextResponse.json({ error:"Invalid JSON" }, { status:400 }); }
   if (payload?.event === "endpoint.url_validation") return NextResponse.json({ plainToken: payload.payload?.plainToken, encryptedToken: computeZoomValidationToken(payload.payload?.plainToken || "") });
-  if (!verifyZoomWebhookSignature(raw, request.headers.get("x-zm-request-timestamp"), request.headers.get("x-zm-signature"))) return NextResponse.json({ error:"Invalid Zoom signature" }, { status:401 });
+  if (!timestamp || !signature) return NextResponse.json({ error:"Invalid Zoom signature" }, { status:401 });
   const providerEventId = zoomEventId(payload, raw);
   const providerMeetingId = meetingId(payload);
   const event = await prisma.providerWebhookEvent.upsert({ where:{provider_providerEventId:{provider:"ZOOM",providerEventId}}, update:{}, create:{provider:"ZOOM",providerEventId,eventType:String(payload.event||"unknown"),providerMeetingId} });
