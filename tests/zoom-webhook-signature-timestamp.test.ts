@@ -76,13 +76,16 @@ describe("Zoom webhook timestamp signature verification", () => {
     const future = String(Math.floor((Date.now() + 5 * 60 * 1000 + 2_000) / 1000));
     const millis = String(Date.now());
     const current = String(Math.floor(Date.now() / 1000));
+    const validSignature = sign(raw, current);
+    const incorrectSignature = `v0=${"0".repeat(64)}`;
+    expect(incorrectSignature).not.toBe(validSignature);
 
     expect(verifyZoomWebhookSignature(raw, stale, sign(raw, stale))).toBe(false);
     expect(verifyZoomWebhookSignature(raw, future, sign(raw, future))).toBe(false);
     expect(verifyZoomWebhookSignature(raw, millis, sign(raw, millis))).toBe(false);
     expect(verifyZoomWebhookSignature(raw, current, "v0=not-hex")).toBe(false);
-    expect(verifyZoomWebhookSignature(raw, current, sign(raw, current).replace(/.$/, "0"))).toBe(false);
-    expect(verifyZoomWebhookSignature(raw, null, sign(raw, current))).toBe(false);
+    expect(verifyZoomWebhookSignature(raw, current, incorrectSignature)).toBe(false);
+    expect(verifyZoomWebhookSignature(raw, null, validSignature)).toBe(false);
     expect(verifyZoomWebhookSignature(raw, current, null)).toBe(false);
     expect(verifyZoomWebhookSignature(raw, "not-a-number", "v0=bad")).toBe(false);
   });
