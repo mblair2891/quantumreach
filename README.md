@@ -117,3 +117,9 @@ Billing is feature-gated for private beta. Set `BILLING_ENABLED=false` unless St
 ### Deployment and smoke tests
 
 Before production launch, run the validation suite, verify Zoom OAuth and webhook configuration, confirm Cloudflare R2 CORS for browser uploads, upload a local Zoom M4A recording, confirm analysis handoff, and review `docs/private-beta-launch.md` for the full launch checklist and known limitations.
+
+## Revenue OS Foundation
+
+This repository includes the Quantum Reach Revenue OS foundation: CRM pipeline records, governed CSV imports, AWS SES-first email-provider abstraction, suppression/unsubscribe/bounce/complaint foundations, compliance-gated campaigns, native scheduling, disabled-by-default research provider abstraction, proposal-to-contract workflows, native e-signature audit artifacts, Stripe hard-gate helpers, client provisioning requests, and operator summaries.
+
+Live email requires AWS SES configuration, DNS authentication, verified workspace sending domains, compliant campaigns, active billing where enabled, and `EMAIL_SENDING_ENABLED=true` with `EMAIL_SANDBOX_MODE=false`. Existing Zoom OAuth, Zoom-only meetings, webhook signature verification, local recording upload, M4A upload, and recording-to-analysis workflows remain supported.
