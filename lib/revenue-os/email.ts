@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import crypto from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
+import { isDomainSendReady } from "@/lib/managed-domains/service";
 
-type SendInput = { workspaceId: string; to: string; subject: string; html: string; campaignId?: string; sequenceStepId?: string; contactId?: string; senderIdentityId?: string };
+type SendInput = { workspaceId: string; to: string; subject: string; html: string; campaignId?: string; sequenceStepId?: string; contactId?: string; senderIdentityId?: string; managedDomainId?: string };
 
 export type EmailProviderResult = { sent: boolean; providerMessageId?: string; reason?: string };
 export interface EmailProvider { name: string; isReady(): boolean; send(input: SendInput): Promise<EmailProviderResult>; }
@@ -51,6 +52,18 @@ export async function enforceSendGate(input: SendInput) {
   if (await isSuppressed(input.workspaceId, input.to)) return { allowed: false, status: "BLOCKED_SUPPRESSED", reason: "Recipient is suppressed, unsubscribed, bounced, or complained." } as const;
   const cfg = getEmailConfig();
   if (!cfg.enabled || cfg.sandbox || !cfg.awsReady) return { allowed: false, status: "BLOCKED_COMPLIANCE", reason: "Live email is disabled until AWS SES and sending readiness are configured." } as const;
+  if (input.senderIdentityId) {
+    const sender = await (prisma as any).senderIdentity.findFirst({ where: { id: input.senderIdentityId, workspaceId: input.workspaceId } });
+    if (!sender || sender.status !== "ACTIVE") return { allowed: false, status: "BLOCKED_COMPLIANCE", reason: "Sender identity is not active for this workspace." } as const;
+  }
+  if (input.managedDomainId) {
+    const domain = await (prisma as any).managedDomain.findFirst({ where: { id: input.managedDomainId, workspaceId: input.workspaceId }, include: { warmupPlan: true } });
+    if (!domain) return { allowed: false, status: "BLOCKED_COMPLIANCE", reason: "Managed domain is not assigned to this workspace." } as const;
+    const readiness = await isDomainSendReady(input.managedDomainId);
+    if (!readiness.ready) return { allowed: false, status: "BLOCKED_COMPLIANCE", reason: readiness.reason } as const;
+    const domainSentToday = await (prisma as any).emailSend.count({ where: { workspaceId: input.workspaceId, status: "SENT", createdAt: { gte: (() => { const d = new Date(); d.setUTCHours(0,0,0,0); return d; })() } } });
+    if (domainSentToday >= (readiness.currentDailyLimit || 0)) return { allowed: false, status: "BLOCKED_LIMIT", reason: "Managed domain warmup daily limit reached." } as const;
+  }
   const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
   const sentToday = await (prisma as any).emailSend.count({ where: { workspaceId: input.workspaceId, status: "SENT", createdAt: { gte: dayStart } } });
   const limit = Number(process.env.OUTBOUND_WORKSPACE_DAILY_SEND_LIMIT || 250);
