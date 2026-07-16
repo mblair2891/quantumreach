@@ -1,7 +1,11 @@
-# domain reseller provider selection
+# Domain reseller provider selection
 
-Quantum Reach now includes a managed sending-domain provisioning foundation for purchasing, reselling/leasing, assigning, authenticating, warming, monitoring, and retiring sending domains. Live domain purchasing is disabled until `DOMAIN_PURCHASING_ENABLED=true` and registrar credentials are configured. Live DNS automation is disabled until `DNS_AUTOMATION_ENABLED=true` and Cloudflare credentials are configured. AWS SES domain verification is region-specific and disabled unless AWS SES environment variables are present.
+Quantum Reach uses `lib/managed-domains/providers.ts` as the managed-domain provider abstraction. The selector currently supports:
 
-The provider abstraction exists before choosing a registrar, so future providers such as OpenSRS, Enom, ResellerClub, CentralNic, NameSilo, or Cloudflare Registrar can be connected without exposing provider credentials to users.
+- `DOMAIN_PROVIDER=opensrs`: OpenSRS Horizon test adapter for safe search, quote, status, and operator-approved test-registration workflows.
+- `DOMAIN_PROVIDER=mock`: local/test mock adapter.
+- unset provider: disabled adapter, which permits draft purchase requests but blocks registrar operations.
 
-Workspace-owned or dedicated domains are preferred for serious sending. Shared domains carry deliverability risk. Domain warmup improves risk management but does not guarantee inbox placement. Burned or retired domains must not be reused. Live email sending remains blocked unless suppression, compliance, billing, DNS, SES, sender, and warmup gates pass.
+Live domain purchasing remains disabled unless a future production registrar adapter is explicitly implemented. `DOMAIN_PURCHASING_ENABLED=false` is the expected Preview setting for the OpenSRS Horizon adapter. Horizon test registration is available only through operator-only actions and only when `OPENSRS_ENVIRONMENT=horizon` and `OPENSRS_API_BASE_URL` points at `horizon.opensrs.net`.
+
+The provider abstraction preserves the existing managed-domain inventory, workspace assignment, DNS scaffolding, SES readiness, warmup, reputation, send gates, and meeting workflows. Provider errors are converted to safe messages and must not include credentials, signed auth material, or full raw provider payloads.

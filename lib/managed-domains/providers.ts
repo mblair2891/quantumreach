@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import { OpenSrsHorizonDomainProvider } from "./opensrs";
 export type DomainProviderResult<T = unknown> = { ok: boolean; data?: T; safeError?: string };
-export type DomainQuote = { domainName: string; available: boolean; estimatedCostCents?: number; resalePriceCents?: number; providerQuoteId?: string };
+export type DomainQuote = { domainName: string; available: boolean; estimatedCostCents?: number; resalePriceCents?: number; providerQuoteId?: string; testMode?: boolean };
 export interface DomainProvider {
   name: string;
   isConfigured(): boolean;
@@ -33,6 +34,7 @@ export class MockDomainProvider extends DisabledDomainProvider {
 }
 export class GenericRegistrarProvider extends DisabledDomainProvider { name = process.env.DOMAIN_PROVIDER || "generic-registrar"; }
 export function getDomainProvider(): DomainProvider {
+  if (process.env.DOMAIN_PROVIDER === "opensrs") return new OpenSrsHorizonDomainProvider();
   if (process.env.DOMAIN_PROVIDER === "mock") return new MockDomainProvider();
   if (process.env.DOMAIN_PURCHASING_ENABLED === "true" && process.env.DOMAIN_PROVIDER_API_KEY) return new GenericRegistrarProvider();
   return new DisabledDomainProvider();
