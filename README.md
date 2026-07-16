@@ -75,7 +75,9 @@ Sentry initializes only when `NEXT_PUBLIC_SENTRY_DSN` is present. `SENTRY_AUTH_T
 
 ## Vercel deployment
 
-Create a Vercel project named `quantumreach`, connect the GitHub repository, add all environment variables, run Prisma migrations against production Neon, then deploy `main`. Perform a production smoke test for auth, onboarding, dashboard protection, workspace isolation, and provider integrations.
+Create a Vercel project named `quantumreach`, connect the GitHub repository, add all environment variables, and deploy `main`. Vercel production builds use the `vercel-build` npm script, which runs `prisma generate`, `prisma migrate deploy`, and then `next build` with the production environment variables configured in Vercel. This applies committed pending Prisma migrations before the application build completes without exposing `DATABASE_URL` or `DIRECT_DATABASE_URL` in logs.
+
+Prisma migrations must be created and committed before deployment. Production deployments must only apply committed migrations with `prisma migrate deploy`; never use `prisma migrate dev` or `prisma db push` against production. Perform a production smoke test for auth, onboarding, dashboard protection, workspace isolation, and provider integrations after deployment.
 
 ## Validation commands
 
