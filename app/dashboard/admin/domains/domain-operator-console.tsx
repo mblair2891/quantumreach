@@ -3,13 +3,14 @@
 import { useFormState } from "react-dom";
 import { requestDomainQuote, searchDomainAvailability, submitHorizonTestRegistration } from "./actions";
 
-type DomainActionResult = { ok?: boolean; safeError?: string; data?: { domainName?: string; providerDomainId?: string; available?: boolean; estimatedCostCents?: number } | Array<{ domainName?: string; providerDomainId?: string; available?: boolean; estimatedCostCents?: number }> } | null;
+type ProviderError = { code?: string; message: string; testMode?: boolean; validationReasons?: string[] };
+type DomainActionResult = { ok?: boolean; safeError?: string; providerError?: ProviderError; data?: { domainName?: string; providerDomainId?: string; available?: boolean; estimatedCostCents?: number } | Array<{ domainName?: string; providerDomainId?: string; available?: boolean; estimatedCostCents?: number }> } | null;
 const initial = null;
 type DomainFormAction = (state: DomainActionResult, payload: FormData) => Promise<DomainActionResult>;
 function Result({ result }: { result: DomainActionResult }) {
   if (!result) return null;
   const rows = Array.isArray(result.data) ? result.data : result.data ? [result.data] : [];
-  return <div className="mt-3 rounded-lg border bg-white p-3 text-sm"><p className="font-semibold">OpenSRS Horizon TEST result</p>{result.safeError ? <p className="text-red-700">{result.safeError}</p> : null}{rows.map((row) => <p key={row.domainName || row.providerDomainId}>{row.domainName || row.providerDomainId}: {row.available === false ? "unavailable" : "available/test accepted"}{row.estimatedCostCents ? ` · quote $${(row.estimatedCostCents / 100).toFixed(2)}` : ""}</p>)}</div>;
+  return <div className="mt-3 rounded-lg border bg-white p-3 text-sm"><p className="font-semibold">OpenSRS Horizon TEST result</p>{result.safeError ? <p className="text-red-700">{result.safeError}</p> : null}{result.providerError ? <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-red-800"><p className="font-semibold">Provider TEST diagnostic</p>{result.providerError.code ? <p>Provider code: {result.providerError.code}</p> : null}<p>Provider message: {result.providerError.message}</p>{result.providerError.testMode ? <p className="font-semibold">Mode: TEST</p> : null}{result.providerError.validationReasons?.length ? <ul className="list-disc pl-5">{result.providerError.validationReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul> : null}</div> : null}{rows.map((row) => <p key={row.domainName || row.providerDomainId}>{row.domainName || row.providerDomainId}: {row.available === false ? "unavailable" : "available/test accepted"}{row.estimatedCostCents ? ` · quote $${(row.estimatedCostCents / 100).toFixed(2)}` : ""}</p>)}</div>;
 }
 export function DomainOperatorConsole() {
   const [search, searchAction] = useFormState(searchDomainAvailability as DomainFormAction, initial as DomainActionResult);
