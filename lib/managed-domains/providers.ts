@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { OpenSrsHorizonDomainProvider } from "./opensrs";
-export type DomainProviderResult<T = unknown> = { ok: boolean; data?: T; safeError?: string };
+export type DomainProviderSafeError = { code?: string; message: string; testMode?: boolean; validationReasons?: string[] };
+export type DomainProviderResult<T = unknown> = { ok: boolean; data?: T; safeError?: string; providerError?: DomainProviderSafeError };
 export type DomainQuote = { domainName: string; available: boolean; estimatedCostCents?: number; resalePriceCents?: number; providerQuoteId?: string; testMode?: boolean };
 export interface DomainProvider {
   name: string;
