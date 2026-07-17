@@ -110,7 +110,7 @@ Quantum Reach is configured as a Zoom-first private-beta SaaS workspace. The sup
 
 ### Admin, operator, and health checks
 
-Workspace owners and admins can use `/dashboard/settings`, `/dashboard/settings/integrations/meetings`, `/dashboard/admin`, and `/dashboard/billing` for setup and operational visibility. Platform operators are controlled by the comma-separated `ADMIN_EMAILS` environment variable and can use `/dashboard/operator` for safe summaries of workspaces, users, meeting status, failed webhook events, and failed transcription jobs. The public `/api/health` route returns only a minimal liveness response and does not expose secrets.
+Workspace owners and admins can use `/dashboard/settings`, `/dashboard/settings/domain-registrant`, `/dashboard/settings/integrations/meetings`, `/dashboard/admin`, and `/dashboard/billing` for setup and operational visibility. All workspace users can open `/dashboard/sending-domains` for domain readiness and managed-domain entry points. Platform operators are controlled by the comma-separated `ADMIN_EMAILS` environment variable and can use `/dashboard/operator` and `/dashboard/admin/domains` for safe summaries of workspaces, users, meeting status, failed webhook events, and failed transcription jobs. The public `/api/health` route returns only a minimal liveness response and does not expose secrets.
 
 ### Billing setup
 
