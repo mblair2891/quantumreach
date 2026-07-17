@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { getDomainServiceContact, type RegistrantContact } from "./registrant";
 import type {
   DomainProvider,
   DomainProviderResult,
@@ -38,7 +39,15 @@ type OpenSrsConfig = {
   baseUrl: string;
   regUsername?: string;
   regPassword?: string;
+  serviceContact: Record<string, string | undefined>;
   testContact: Record<string, string | undefined>;
+};
+
+type OpenSrsPurchaseContext = {
+  id?: string;
+  workspaceId?: string | null;
+  ownershipType?: string;
+  registrantSnapshot?: RegistrantContact | null;
 };
 
 type OpenSrsParsedResponse = {
@@ -56,6 +65,18 @@ export function getOpenSrsConfig(): OpenSrsConfig {
     baseUrl: process.env.OPENSRS_API_BASE_URL || HORIZON_DEFAULT_URL,
     regUsername: process.env.OPENSRS_REG_USERNAME,
     regPassword: process.env.OPENSRS_REG_PASSWORD,
+    serviceContact: {
+      first_name: process.env.DOMAIN_SERVICE_CONTACT_FIRST_NAME,
+      last_name: process.env.DOMAIN_SERVICE_CONTACT_LAST_NAME,
+      org_name: process.env.DOMAIN_SERVICE_CONTACT_ORG,
+      address1: process.env.DOMAIN_SERVICE_CONTACT_ADDRESS1,
+      city: process.env.DOMAIN_SERVICE_CONTACT_CITY,
+      state: process.env.DOMAIN_SERVICE_CONTACT_STATE,
+      postal_code: process.env.DOMAIN_SERVICE_CONTACT_POSTAL_CODE,
+      country: process.env.DOMAIN_SERVICE_CONTACT_COUNTRY,
+      phone: process.env.DOMAIN_SERVICE_CONTACT_PHONE,
+      email: process.env.DOMAIN_SERVICE_CONTACT_EMAIL,
+    },
     testContact: {
       first_name: process.env.OPENSRS_TEST_CONTACT_FIRST_NAME,
       last_name: process.env.OPENSRS_TEST_CONTACT_LAST_NAME,
@@ -91,6 +112,42 @@ export function getOpenSrsReadiness(config = getOpenSrsConfig()) {
       : horizon
         ? undefined
         : "OpenSRS provider is restricted to the Horizon test environment.",
+  };
+}
+
+export function mapOpenSrsContact(
+  contact: RegistrantContact,
+): Record<string, string> {
+  return {
+    first_name: contact.legalFirstName,
+    last_name: contact.legalLastName,
+    org_name:
+      contact.organizationName ||
+      `${contact.legalFirstName} ${contact.legalLastName}`,
+    address1: contact.address1,
+    address2: contact.address2 || "",
+    city: contact.city,
+    state: contact.stateProvince,
+    postal_code: contact.postalCode,
+    country: contact.countryCode,
+    phone: contact.phone,
+    email: contact.email,
+  };
+}
+export function buildOpenSrsContactSet(input: {
+  registrant: RegistrantContact;
+  ownershipType?: string;
+  useServiceForAdminTech?: boolean;
+  useServiceForBilling?: boolean;
+}) {
+  const registrant = mapOpenSrsContact(input.registrant);
+  const service = getDomainServiceContact();
+  const serviceContact = service ? mapOpenSrsContact(service) : registrant;
+  return {
+    owner: registrant,
+    admin: input.useServiceForAdminTech ? serviceContact : registrant,
+    tech: input.useServiceForAdminTech ? serviceContact : registrant,
+    billing: input.useServiceForBilling ? serviceContact : registrant,
   };
 }
 
@@ -303,7 +360,11 @@ export class OpenSrsHorizonDomainProvider implements DomainProvider {
     attributes: OpenSrsAttributes,
   ): Promise<OpenSrsCallResult> {
     const ready = this.readiness();
-    if (!ready.ready || !this.config.username || !this.config.apiKey)
+    if (
+      (!ready.ready && ready.missing.length > 0) ||
+      !this.config.username ||
+      !this.config.apiKey
+    )
       return { ok: false as const, safeError: ready.safeError };
     const body = requestXml(action, object, attributes);
     const headers = {
@@ -461,9 +522,64 @@ export class OpenSrsHorizonDomainProvider implements DomainProvider {
       },
     };
   }
+
+  private productionRegistrationAttributes(
+    domain: string,
+    purchaseRequest?: OpenSrsPurchaseContext,
+  ): OpenSrsRegistrationBuildResult {
+    if (
+      !process.env.DOMAIN_PURCHASING_ENABLED ||
+      process.env.DOMAIN_PURCHASING_ENABLED !== "true"
+    )
+      return {
+        ok: false,
+        safeError:
+          "Production OpenSRS purchasing is disabled until DOMAIN_PURCHASING_ENABLED=true and billing gates pass.",
+      };
+    const snapshot = purchaseRequest?.registrantSnapshot;
+    let registrant: RegistrantContact | null = snapshot || null;
+    if (purchaseRequest?.ownershipType === "QUANTUM_REACH_MANAGED")
+      registrant = getDomainServiceContact();
+    if (!registrant)
+      return {
+        ok: false,
+        safeError:
+          "Production registration requires a purchase registrant snapshot or configured Quantum Reach service contact for Quantum Reach-owned domains.",
+      };
+    const regUsername =
+      process.env.OPENSRS_PRODUCTION_REG_USERNAME ||
+      `${purchaseRequest?.workspaceId || "qr"}-${purchaseRequest?.id || domain}`.slice(
+        0,
+        48,
+      );
+    const regPassword =
+      process.env.OPENSRS_PRODUCTION_REG_PASSWORD ||
+      crypto.randomBytes(18).toString("base64url");
+    return {
+      ok: true,
+      attributes: {
+        domain,
+        reg_type: "new",
+        period: 1,
+        reg_username: regUsername,
+        reg_password: regPassword,
+        auto_renew: 0,
+        custom_nameservers: 0,
+        custom_tech_contact: 1,
+        contact_set: buildOpenSrsContactSet({
+          registrant,
+          useServiceForAdminTech: true,
+          useServiceForBilling:
+            process.env.DOMAIN_SERVICE_CONTACT_USE_FOR_BILLING === "true",
+        }),
+      },
+    };
+  }
+
   async purchaseDomain(
     domainName: string,
     approvedRequestId?: string,
+    purchaseRequest?: OpenSrsPurchaseContext,
   ): Promise<DomainProviderResult<{ providerDomainId: string }>> {
     if (!approvedRequestId)
       return {
@@ -472,14 +588,10 @@ export class OpenSrsHorizonDomainProvider implements DomainProvider {
           "Operator approval is required before Horizon test registration.",
       };
     const ready = this.readiness();
-    if (!ready.testMode)
-      return {
-        ok: false,
-        safeError:
-          "Production OpenSRS registration is blocked. Horizon test mode is required.",
-      };
     const domain = normalizeDomain(domainName);
-    const built = this.horizonRegistrationAttributes(domain);
+    const built = ready.testMode
+      ? this.horizonRegistrationAttributes(domain)
+      : this.productionRegistrationAttributes(domain, purchaseRequest);
     if (!built.ok) return built;
     const r = await this.call("sw_register", "domain", built.attributes);
     if (!r.ok) return r;

@@ -19,6 +19,11 @@ const prisma: any = {
     count: vi.fn(),
   },
   domainReputationSnapshot: { create: vi.fn(), count: vi.fn() },
+  domainRegistrantProfile: {
+    upsert: vi.fn(),
+    update: vi.fn(),
+    findUnique: vi.fn(),
+  },
   domainPurchaseRequest: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -199,6 +204,82 @@ describe("managed domain provisioning foundation", () => {
       }),
     ).resolves.toMatchObject({ allowed: false });
   });
+
+  it("blocks incomplete registrant profiles and creates immutable workspace-owned snapshots", async () => {
+    process.env.DOMAIN_PROVIDER = "mock";
+    const { createDomainPurchaseRequest } =
+      await import("@/lib/managed-domains/purchase");
+    prisma.domainRegistrantProfile.findUnique.mockResolvedValueOnce({
+      workspaceId: "w1",
+      legalFirstName: "Ada",
+    });
+    await expect(
+      createDomainPurchaseRequest({
+        requestedDomain: "Owned.com",
+        workspaceId: "w1",
+        requestedByUserId: "u1",
+        ownershipType: "WORKSPACE_OWNED",
+        registrantAttestationAccepted: true,
+      }),
+    ).rejects.toThrow("Registrant profile is incomplete");
+    const profile = {
+      workspaceId: "w1",
+      legalFirstName: "Ada",
+      legalLastName: "Lovelace",
+      organizationName: "Acme Inc",
+      address1: "1 Main",
+      city: "Austin",
+      stateProvince: "TX",
+      postalCode: "78701",
+      countryCode: "US",
+      phone: "+1.5125550100",
+      email: "owner@acme.com",
+      registrantType: "ORGANIZATION",
+      confirmedAt: new Date("2026-07-17T00:00:00Z"),
+    };
+    prisma.domainRegistrantProfile.findUnique.mockResolvedValueOnce(profile);
+    prisma.domainPurchaseRequest.create.mockImplementation(
+      async ({ data }: any) => ({ id: "req1", ...data }),
+    );
+    const request = await createDomainPurchaseRequest({
+      requestedDomain: "Owned.com",
+      workspaceId: "w1",
+      requestedByUserId: "u1",
+      ownershipType: "WORKSPACE_OWNED",
+      registrantAttestationAccepted: true,
+    });
+    expect(request.registrantSnapshot.create.email).toBe("owner@acme.com");
+    profile.email = "changed@acme.com";
+    expect(request.registrantSnapshot.create.email).toBe("owner@acme.com");
+  });
+  it("keeps registrant profile workspace scoped and exposes transfer foundation fields", async () => {
+    const { upsertDomainRegistrantProfile } =
+      await import("@/lib/managed-domains/purchase");
+    prisma.domainRegistrantProfile.upsert.mockImplementation(
+      async ({ where, create }: any) => ({ id: "rp1", where, ...create }),
+    );
+    const profile = await upsertDomainRegistrantProfile({
+      workspaceId: "w1",
+      legalFirstName: "A",
+      legalLastName: "B",
+      address1: "1",
+      city: "C",
+      stateProvince: "CA",
+      postalCode: "90210",
+      countryCode: "us",
+      phone: "+1.5555550100",
+      email: "A@EXAMPLE.COM",
+      registrantType: "INDIVIDUAL",
+    });
+    expect(profile.where).toEqual({ workspaceId: "w1" });
+    expect(profile.email).toBe("a@example.com");
+    const schema = await import("node:fs/promises").then((fs) =>
+      fs.readFile("prisma/schema.prisma", "utf8"),
+    );
+    expect(schema).toContain("transferEligibleAt");
+    expect(schema).toContain("authCodeStatus");
+  });
+
   it("operator summary is safe counts only", async () => {
     const { getOperatorDomainSummary } =
       await import("@/lib/managed-domains/service");
@@ -471,6 +552,88 @@ describe("OpenSRS Horizon domain provider", () => {
     expect(source).not.toContain("OPS_envelope");
     expect(source).not.toContain("X-Signature");
   });
+
+  it("production payload uses purchase snapshot and never Horizon test contacts", async () => {
+    configure();
+    process.env.OPENSRS_ENVIRONMENT = "production";
+    process.env.OPENSRS_API_BASE_URL = "https://rr-n1-tor.opensrs.net:55443";
+    process.env.DOMAIN_PURCHASING_ENABLED = "true";
+    process.env.DOMAIN_SERVICE_CONTACT_FIRST_NAME = "Tech";
+    process.env.DOMAIN_SERVICE_CONTACT_LAST_NAME = "Ops";
+    process.env.DOMAIN_SERVICE_CONTACT_ORG = "Quantum Reach";
+    process.env.DOMAIN_SERVICE_CONTACT_ADDRESS1 = "99 Service";
+    process.env.DOMAIN_SERVICE_CONTACT_CITY = "Wilmington";
+    process.env.DOMAIN_SERVICE_CONTACT_STATE = "DE";
+    process.env.DOMAIN_SERVICE_CONTACT_POSTAL_CODE = "19801";
+    process.env.DOMAIN_SERVICE_CONTACT_COUNTRY = "US";
+    process.env.DOMAIN_SERVICE_CONTACT_PHONE = "+1.3025550100";
+    process.env.DOMAIN_SERVICE_CONTACT_EMAIL = "domains@quantumreach.example";
+    const bodies: string[] = [];
+    const { OpenSrsHorizonDomainProvider } =
+      await import("@/lib/managed-domains/opensrs");
+    const p = new OpenSrsHorizonDomainProvider(async (request) => {
+      bodies.push(request.body);
+      return {
+        status: 200,
+        text: successXml('<item key="status">completed</item>'),
+      };
+    });
+    await expect(
+      p.purchaseDomain("owned.com", "req1", {
+        id: "req1",
+        workspaceId: "w1",
+        ownershipType: "WORKSPACE_OWNED",
+        registrantSnapshot: {
+          legalFirstName: "Customer",
+          legalLastName: "Owner",
+          organizationName: "Customer Co",
+          address1: "10 Customer",
+          city: "Denver",
+          stateProvince: "CO",
+          postalCode: "80202",
+          countryCode: "US",
+          phone: "+1.3035550100",
+          email: "owner@customer.example",
+          registrantType: "ORGANIZATION",
+          confirmedAt: new Date(),
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(bodies[0]).toContain("owner@customer.example");
+    expect(bodies[0]).toContain("domains@quantumreach.example");
+    expect(bodies[0]).not.toContain("horizon-test@example.com");
+    expect(bodies[0]).not.toContain("Quantum Reach Test");
+  });
+  it("Quantum Reach-managed production payload can use service contact as registrant", async () => {
+    configure();
+    process.env.OPENSRS_ENVIRONMENT = "production";
+    process.env.OPENSRS_API_BASE_URL = "https://rr-n1-tor.opensrs.net:55443";
+    process.env.DOMAIN_PURCHASING_ENABLED = "true";
+    process.env.DOMAIN_SERVICE_CONTACT_FIRST_NAME = "Quantum";
+    process.env.DOMAIN_SERVICE_CONTACT_LAST_NAME = "Reach";
+    process.env.DOMAIN_SERVICE_CONTACT_ORG = "Quantum Reach";
+    process.env.DOMAIN_SERVICE_CONTACT_ADDRESS1 = "99 Service";
+    process.env.DOMAIN_SERVICE_CONTACT_CITY = "Wilmington";
+    process.env.DOMAIN_SERVICE_CONTACT_STATE = "DE";
+    process.env.DOMAIN_SERVICE_CONTACT_POSTAL_CODE = "19801";
+    process.env.DOMAIN_SERVICE_CONTACT_COUNTRY = "US";
+    process.env.DOMAIN_SERVICE_CONTACT_PHONE = "+1.3025550100";
+    process.env.DOMAIN_SERVICE_CONTACT_EMAIL = "domains@quantumreach.example";
+    const bodies: string[] = [];
+    const { OpenSrsHorizonDomainProvider } =
+      await import("@/lib/managed-domains/opensrs");
+    const p = new OpenSrsHorizonDomainProvider(async (request) => {
+      bodies.push(request.body);
+      return { status: 200, text: successXml("") };
+    });
+    await p.purchaseDomain("leased.com", "req2", {
+      id: "req2",
+      ownershipType: "QUANTUM_REACH_MANAGED",
+    });
+    expect(bodies[0]).toContain("domains@quantumreach.example");
+    expect(bodies[0]).not.toContain("horizon-test@example.com");
+  });
+
   it("blocks production purchasing", async () => {
     configure();
     process.env.OPENSRS_ENVIRONMENT = "production";
