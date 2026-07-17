@@ -1,2 +1,2 @@
 import { PlatformPageTemplate } from "@/components/platform/page-template";
-export default function Page(){return <PlatformPageTemplate title="Provisioning" description="Operator-only safe summaries for provisioning." items={['Safe summary','Status','Actions']}/>}
+export default function Page(){return <PlatformPageTemplate title='Provisioning' description='Idempotent subscriber and referred client-company workspace provisioning queue.' items={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'RETRYING', 'Safe retry', 'Duplicate webhook protection', 'Workspace owner membership', 'Entitlement assignment', 'Onboarding state', 'Branding defaults', 'Audit event']}/>}

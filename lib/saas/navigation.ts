@@ -1,4 +1,4 @@
-import { BarChart3, Briefcase, ClipboardList, CreditCard, FileText, Globe2, Home, Kanban, Mail, Settings, ShieldCheck, Users, Video, Zap, type LucideIcon } from "lucide-react";
+import { BarChart3, Briefcase, ClipboardList, CreditCard, FileText, Globe2, Handshake, Home, Kanban, Mail, Settings, ShieldCheck, Users, Video, Wallet, Zap, type LucideIcon } from "lucide-react";
 export type NavItem = { label: string; href: string; icon: LucideIcon };
 export type NavSection = { heading: string; items: NavItem[] };
 export const workspaceNavigation: NavSection[] = [
@@ -8,15 +8,15 @@ export const workspaceNavigation: NavSection[] = [
  { heading: "MEETINGS", items: [{label:"Scheduling",href:"/dashboard/scheduling",icon:Video},{label:"Meetings",href:"/dashboard/meetings",icon:Video},{label:"Calls",href:"/dashboard/calls",icon:Video},{label:"Research",href:"/dashboard/research",icon:Zap},{label:"Interview Questions",href:"/dashboard/interview-questions",icon:ClipboardList}] },
  { heading: "DELIVERY", items: ["Analysis","Proposals","Contracts","Onboarding","Projects","Deliverables","Reports","Roadmaps"].map((l)=>({label:l,href:`/dashboard/${l.toLowerCase()}`,icon:l==="Roadmaps"?Kanban:l==="Projects"||l==="Onboarding"?ClipboardList:FileText})) },
  { heading: "KNOWLEDGE", items: [{label:"Knowledge Base",href:"/dashboard/knowledge",icon:FileText},{label:"AI Activity",href:"/dashboard/ai-executions",icon:Zap}] },
- { heading: "WORKSPACE", items: [{label:"Team",href:"/dashboard/team",icon:Users},{label:"Integrations",href:"/dashboard/settings/integrations/meetings",icon:Settings},{label:"Billing",href:"/dashboard/billing",icon:CreditCard},{label:"Settings",href:"/dashboard/settings",icon:Settings}] },
+ { heading: "WORKSPACE", items: [{label:"Team",href:"/dashboard/team",icon:Users},{label:"Integrations",href:"/dashboard/settings/integrations/meetings",icon:Settings},{label:"Billing",href:"/dashboard/billing",icon:CreditCard},{label:"Partner Center",href:"/dashboard/partner",icon:Handshake},{label:"Settings",href:"/dashboard/settings",icon:Settings}] },
 ];
 export const platformNavigation: NavSection[] = [
- { heading: "PLATFORM OVERVIEW", items: [{label:"Overview",href:"/platform",icon:Home}]},
- { heading: "CUSTOMERS", items: [{label:"Subscribers",href:"/platform/subscribers",icon:Users},{label:"Workspaces",href:"/platform/workspaces",icon:Briefcase},{label:"Subscriptions",href:"/platform/subscriptions",icon:CreditCard},{label:"Plans",href:"/platform/plans",icon:ClipboardList}]},
- { heading: "REVENUE", items: [{label:"Revenue overview",href:"/platform/revenue",icon:BarChart3},{label:"Billing status",href:"/platform/subscriptions",icon:CreditCard},{label:"Subscription metrics",href:"/platform/plans",icon:BarChart3}]},
- { heading: "INFRASTRUCTURE", items: [{label:"Managed Domains",href:"/platform/domains",icon:Globe2},{label:"Registrar Operations",href:"/platform/domains",icon:ShieldCheck},{label:"Email Infrastructure",href:"/platform/email",icon:Mail},{label:"Deliverability",href:"/platform/deliverability",icon:BarChart3},{label:"Provider Health",href:"/platform/providers",icon:Zap}]},
- { heading: "OPERATIONS", items: [{label:"Provisioning",href:"/platform/provisioning",icon:ClipboardList},{label:"Failed Jobs",href:"/platform/jobs",icon:Zap},{label:"Webhooks",href:"/platform/webhooks",icon:Zap},{label:"Diagnostics",href:"/platform/providers",icon:BarChart3},{label:"Audit Logs",href:"/platform/audit",icon:FileText}]},
- { heading: "PLATFORM", items: [{label:"Feature Flags",href:"/platform/settings",icon:Settings},{label:"Platform Settings",href:"/platform/settings",icon:Settings}]},
+ { heading: "OVERVIEW", items: [{label:"Platform Dashboard",href:"/platform",icon:Home}]},
+ { heading: "CUSTOMERS", items: [{label:"Subscribers",href:"/platform/subscribers",icon:Users},{label:"Workspaces",href:"/platform/workspaces",icon:Briefcase}]},
+ { heading: "COMMERCE", items: [{label:"Subscriptions",href:"/platform/subscriptions",icon:CreditCard},{label:"Plans",href:"/platform/plans",icon:ClipboardList},{label:"Revenue",href:"/platform/revenue",icon:BarChart3}]},
+ { heading: "PARTNERS", items: [{label:"Affiliates",href:"/platform/affiliates",icon:Handshake},{label:"Commissions",href:"/platform/commissions",icon:Wallet},{label:"Payouts",href:"/platform/payouts",icon:CreditCard}]},
+ { heading: "OPERATIONS", items: [{label:"Provisioning",href:"/platform/provisioning",icon:ClipboardList},{label:"Managed Domains",href:"/platform/domains",icon:Globe2},{label:"Email Infrastructure",href:"/platform/email",icon:Mail},{label:"Providers",href:"/platform/providers",icon:Zap},{label:"Support",href:"/platform/support",icon:ShieldCheck}]},
+ { heading: "SYSTEM", items: [{label:"Audit",href:"/platform/audit",icon:FileText},{label:"Platform Settings",href:"/platform/settings",icon:Settings}]},
 ];
 export const clientPortalNavigation: NavSection[] = [
  { heading: "HOME", items: [{label:"Overview",href:"/portal",icon:Home}]},

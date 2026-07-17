@@ -1,0 +1,2 @@
+import { PlatformPageTemplate } from "@/components/platform/page-template";
+export default function Page(){return <PlatformPageTemplate title='Support' description='Safe support operations foundation without unrestricted impersonation.' items={['Subscriber lookup', 'Workspace lookup', 'Subscription status', 'Provisioning failures', 'Provider readiness', 'Safe recent system errors', 'Consent/audit required for future support access']}/>}

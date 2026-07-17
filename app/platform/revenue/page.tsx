@@ -1,2 +1,2 @@
 import { PlatformPageTemplate } from "@/components/platform/page-template";
-export default function Page(){return <PlatformPageTemplate title="Revenue overview" description="Operator-only safe summaries for revenue overview." items={['Safe summary','Status','Actions']}/>}
+export default function Page(){return <PlatformPageTemplate title='Revenue' description='Reliable Stripe-derived SaaS revenue only; incomplete financial metrics remain unavailable until connected.' items={['Active MRR', 'New MRR', 'Churned MRR', 'Gross subscription revenue', 'Affiliate commission liabilities', 'Net revenue estimate', 'Failed payments', 'Refunds', 'Stripe readiness']}/>}

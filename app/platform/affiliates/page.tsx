@@ -1,0 +1,2 @@
+import { PlatformPageTemplate } from "@/components/platform/page-template";
+export default function Page(){return <PlatformPageTemplate title='Affiliates' description='Affiliate and reseller administration for eligible subscribers.' items={['Affiliate', 'Status', 'Workspace', 'Referral code', 'Clicks', 'Signups', 'Conversions', 'Active referred subscriptions', 'Recurring revenue attributed', 'Commissions pending', 'Commissions paid', 'Approve', 'Suspend', 'Reactivate', 'Adjust commission rate', 'Review commissions']}/>}

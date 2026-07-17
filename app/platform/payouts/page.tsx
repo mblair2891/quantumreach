@@ -1,0 +1,2 @@
+import { PlatformPageTemplate } from "@/components/platform/page-template";
+export default function Page(){return <PlatformPageTemplate title='Payouts' description='Manual payout administration until a payout provider is configured; never pretends an external transfer occurred.' items={['Affiliate', 'Payable balance', 'Threshold', 'Payout method status', 'Manual payout status', 'Payout history', 'Operator audit note', 'No automatic external transfer']}/>}
