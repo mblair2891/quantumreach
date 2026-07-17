@@ -1,0 +1,2 @@
+import Link from "next/link";
+export function PublicLayout({children}:{children:React.ReactNode}){return <main className="min-h-screen bg-[radial-gradient(circle_at_top,#dbeafe,transparent_35%),#f8fafc]"><header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5"><Link href="/" className="font-semibold">Quantum Reach</Link><nav className="flex gap-4 text-sm"><Link href="/pricing">Pricing</Link><Link href="/sign-in">Sign in</Link><Link href="/sign-up">Sign up</Link></nav></header>{children}</main>}

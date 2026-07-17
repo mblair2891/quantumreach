@@ -2,28 +2,6 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getCurrentWorkspace, onboardWorkspace } from "@/lib/workspaces/service";
-
-async function createWorkspace(formData: FormData) {
-  "use server";
-  await onboardWorkspace({ name: String(formData.get("name") ?? "") });
-  redirect("/dashboard");
-}
-
-export default async function OnboardingPage() {
-  const workspace = await getCurrentWorkspace();
-  if (workspace) redirect("/dashboard");
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-      <form action={createWorkspace} className="w-full max-w-xl space-y-6 rounded-3xl border bg-white p-8 shadow-xl">
-        <div>
-          <p className="text-sm font-medium text-slate-500">Workspace onboarding</p>
-          <h1 className="mt-2 text-3xl font-semibold">Create your operating workspace</h1>
-          <p className="mt-2 text-slate-600">All CRM, diagnostic, AI, report, proposal, project, note, task, and audit records are scoped to a workspace.</p>
-        </div>
-        <Input name="name" placeholder="Acme Advisory" required minLength={2} />
-        <Button type="submit" className="w-full">Create workspace</Button>
-      </form>
-    </main>
-  );
-}
+const stages = ["ACCOUNT_CREATED","SUBSCRIPTION_ACTIVE","WORKSPACE_CREATED","BUSINESS_PROFILE_COMPLETE","ZOOM_CONNECTED","DOMAIN_CONFIGURED","SENDER_CONFIGURED","SCHEDULING_CONFIGURED","CONTACTS_IMPORTED","CAMPAIGN_CREATED","READY"];
+async function createWorkspace(formData: FormData) { "use server"; await onboardWorkspace({ name: String(formData.get("name") ?? "") }); redirect("/dashboard"); }
+export default async function OnboardingPage() { const workspace = await getCurrentWorkspace(); if (workspace) redirect("/dashboard"); return <main className="min-h-screen bg-slate-50 p-6"><section className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1fr_420px]"><form action={createWorkspace} className="space-y-6 rounded-3xl border bg-white p-8 shadow-xl"><div><p className="text-sm font-medium text-slate-500">SaaS activation onboarding</p><h1 className="mt-2 text-3xl font-semibold">Launch your subscriber workspace</h1><p className="mt-2 text-slate-600">Create an isolated workspace, then continue through subscription, business profile, Zoom, sending domain, sender identity, scheduling, import, campaign, compliance, and launch-readiness steps. You can continue later.</p></div><Input name="name" placeholder="Acme Advisory" required minLength={2} /><Button type="submit" className="w-full">Create workspace and continue</Button></form><aside className="rounded-3xl border bg-white p-6 shadow-xl"><h2 className="font-semibold">Activation stages</h2><ol className="mt-4 space-y-2 text-sm">{stages.map((stage,index)=><li key={stage} className="flex items-center gap-3 rounded-xl border p-3"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs text-white">{index+1}</span>{stage.replace(/_/g," ")}</li>)}</ol></aside></section></main> }

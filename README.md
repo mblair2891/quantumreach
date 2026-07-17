@@ -135,3 +135,15 @@ Quantum Reach includes a safe managed sending-domain foundation for operator dom
 Workspace-owned domain purchases require a complete, confirmed Domain Registrant Profile. The customer/workspace is normally the legal registrant, while Quantum Reach remains the OpenSRS reseller and manages DNS, SES, warmup, billing, and renewals. Quantum Reach-owned and shared-pool domains are separate ownership modes and must not imply customer ownership.
 
 OpenSRS Horizon `OPENSRS_TEST_CONTACT_*` values are test-only. Production registration uses the immutable purchase registrant snapshot, with optional Quantum Reach service contact values for technical/admin/billing roles. Transfer-out support is currently a foundation workflow only; auth codes are not exposed.
+
+
+## SaaS persona architecture
+
+Quantum Reach is structured for four clearly separated experiences:
+
+1. **Platform Operator** — `/platform/*` operator console for safe aggregate subscriber, workspace, domain, email, provisioning, webhook, audit, settings, and provider health administration.
+2. **Subscriber** — `/dashboard/*` workspace operating system for CRM, outreach, meetings, delivery, knowledge, billing, integrations, and settings.
+3. **Client** — `/portal/*` client-facing portal for linked projects, roadmaps, deliverables, meetings, documents, onboarding actions, and profile data only.
+4. **Public Prospect** — public scheduling, signing, unsubscribe, pricing, signup, login, and onboarding routes outside the authenticated SaaS shells.
+
+See `docs/saas-platform-architecture.md` and companion SaaS docs for routing, onboarding, roles, entitlements, branding, platform console, subscriber workspace, client portal, smoke tests, and known limitations.

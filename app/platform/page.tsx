@@ -1,0 +1,2 @@
+import { PlatformPageTemplate } from "@/components/platform/page-template";
+export default function Page(){return <PlatformPageTemplate title="Platform overview" description="Operator-only console for subscriber, workspace, domain, email, provisioning, webhook, and audit health." items={["Active subscribers","Trialing","Past due","Total workspaces","Domains managed","Domains warming","Email sending status","Meetings this period","Provisioning requests"]}/>}

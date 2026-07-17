@@ -1,7 +1,7 @@
 import { DashboardShell } from "@/components/dashboard/shell";
-import { requireWorkspaceAccess } from "@/lib/auth/rbac";
+import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
 
 export default async function Layout({ children }: { children: React.ReactNode }) {
-  await requireWorkspaceAccess();
+  await requireSubscriberWorkspaceAccess();
   return <DashboardShell>{children}</DashboardShell>;
 }
