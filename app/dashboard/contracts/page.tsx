@@ -1,0 +1,2 @@
+import { ModulePage } from "@/components/dashboard/module-page";
+export default function Page(){return <ModulePage title="Contracts" description="Workspace-scoped contracts for subscriber business operations." metrics={[{label:"Workspace records",value:"—",detail:"Tenant scoped"},{label:"Ready",value:"—",detail:"Setup status"}]} workflows={["Review queue","Create or configure","Track readiness"]} />}

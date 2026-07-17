@@ -15,8 +15,12 @@ enum WorkspaceRoleKey {
   MANAGER
   STRATEGIST
   SALES_REP
+  SALES
+  CONSULTANT
+  OPERATIONS
   DELIVERY
   VIEWER
+  CLIENT
 }
 
 enum RecordStatus {
