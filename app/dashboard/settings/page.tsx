@@ -108,7 +108,7 @@ export default async function Page() {
               SES, warmup, renewal, and billing infrastructure.
             </p>
             <Button asChild variant="outline">
-              <Link href="/dashboard/settings/domains/registrant">
+              <Link href="/dashboard/settings/domain-registrant">
                 Review registrant profile
               </Link>
             </Button>
