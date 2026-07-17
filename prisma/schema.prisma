@@ -403,6 +403,7 @@ model UserProfile {
   managedDomainAssignments     ManagedDomainAssignment[]     @relation("ManagedDomainAssignmentAssignedBy")
   requestedDomainPurchases     DomainPurchaseRequest[]       @relation("DomainPurchaseRequestedBy")
   approvedDomainPurchases      DomainPurchaseRequest[]       @relation("DomainPurchaseApprovedBy")
+  confirmedRegistrantProfiles  DomainRegistrantProfile[]     @relation("DomainRegistrantProfileConfirmedBy")
   domainWarmupEvents           DomainWarmupEvent[]           @relation("DomainWarmupEventCreatedBy")
   domainAuditEvents            DomainAuditEvent[]            @relation("DomainAuditActor")
 }
@@ -481,6 +482,7 @@ model Workspace {
   managedDomains            ManagedDomain[]
   managedDomainAssignments  ManagedDomainAssignment[]
   domainPurchaseRequests    DomainPurchaseRequest[]
+  domainRegistrantProfiles  DomainRegistrantProfile[]
   domainAuditEvents         DomainAuditEvent[]
   senderIdentities          SenderIdentity[]
   emailCampaigns            EmailCampaign[]
@@ -2218,6 +2220,34 @@ enum ManagedDomainBillingStatus {
   CANCELED
 }
 
+enum DomainRegistrantType {
+  INDIVIDUAL
+  ORGANIZATION
+}
+
+enum DomainTransferStatus {
+  NOT_REQUESTED
+  REQUESTED
+  IN_REVIEW
+  APPROVED
+  COMPLETED
+  CANCELED
+}
+
+enum DomainRegistrarLockStatus {
+  UNKNOWN
+  LOCKED
+  UNLOCKED
+}
+
+enum DomainAuthCodeStatus {
+  NOT_REQUESTED
+  REQUESTED
+  GENERATED
+  DELIVERED
+  EXPIRED
+}
+
 enum DomainPurchaseRequestStatus {
   DRAFT
   QUOTED
@@ -2758,6 +2788,11 @@ model ManagedDomain {
   purchaseCostCents   Int?
   resalePriceCents    Int?
   renewalCostCents    Int?
+  transferEligibleAt  DateTime?
+  transferRequestedAt DateTime?
+  transferStatus      DomainTransferStatus         @default(NOT_REQUESTED)
+  registrarLockStatus DomainRegistrarLockStatus    @default(UNKNOWN)
+  authCodeStatus      DomainAuthCodeStatus         @default(NOT_REQUESTED)
   markupPercent       Int?
   assignedAt          DateTime?
   assignedByUserId    String?
@@ -2797,26 +2832,78 @@ model ManagedDomainAssignment {
 }
 
 model DomainPurchaseRequest {
-  id                 String                      @id @default(cuid())
-  workspaceId        String?
-  domainId           String?
-  requestedDomain    String
-  requestedByUserId  String?
-  status             DomainPurchaseRequestStatus @default(DRAFT)
-  estimatedCostCents Int?
-  resalePriceCents   Int?
-  providerQuoteId    String?
-  safeError          String?
-  approvedByUserId   String?
-  purchasedAt        DateTime?
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
-  workspace          Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  domain             ManagedDomain?              @relation(fields: [domainId], references: [id], onDelete: SetNull)
-  requestedBy        UserProfile?                @relation("DomainPurchaseRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
-  approvedBy         UserProfile?                @relation("DomainPurchaseApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  id                            String                      @id @default(cuid())
+  workspaceId                   String?
+  domainId                      String?
+  requestedDomain               String
+  requestedByUserId             String?
+  status                        DomainPurchaseRequestStatus @default(DRAFT)
+  estimatedCostCents            Int?
+  resalePriceCents              Int?
+  ownershipType                 ManagedDomainOwnershipType  @default(WORKSPACE_OWNED)
+  registrantAttestationAccepted Boolean                     @default(false)
+  registrantAttestationText     String?
+  providerQuoteId               String?
+  safeError                     String?
+  approvedByUserId              String?
+  purchasedAt                   DateTime?
+  createdAt                     DateTime                    @default(now())
+  updatedAt                     DateTime                    @updatedAt
+  workspace                     Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  domain                        ManagedDomain?              @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  requestedBy                   UserProfile?                @relation("DomainPurchaseRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  approvedBy                    UserProfile?                @relation("DomainPurchaseApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  registrantSnapshot            DomainRegistrantSnapshot?
 
   @@index([workspaceId, status])
+  @@index([ownershipType, status])
+}
+
+model DomainRegistrantProfile {
+  id                String               @id @default(cuid())
+  workspaceId       String
+  legalFirstName    String
+  legalLastName     String
+  organizationName  String?
+  address1          String
+  address2          String?
+  city              String
+  stateProvince     String
+  postalCode        String
+  countryCode       String
+  phone             String
+  email             String
+  registrantType    DomainRegistrantType
+  verifiedAt        DateTime?
+  confirmedAt       DateTime?
+  confirmedByUserId String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  confirmedBy       UserProfile?         @relation("DomainRegistrantProfileConfirmedBy", fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId])
+  @@index([workspaceId, confirmedAt])
+}
+
+model DomainRegistrantSnapshot {
+  id                String                @id @default(cuid())
+  purchaseRequestId String                @unique
+  legalFirstName    String
+  legalLastName     String
+  organizationName  String?
+  address1          String
+  address2          String?
+  city              String
+  stateProvince     String
+  postalCode        String
+  countryCode       String
+  phone             String
+  email             String
+  registrantType    DomainRegistrantType
+  confirmedAt       DateTime
+  createdAt         DateTime              @default(now())
+  purchaseRequest   DomainPurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
 }
 
 model DomainDnsRecord {

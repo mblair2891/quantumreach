@@ -129,3 +129,9 @@ Live email requires AWS SES configuration, DNS authentication, verified workspac
 ## Managed domain provisioning foundation
 
 Quantum Reach includes a safe managed sending-domain foundation for operator domain inventory, workspace assignments, DNS record readiness, AWS SES identity readiness, warmup limits, reputation snapshots, and campaign send-gate checks. Live domain purchasing, DNS automation, and live email sending are disabled by default and require explicit environment configuration. Domain warmup improves risk management but does not guarantee inbox placement; workspace-owned or dedicated domains are preferred over broad shared domains.
+
+## Managed domain registrant ownership
+
+Workspace-owned domain purchases require a complete, confirmed Domain Registrant Profile. The customer/workspace is normally the legal registrant, while Quantum Reach remains the OpenSRS reseller and manages DNS, SES, warmup, billing, and renewals. Quantum Reach-owned and shared-pool domains are separate ownership modes and must not imply customer ownership.
+
+OpenSRS Horizon `OPENSRS_TEST_CONTACT_*` values are test-only. Production registration uses the immutable purchase registrant snapshot, with optional Quantum Reach service contact values for technical/admin/billing roles. Transfer-out support is currently a foundation workflow only; auth codes are not exposed.
