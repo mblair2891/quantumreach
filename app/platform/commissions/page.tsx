@@ -1,0 +1,2 @@
+import { PlatformPageTemplate } from "@/components/platform/page-template";
+export default function Page(){return <PlatformPageTemplate title='Commissions' description='Commission ledger from successful eligible Stripe payments using integer currency units.' items={['Affiliate', 'Referred customer', 'Invoice/payment', 'Gross amount', 'Commission rate', 'Commission amount', 'PENDING', 'APPROVED', 'PAYABLE', 'PAID', 'REVERSED', 'VOID', 'Refund reversals', 'Chargeback handling', 'Failed payments excluded']}/>}

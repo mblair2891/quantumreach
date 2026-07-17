@@ -147,3 +147,9 @@ Quantum Reach is structured for four clearly separated experiences:
 4. **Public Prospect** — public scheduling, signing, unsubscribe, pricing, signup, login, and onboarding routes outside the authenticated SaaS shells.
 
 See `docs/saas-platform-architecture.md` and companion SaaS docs for routing, onboarding, roles, entitlements, branding, platform console, subscriber workspace, client portal, smoke tests, and known limitations.
+
+## Quantum Reach SaaS commerce platform
+
+The `/platform` application is the SaaS business administration console for Quantum Reach operators. It manages subscribers, workspaces, subscriptions, plans, revenue readiness, affiliates, commissions, payouts, provisioning, domains, email infrastructure, providers, support, audit, and settings. Subscriber CRM, meetings, proposals, contracts, onboarding, and delivery workflows remain in `/dashboard` workspaces.
+
+Skool membership is tracked as educational/community context only; Stripe/Quantum Reach subscription state controls software access. Referred client companies are full SaaS tenants with isolated `/dashboard` workspaces, while `/portal` remains limited external client access.

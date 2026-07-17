@@ -3019,3 +3019,280 @@ model DomainAuditEvent {
   @@index([domainId, eventType])
   @@index([workspaceId, createdAt])
 }
+
+enum SaasSubscriberType {
+  STUDENT
+  DIRECT_CUSTOMER
+  AFFILIATE_RESELLER
+  REFERRED_CLIENT_COMPANY
+}
+
+enum SkoolMembershipStatus {
+  UNKNOWN
+  ACTIVE
+  INACTIVE
+  CANCELED
+  MANUALLY_VERIFIED
+}
+
+enum SaasBillingMode {
+  MONTHLY
+  YEARLY
+}
+
+enum SaasSubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  INCOMPLETE
+}
+
+enum SaasProvisioningStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+enum AffiliateStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum AffiliateCommissionType {
+  PERCENT_RECURRING
+  PERCENT_ONE_TIME
+  FIXED_ONE_TIME
+}
+
+enum AffiliateCommissionStatus {
+  PENDING
+  APPROVED
+  PAYABLE
+  PAID
+  REVERSED
+  VOID
+}
+
+enum SaasWorkspaceType {
+  INTERNAL
+  STUDENT_SUBSCRIBER
+  DIRECT_CUSTOMER
+  REFERRED_CLIENT_COMPANY
+}
+
+model SaasSubscriberProfile {
+  id                       String             @id @default(cuid())
+  userId                   String             @unique
+  workspaceId              String?
+  subscriberType           SaasSubscriberType @default(STUDENT)
+  onboardingProgress       Json               @default("{}")
+  affiliateStatus          AffiliateStatus?
+  referredClientCount      Int                @default(0)
+  recurringCommissionCents Int                @default(0)
+  suspendedAt              DateTime?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  @@index([subscriberType, suspendedAt])
+}
+
+model SkoolMembership {
+  id                    String                @id @default(cuid())
+  userId                String                @unique
+  skoolGroupId          String?
+  skoolMemberId         String?
+  skoolMembershipStatus SkoolMembershipStatus @default(UNKNOWN)
+  skoolJoinedAt         DateTime?
+  skoolLastSyncedAt     DateTime?
+  cohort                String?
+  manuallyVerifiedAt    DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+}
+
+model SaasPlan {
+  id                         String          @id @default(cuid())
+  key                        String          @unique
+  displayName                String
+  active                     Boolean         @default(false)
+  stripePriceId              String?
+  billingMode                SaasBillingMode @default(MONTHLY)
+  entitlements               Json            @default("{}")
+  usageLimits                Json            @default("{}")
+  affiliateEligible          Boolean         @default(false)
+  whiteLabelEligible         Boolean         @default(false)
+  maxClientCompanyWorkspaces Int             @default(0)
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+}
+
+model SaasSubscription {
+  id                       String                 @id @default(cuid())
+  userId                   String
+  workspaceId              String?
+  planKey                  String?
+  stripeCustomerId         String?
+  stripeSubscriptionId     String?                @unique
+  stripeSubscriptionItemId String?
+  status                   SaasSubscriptionStatus @default(INCOMPLETE)
+  currentPeriodEnd         DateTime?
+  affiliateAttributionId   String?
+  commissionEligible       Boolean                @default(false)
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  @@index([userId, status])
+  @@index([workspaceId])
+}
+
+model SubscriberProvisioningEvent {
+  id             String                 @id @default(cuid())
+  idempotencyKey String                 @unique
+  userId         String
+  subscriptionId String?
+  workspaceId    String?
+  status         SaasProvisioningStatus @default(PENDING)
+  eventType      String
+  safeMessage    String?
+  retryCount     Int                    @default(0)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model AffiliateAccount {
+  id                   String                  @id @default(cuid())
+  subscriberUserId     String
+  workspaceId          String?
+  affiliateCode        String                  @unique
+  status               AffiliateStatus         @default(PENDING)
+  commissionType       AffiliateCommissionType @default(PERCENT_RECURRING)
+  commissionRateBps    Int                     @default(0)
+  payoutThresholdCents Int                     @default(0)
+  payoutMethodStatus   String                  @default("MANUAL")
+  approvedAt           DateTime?
+  suspendedAt          DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+}
+
+model AffiliateAttribution {
+  id                 String    @id @default(cuid())
+  affiliateAccountId String
+  prospectUserId     String?
+  referralCode       String
+  policy             String    @default("LAST_TOUCH_60_DAYS")
+  expiresAt          DateTime
+  convertedAt        DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@index([prospectUserId])
+  @@index([affiliateAccountId, createdAt])
+}
+
+model AffiliateClick {
+  id                 String   @id @default(cuid())
+  affiliateAccountId String
+  referralCode       String
+  ipHash             String?
+  userAgentHash      String?
+  createdAt          DateTime @default(now())
+
+  @@index([affiliateAccountId, createdAt])
+}
+
+model AffiliateConversion {
+  id                     String  @id @default(cuid())
+  affiliateAttributionId String
+  subscriptionId         String?
+
+  customerUserId String
+  grossCents     Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([affiliateAttributionId])
+}
+
+model AffiliateCommission {
+  id                     String                    @id @default(cuid())
+  affiliateAccountId     String
+  referredCustomerUserId String?
+  invoiceId              String?
+  paymentIntentId        String?
+  grossCents             Int
+  commissionRateBps      Int
+  commissionCents        Int
+  currency               String                    @default("usd")
+  status                 AffiliateCommissionStatus @default(PENDING)
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+
+  @@index([affiliateAccountId, status])
+}
+
+model AffiliateCommissionAdjustment {
+  id              String   @id @default(cuid())
+  commissionId    String
+  adjustmentCents Int
+  reason          String
+  auditNote       String
+  createdAt       DateTime @default(now())
+}
+
+model AffiliatePayout {
+  id                 String    @id @default(cuid())
+  affiliateAccountId String
+  amountCents        Int
+  currency           String    @default("usd")
+  status             String    @default("MANUAL_PENDING")
+  auditNote          String?
+  markedPaidAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([affiliateAccountId, status])
+}
+
+model WorkspaceBranding {
+  id                      String  @id @default(cuid())
+  workspaceId             String  @unique
+  brandName               String?
+  logoUrl                 String?
+  primaryColor            String?
+  secondaryColor          String?
+  faviconUrl              String?
+  supportEmail            String?
+  supportUrl              String?
+  loginDisplayName        String?
+  portalDisplayName       String?
+  schedulingBrandName     String?
+  proposalBrandName       String?
+  contractBrandName       String?
+  customApplicationDomain String?
+  customPortalDomain      String?
+
+  brandingSourceWorkspaceId String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+model SaasWorkspaceProfile {
+  id                   String            @id @default(cuid())
+  workspaceId          String            @unique
+  workspaceType        SaasWorkspaceType @default(DIRECT_CUSTOMER)
+  referringAffiliateId String?
+  referringWorkspaceId String?
+
+  brandingSourceWorkspaceId String?
+  referralAttributionId     String?
+  suspendedAt               DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+}

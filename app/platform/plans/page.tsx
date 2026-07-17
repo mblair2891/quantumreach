@@ -1,2 +1,2 @@
 import { PlatformPageTemplate } from "@/components/platform/page-template";
-export default function Page(){return <PlatformPageTemplate title="Plans and entitlements" description="Operator-only safe summaries for plans and entitlements." items={['Safe summary','Status','Actions']}/>}
+export default function Page(){return <PlatformPageTemplate title='Plans' description='Manage active SaaS plan foundations without hardcoded retail prices.' items={['STARTER', 'PROFESSIONAL', 'AGENCY', 'ENTERPRISE', 'Stripe price ID', 'Monthly/yearly billing mode', 'Feature entitlements', 'Usage limits', 'Affiliate eligibility', 'White-label eligibility', 'Maximum client-company workspaces', 'ADMIN_EMAILS bypass platform limits']}/>}
