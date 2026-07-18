@@ -2255,8 +2255,11 @@ enum DomainAuthCodeStatus {
 enum DomainPurchaseRequestStatus {
   DRAFT
   QUOTED
+  SUBMITTED
   APPROVED
+  PURCHASE_PENDING
   PURCHASING
+  REJECTED
   PURCHASED
   FAILED
   CANCELED
@@ -3330,6 +3333,7 @@ enum ManagedMailboxProviderKey {
 
 enum ManagedMailboxStatus {
   PENDING
+  PENDING_PROVIDER_CONFIGURATION
   PROVISIONING
   ACTIVE
   SUSPENDED
@@ -3594,6 +3598,26 @@ model WorkspaceInfrastructureUsage {
   updatedAt                    DateTime @updatedAt
 
   @@unique([workspaceId, periodStart, periodEnd])
+}
+
+model InfrastructureJob {
+  id             String   @id @default(cuid())
+  workspaceId    String?
+  jobType        String
+  status         String   @default("QUEUED")
+  payload        Json     @default("{}")
+  idempotencyKey String   @unique
+  lockedAt       DateTime?
+  lockedBy       String?
+  attemptCount   Int      @default(0)
+  maxAttempts    Int      @default(5)
+  nextAttemptAt  DateTime @default(now())
+  lastSafeError  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([workspaceId, jobType])
 }
 
 model CommissionRule {

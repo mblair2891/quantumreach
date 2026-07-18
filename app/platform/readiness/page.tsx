@@ -1,2 +1,2 @@
-import { getProviderReadiness } from "@/lib/sending-infrastructure/providers";
-export default function PlatformReadinessPage() { const readiness = getProviderReadiness(); return <main><h1>Infrastructure Launch Readiness</h1><pre>{JSON.stringify(readiness, null, 2)}</pre></main>; }
+import { requireOperatorAccess } from "@/lib/admin/operator";import { operatorReadiness } from "@/lib/sending-infrastructure/operational";
+export default async function PlatformReadinessPage(){await requireOperatorAccess();const rows=await operatorReadiness();return <main><h1>Infrastructure Launch Readiness</h1>{rows.map(r=><article key={r.name} className="rounded border p-4"><h2>{r.name}</h2><p>{r.state}</p><p>{r.reason}</p></article>)}</main>}

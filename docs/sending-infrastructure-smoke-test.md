@@ -8,3 +8,18 @@ Quantum Reach now models managed sending infrastructure as a configurable SaaS p
 - Platform surfaces can inspect operational readiness and wholesale domain cost where data exists.
 - Real purchasing, mailbox provisioning, DNS automation, inbound sync, and outbound sending remain disabled unless the corresponding environment gates are enabled.
 - Compliance gating blocks suppression, unsubscribe, complaint, unready sender, disabled sending, and sandbox conditions before provider calls.
+
+## Managed sending operationalization status (2026-07-18)
+
+### IMPLEMENTED AND OPERATIONAL
+- Platform catalog reads `CommerceProduct` rows and persists create/edit/activation/Stripe mapping/display order changes.
+- Sending packages read `SENDING_PACKAGE` products and persist entitlement edits.
+- Subscriber sending overview, usage, domains, mailboxes, senders, and deliverability read persisted workspace-scoped infrastructure records.
+- Domain and mailbox subscriber requests persist safely even when external providers are disabled.
+
+### IMPLEMENTED BUT PROVIDER-DISABLED
+- DNS, SES, mailbox, inbound sync, and campaign-worker execution report `NOT_CONFIGURED` unless environment feature flags and credentials are set.
+- Disabled providers leave requests in pending/provider-configuration states and do not report fake success.
+
+### NOT YET IMPLEMENTED
+- Continuous external worker execution and live provider mutation require production credentials and explicit enablement.
