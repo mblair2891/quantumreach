@@ -1,1 +1,2 @@
-export default function Page() { return <main><h1>My Sending Infrastructure: deliverability</h1><p>Workspace-scoped deliverability foundation. Wholesale costs and provider secrets are never shown here.</p></main>; }
+import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";import { getSubscriberSendingSnapshot } from "@/lib/sending-infrastructure/operational";
+export default async function Page(){const {workspace}=await requireSubscriberWorkspaceAccess();const s=await getSubscriberSendingSnapshot(workspace.id);return <main><h1>My Sending Infrastructure: deliverability</h1><pre>{JSON.stringify(s.deliverability,null,2)}</pre><p>Inbox-placement metrics are unavailable unless a real provider supplies them.</p></main>}

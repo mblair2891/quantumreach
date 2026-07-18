@@ -1,0 +1,2 @@
+"use server";import { revalidatePath } from "next/cache";import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";import { createMailboxRequest } from "@/lib/sending-infrastructure/operational";
+export async function createMailboxAction(form:FormData){const {workspace}=await requireSubscriberWorkspaceAccess();await createMailboxRequest(workspace.id,String(form.get('domainId')||''),String(form.get('localPart')||''),String(form.get('displayName')||''));revalidatePath('/dashboard/sending/mailboxes');}

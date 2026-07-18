@@ -159,3 +159,14 @@ Skool membership is tracked as educational/community context only; Stripe/Quantu
 Quantum Reach supports a composable commerce catalog for Core SaaS, Agency / White-Label upgrades, managed sending packages, and add-on capacity. OpenSRS remains the initial domain provider foundation, mailbox hosting is provider-neutral, and AWS SES is the initial bulk outbound transport behind feature gates. Pricing and Stripe IDs are intentionally configurable and may display as "Pricing configuration pending" until operators map products.
 
 See `docs/product-catalog.md`, `docs/sending-infrastructure-packages.md`, and `docs/provider-readiness.md` for the architecture and smoke-test guidance.
+
+## Managed sending operationalization status (2026-07-18)
+
+### IMPLEMENTED AND OPERATIONAL
+Database-backed catalog, sending-package entitlements, workspace entitlement resolution, subscriber infrastructure views, usage reconciliation, deliverability counts, mailbox requests, domain purchase requests, and operator readiness summaries are implemented against persisted application records.
+
+### IMPLEMENTED BUT PROVIDER-DISABLED
+Provider-backed DNS reconciliation, SES identity execution, mailbox provisioning, inbound reply sync, and campaign sending remain feature-gated. When disabled or missing credentials, the application renders truthful pending/`NOT_CONFIGURED` states and does not fabricate success.
+
+### NOT YET IMPLEMENTED
+Production provider execution requires configured vendor credentials, webhook endpoints, and bounded worker/cron invocation in the deployment environment.
