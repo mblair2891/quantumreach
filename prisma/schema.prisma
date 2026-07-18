@@ -3296,3 +3296,333 @@ model SaasWorkspaceProfile {
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 }
+
+enum CommerceProductCategory {
+  SOFTWARE_CORE
+  SOFTWARE_UPGRADE
+  SENDING_PACKAGE
+  DOMAIN_ADDON
+  SENDER_ADDON
+  SEND_CAPACITY_ADDON
+  SETUP_FEE
+}
+
+enum CommerceBillingInterval {
+  MONTH
+  YEAR
+  ONE_TIME
+}
+
+enum ProviderReadinessState {
+  NOT_CONFIGURED
+  CONFIGURED
+  DEGRADED
+  READY
+  ERROR
+}
+
+enum ManagedMailboxProviderKey {
+  DISABLED
+  OPENSRS_EMAIL
+  GENERIC_IMAP_SMTP
+  FUTURE_PROVIDER
+}
+
+enum ManagedMailboxStatus {
+  PENDING
+  PROVISIONING
+  ACTIVE
+  SUSPENDED
+  FAILED
+  DECOMMISSIONING
+  DECOMMISSIONED
+}
+
+enum InfrastructureProvisioningStatus {
+  PENDING
+  DOMAIN_PENDING
+  DNS_PENDING
+  SES_PENDING
+  MAILBOX_PENDING
+  SENDER_PENDING
+  READY
+  PARTIALLY_READY
+  FAILED
+}
+
+model CommerceProduct {
+  id                    String                  @id @default(cuid())
+  key                   String                  @unique
+  name                  String
+  description           String?
+  category              CommerceProductCategory
+  active                Boolean                 @default(true)
+  recurring             Boolean                 @default(true)
+  billingInterval       CommerceBillingInterval @default(MONTH)
+  stripeProductId       String?
+  stripePriceId         String?
+  stripeSetupPriceId    String?
+  commissionCategory    CommerceProductCategory?
+  metadata              Json                    @default("{}")
+  sortOrder             Int                     @default(0)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  entitlements          CommerceProductEntitlement[]
+  subscriptionItems     SaasSubscriptionItem[]
+
+  @@index([category, active])
+  @@index([stripePriceId])
+}
+
+model CommerceProductEntitlement {
+  id             String          @id @default(cuid())
+  productId      String
+  entitlementKey String
+  integerValue   Int?
+  booleanValue   Boolean?
+  stringValue    String?
+  metadata       Json            @default("{}")
+  createdAt      DateTime        @default(now())
+
+  product        CommerceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, entitlementKey])
+  @@index([entitlementKey])
+}
+
+model SaasSubscriptionItem {
+  id                         String                 @id @default(cuid())
+  workspaceId                String
+  saasSubscriptionId         String?
+  commerceProductId          String
+  stripeSubscriptionItemId   String?                @unique
+  quantity                   Int                    @default(1)
+  status                     SaasSubscriptionStatus @default(ACTIVE)
+  currentPeriodStart         DateTime?
+  currentPeriodEnd           DateTime?
+  metadata                   Json                   @default("{}")
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+
+  commerceProduct            CommerceProduct        @relation(fields: [commerceProductId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, commerceProductId, stripeSubscriptionItemId])
+  @@index([workspaceId, status])
+  @@index([saasSubscriptionId])
+}
+
+model InfrastructureEntitlementOverride {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  entitlementKey String
+  integerValue   Int?
+  booleanValue   Boolean?
+  stringValue    String?
+  reason         String
+  expiresAt      DateTime?
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  @@index([workspaceId, entitlementKey])
+}
+
+model ManagedMailbox {
+  id                    String                    @id @default(cuid())
+  workspaceId           String
+  managedDomainId       String
+  provider              ManagedMailboxProviderKey @default(DISABLED)
+  providerMailboxId     String?
+  localPart             String
+  emailAddress          String
+  displayName           String?
+  status                ManagedMailboxStatus      @default(PENDING)
+  provisioningStatus    String                    @default("PENDING")
+  inboundEnabled        Boolean                   @default(false)
+  outboundEnabled       Boolean                   @default(false)
+  replySyncEnabled      Boolean                   @default(false)
+  senderIdentityEnabled Boolean                   @default(false)
+  lastHealthCheckAt     DateTime?
+  suspendedAt           DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  @@unique([workspaceId, emailAddress])
+  @@index([workspaceId, status])
+  @@index([managedDomainId])
+}
+
+model MailboxProvisioningEvent {
+  id                 String   @id @default(cuid())
+  workspaceId         String
+  managedMailboxId    String?
+  idempotencyKey      String   @unique
+  status             String   @default("PENDING")
+  safeSummary         String?
+  errorCode           String?
+  safeErrorMessage    String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([workspaceId, status])
+}
+
+model InfrastructureSenderIdentity {
+  id                  String   @id @default(cuid())
+  workspaceId          String
+  managedMailboxId     String?
+  managedDomainId      String
+  fromAddress          String
+  displayName          String?
+  replyToAddress       String?
+  sesIdentityState     String   @default("NOT_CREATED")
+  dkimState            String   @default("NOT_CREATED")
+  sendingEnabled       Boolean  @default(false)
+  campaignEligible     Boolean  @default(false)
+  dailySendCap         Int?
+  healthState          String   @default("UNKNOWN")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([workspaceId, fromAddress])
+  @@index([workspaceId, campaignEligible])
+}
+
+model DesiredDnsRecord {
+  id              String   @id @default(cuid())
+  workspaceId      String?
+  managedDomainId  String
+  recordType       String
+  name             String
+  value            String
+  ttl              Int?
+  purpose          String
+  status           String   @default("REQUIRED")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([managedDomainId, recordType, name, value])
+}
+
+model DnsReconciliationRun {
+  id               String   @id @default(cuid())
+  workspaceId       String?
+  managedDomainId   String
+  provider          String
+  status            String   @default("PENDING")
+  missingRecords    Json     @default("[]")
+  mismatchedRecords Json     @default("[]")
+  appliedRecords    Json     @default("[]")
+  safeSummary       String?
+  createdAt         DateTime @default(now())
+  completedAt       DateTime?
+}
+
+model InboundEmailMessage {
+  id                    String   @id @default(cuid())
+  workspaceId            String
+  managedMailboxId       String
+  externalMessageId      String
+  internetMessageId      String?
+  inReplyTo              String?
+  references             String?
+  sender                 String
+  recipients             Json
+  subject                String?
+  receivedAt             DateTime
+  bodyText               String?
+  safeHtml               String?
+  processingStatus       String   @default("PENDING")
+  linkedContactId        String?
+  linkedCampaignId       String?
+  linkedOutboundMessageId String?
+  threadKey              String?
+  createdAt              DateTime @default(now())
+
+  @@unique([workspaceId, managedMailboxId, externalMessageId])
+  @@index([workspaceId, threadKey])
+}
+
+model OutboundMessageLedger {
+  id                 String   @id @default(cuid())
+  workspaceId         String
+  campaignId          String?
+  contactId           String?
+  senderIdentityId    String?
+  managedMailboxId    String?
+  managedDomainId     String?
+  provider            String
+  providerMessageId   String?
+  messageId           String?  @unique
+  status              String   @default("QUEUED")
+  queuedAt            DateTime @default(now())
+  sentAt              DateTime?
+  deliveredAt         DateTime?
+  bouncedAt           DateTime?
+  complainedAt        DateTime?
+  repliedAt           DateTime?
+  unsubscribedAt      DateTime?
+  failureCode         String?
+  safeFailureMessage  String?
+
+  @@index([workspaceId, status])
+  @@index([providerMessageId])
+}
+
+model CampaignSendJob {
+  id          String   @id @default(cuid())
+  workspaceId String
+  campaignId  String?
+  status      String   @default("QUEUED")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkspaceInfrastructureUsage {
+  id                          String   @id @default(cuid())
+  workspaceId                  String
+  periodStart                  DateTime
+  periodEnd                    DateTime
+  sentMessageCount             Int      @default(0)
+  managedDomainCount           Int      @default(0)
+  activeMailboxCount           Int      @default(0)
+  senderIdentityCount          Int      @default(0)
+  activeOutreachContactCount   Int      @default(0)
+  campaignSendCount            Int      @default(0)
+  providerErrorCount           Int      @default(0)
+  updatedAt                    DateTime @updatedAt
+
+  @@unique([workspaceId, periodStart, periodEnd])
+}
+
+model CommissionRule {
+  id                String                  @id @default(cuid())
+  productCategory   CommerceProductCategory
+  commissionType    AffiliateCommissionType
+  rateBasisPoints   Int?
+  fixedAmountMinor  Int?
+  recurringEligible Boolean                 @default(true)
+  active            Boolean                 @default(true)
+  effectiveFrom     DateTime?
+  effectiveTo       DateTime?
+  metadata          Json                    @default("{}")
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([productCategory, active])
+}
+
+model WorkspaceInfrastructureProvisioning {
+  id             String                         @id @default(cuid())
+  workspaceId    String
+  status         InfrastructureProvisioningStatus @default(PENDING)
+  idempotencyKey String                         @unique
+  stages         Json                           @default("{}")
+  requestedPlan  Json                           @default("{}")
+  safeSummary    String?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+
+  @@index([workspaceId, status])
+}

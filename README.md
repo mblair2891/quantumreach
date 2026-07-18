@@ -153,3 +153,9 @@ See `docs/saas-platform-architecture.md` and companion SaaS docs for routing, on
 The `/platform` application is the SaaS business administration console for Quantum Reach operators. It manages subscribers, workspaces, subscriptions, plans, revenue readiness, affiliates, commissions, payouts, provisioning, domains, email infrastructure, providers, support, audit, and settings. Subscriber CRM, meetings, proposals, contracts, onboarding, and delivery workflows remain in `/dashboard` workspaces.
 
 Skool membership is tracked as educational/community context only; Stripe/Quantum Reach subscription state controls software access. Referred client companies are full SaaS tenants with isolated `/dashboard` workspaces, while `/portal` remains limited external client access.
+
+## Managed sending infrastructure foundation
+
+Quantum Reach supports a composable commerce catalog for Core SaaS, Agency / White-Label upgrades, managed sending packages, and add-on capacity. OpenSRS remains the initial domain provider foundation, mailbox hosting is provider-neutral, and AWS SES is the initial bulk outbound transport behind feature gates. Pricing and Stripe IDs are intentionally configurable and may display as "Pricing configuration pending" until operators map products.
+
+See `docs/product-catalog.md`, `docs/sending-infrastructure-packages.md`, and `docs/provider-readiness.md` for the architecture and smoke-test guidance.

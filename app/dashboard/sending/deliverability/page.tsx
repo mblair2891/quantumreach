@@ -1,0 +1,1 @@
+export default function Page() { return <main><h1>My Sending Infrastructure: deliverability</h1><p>Workspace-scoped deliverability foundation. Wholesale costs and provider secrets are never shown here.</p></main>; }

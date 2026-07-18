@@ -1,0 +1,2 @@
+-- Additive managed email/domain infrastructure platform foundation.
+-- Generated from Prisma schema changes; no destructive operations, table drops, or data rewrites.

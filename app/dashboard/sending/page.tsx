@@ -1,0 +1,2 @@
+import { DEFAULT_COMMERCE_CATALOG, pricingLabel } from "@/lib/sending-infrastructure/catalog";
+export default function SendingInfrastructurePage() { const pkg = DEFAULT_COMMERCE_CATALOG.find((p) => p.key === "GROWTH_SENDER_PACKAGE")!; return <main><h1>My Sending Infrastructure</h1><p>Manage domains, mailboxes, senders, usage, deliverability, and package capacity without exposing provider credentials.</p><section><h2>Sending infrastructure</h2><p>{pkg.name}</p><p>{pricingLabel(pkg)}</p></section></main>; }
