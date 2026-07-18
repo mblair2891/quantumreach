@@ -1,2 +1,2 @@
-import { PlatformPageTemplate } from "@/components/platform/page-template";
-export default function Page(){return <PlatformPageTemplate title="Email infrastructure" description="Operator-only safe summaries for email infrastructure." items={['SES configuration','Sandbox mode','Sending volume','Suppression counts','Bounce/complaint rates','Failed sends']}/>}
+import { getProviderReadiness } from "@/lib/sending-infrastructure/providers";
+export default function PlatformEmailPage() { return <main><h1>Email Operations</h1><pre>{JSON.stringify(getProviderReadiness(), null, 2)}</pre><p>Sent volume, failed sends, suppression volume, bounce rate, complaint rate, reply ingestion health, queue health, and worker health render as unavailable until real telemetry exists.</p></main>; }

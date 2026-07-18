@@ -1,0 +1,2 @@
+import { getMailboxProvider } from "@/lib/sending-infrastructure/providers";
+export default function PlatformMailboxesPage() { const health = getMailboxProvider().getProviderHealth(); return <main><h1>Mailbox Operations</h1><p>{health.state}: {health.safeMessage}</p><p>Operators can safely inspect provisioning status, health, sender eligibility, reply sync, and retry/suspend/reactivate foundations. Passwords are never displayed.</p></main>; }

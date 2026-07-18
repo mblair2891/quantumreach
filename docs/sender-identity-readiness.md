@@ -1,4 +1,4 @@
-# known limitations
+# sender identity readiness
 
 Quantum Reach now models managed sending infrastructure as a configurable SaaS product foundation. OpenSRS is the initial managed-domain provider. Mailbox hosting is abstracted and may use OpenSRS Email or another wholesale provider later; SES is only the initial bulk transport provider and does not represent the customer mailbox product. Pricing, Stripe mappings, wholesale costs, and commission rates are deferred/configurable. Provider secrets must stay in environment/secret storage and must not appear in documentation, logs, UI, or ordinary application records.
 
