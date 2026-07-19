@@ -3300,6 +3300,14 @@ model SaasWorkspaceProfile {
   updatedAt                 DateTime  @updatedAt
 }
 
+enum SaasSubscriptionItemSource {
+  STRIPE
+  MANUAL_OPERATOR
+  COMPLIMENTARY
+  MIGRATION
+  SYSTEM
+}
+
 enum CommerceProductCategory {
   SOFTWARE_CORE
   SOFTWARE_UPGRADE
@@ -3403,6 +3411,12 @@ model SaasSubscriptionItem {
   stripeSubscriptionItemId   String?                @unique
   quantity                   Int                    @default(1)
   status                     SaasSubscriptionStatus @default(ACTIVE)
+  source                     SaasSubscriptionItemSource @default(STRIPE)
+  assignedById               String?
+  assignedAt                 DateTime @default(now())
+  startsAt                   DateTime?
+  endsAt                     DateTime?
+  note                       String?
   currentPeriodStart         DateTime?
   currentPeriodEnd           DateTime?
   metadata                   Json                   @default("{}")
@@ -3413,6 +3427,7 @@ model SaasSubscriptionItem {
 
   @@unique([workspaceId, commerceProductId, stripeSubscriptionItemId])
   @@index([workspaceId, status])
+  @@index([workspaceId, commerceProductId, source])
   @@index([saasSubscriptionId])
 }
 

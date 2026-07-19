@@ -173,3 +173,6 @@ Production provider execution requires configured vendor credentials, webhook en
 
 ### Operator platform entry
 `ADMIN_EMAILS` operators land at `/platform` from generic sign-in and may use the header context control to intentionally return to `/dashboard`. Platform catalog initialization is an operator-authorized, idempotent action that creates persisted products and default entitlements without inventing Stripe prices.
+
+## Manual commerce operations
+Platform operators can grant persisted products (including complimentary access) through `/platform/subscriptions` or workspace detail pages. See [manual assignment](docs/manual-commerce-assignment.md) and the [operator smoke test](docs/saas-commerce-smoke-test.md).
