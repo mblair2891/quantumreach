@@ -3665,3 +3665,214 @@ model WorkspaceInfrastructureProvisioning {
 
   @@index([workspaceId, status])
 }
+
+enum CourseDeliveryType {
+ SKOOL
+ SELF_HOSTED
+ EXTERNAL
+ MANUAL
+}
+enum ProgramEnrollmentStatus {
+ PENDING
+ ACTIVE
+ PAUSED
+ CANCELED
+ COMPLETED
+ MANUAL_REVIEW
+}
+enum CustomerOrderStatus {
+ DRAFT
+ CHECKOUT_PENDING
+ PAID
+ PARTIALLY_FULFILLED
+ FULFILLED
+ CANCELED
+ REFUNDED
+ FAILED
+}
+enum CustomerPaymentStatus {
+ UNPAID
+ PENDING
+ PAID
+ PARTIALLY_REFUNDED
+ REFUNDED
+ FAILED
+}
+enum SetupPriority {
+ STANDARD
+ PRIORITY
+ EXPEDITED
+ MANUAL_HOLD
+}
+enum InfrastructureOrderStatus {
+ PENDING
+ QUEUED
+ IN_PROGRESS
+ WAITING_ON_CUSTOMER
+ WAITING_ON_PROVIDER
+ READY
+ FAILED
+ CANCELED
+}
+enum SetupTaskStatus {
+ PENDING
+ IN_PROGRESS
+ COMPLETED
+ BLOCKED
+ WAIVED
+}
+enum NotificationIntentStatus {
+ PENDING
+ SENT
+ FAILED
+ SKIPPED
+}
+
+model AcquisitionSession {
+ id String @id @default(cuid())
+ anonymousId String? @unique
+ userId String?
+ source String?
+ medium String?
+ campaign String?
+ content String?
+ term String?
+ landingPage String
+ affiliateAttributionId String?
+ clickedAt DateTime @default(now())
+ metadata Json @default("{}")
+ @@index([userId, clickedAt])
+}
+model ProgramOffer {
+ id String @id @default(cuid())
+ key String @unique
+ name String
+ description String?
+ active Boolean @default(true)
+ courseDeliveryType CourseDeliveryType @default(SKOOL)
+ externalGroupRef String?
+ commerceProductId String?
+ includedSoftwareProductKey String?
+ includedSetupPriority SetupPriority @default(STANDARD)
+ metadata Json @default("{}")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([active])
+}
+model ProgramEnrollment {
+ id String @id @default(cuid())
+ userId String
+ programOfferId String
+ status ProgramEnrollmentStatus @default(PENDING)
+ source String @default("MANUAL")
+ externalProvider String?
+ externalMembershipId String?
+ enrolledAt DateTime @default(now())
+ activatedAt DateTime?
+ canceledAt DateTime?
+ metadata Json @default("{}")
+ @@unique([userId, programOfferId])
+ @@index([userId, status])
+}
+model CustomerOrder {
+ id String @id @default(cuid())
+ userId String
+ workspaceId String?
+ programEnrollmentId String?
+ acquisitionSessionId String?
+ affiliateAttributionId String?
+ status CustomerOrderStatus @default(DRAFT)
+ paymentStatus CustomerPaymentStatus @default(UNPAID)
+ paymentMethod String @default("MANUAL")
+ paymentVerifiedAt DateTime?
+ paymentVerifiedById String?
+ setupPriority SetupPriority @default(STANDARD)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ items CustomerOrderItem[]
+ infrastructureOrder InfrastructureOrder?
+ @@index([userId, status])
+ @@index([setupPriority, createdAt])
+}
+model CustomerOrderItem {
+ id String @id @default(cuid())
+ orderId String
+ commerceProductId String?
+ itemType String
+ quantity Int @default(1)
+ fulfillmentStatus String @default("PENDING")
+ metadata Json @default("{}")
+ order CustomerOrder @relation(fields:[orderId], references:[id], onDelete:Cascade)
+ @@index([orderId])
+}
+model InfrastructureOrder {
+ id String @id @default(cuid())
+ customerOrderId String @unique
+ workspaceId String?
+ selectedProductKey String
+ priority SetupPriority @default(STANDARD)
+ status InfrastructureOrderStatus @default(PENDING)
+ currentStage String @default("Infrastructure package selected")
+ assignedOperatorId String?
+ blockedReason String?
+ customerActionRequired Boolean @default(false)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ order CustomerOrder @relation(fields:[customerOrderId], references:[id], onDelete:Cascade)
+ tasks CustomerSetupTask[]
+ operatorTasks OperatorSetupTask[]
+ @@index([priority, status, createdAt])
+}
+model CustomerSetupTask {
+ id String @id @default(cuid())
+ infrastructureOrderId String
+ workspaceId String?
+ taskType String
+ title String
+ status SetupTaskStatus @default(PENDING)
+ required Boolean @default(true)
+ dueAt DateTime?
+ completedAt DateTime?
+ order InfrastructureOrder @relation(fields:[infrastructureOrderId], references:[id], onDelete:Cascade)
+ @@index([infrastructureOrderId, status])
+}
+model OperatorSetupTask {
+ id String @id @default(cuid())
+ infrastructureOrderId String
+ assignedOperatorId String?
+ taskType String
+ title String
+ notes String?
+ status SetupTaskStatus @default(PENDING)
+ priority SetupPriority @default(STANDARD)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ order InfrastructureOrder @relation(fields:[infrastructureOrderId], references:[id], onDelete:Cascade)
+ @@index([infrastructureOrderId, status])
+}
+model CustomerNotificationIntent {
+ id String @id @default(cuid())
+ userId String
+ customerOrderId String?
+ recipient String
+ templateKey String
+ status NotificationIntentStatus @default(PENDING)
+ providerMessageId String?
+ sentAt DateTime?
+ metadata Json @default("{}")
+ createdAt DateTime @default(now())
+ @@index([userId, status])
+}
+
+model InfrastructureOrderStageEvent {
+ id String @id @default(cuid())
+ infrastructureOrderId String
+ previousStage String?
+ newStage String
+ eventType String
+ actorType String
+ actorId String?
+ safeMessage String?
+ createdAt DateTime @default(now())
+ @@index([infrastructureOrderId, createdAt])
+}

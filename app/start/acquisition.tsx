@@ -1,0 +1,1 @@
+"use client"; import {useEffect} from "react"; export function AcquisitionCapture({params}:{params:Record<string,string|undefined>}){useEffect(()=>{fetch("/api/acquisition",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(params)}).catch(()=>undefined)},[params]);return null}

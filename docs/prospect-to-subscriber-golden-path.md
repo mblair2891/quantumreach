@@ -1,0 +1,2 @@
+# Golden-path smoke test
+Visit `/start`, create an account from `/join`, create/activate a program enrollment, choose Priority setup and Growth Sender Package at `/setup/infrastructure`, verify payment manually or by Stripe, then complete required setup tasks. An operator progresses the queued order only when payment, tasks, provisioning, and readiness conditions are satisfied before granting dashboard access.

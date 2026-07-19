@@ -176,3 +176,6 @@ Production provider execution requires configured vendor credentials, webhook en
 
 ## Manual commerce operations
 Platform operators can grant persisted products (including complimentary access) through `/platform/subscriptions` or workspace detail pages. See [manual assignment](docs/manual-commerce-assignment.md) and the [operator smoke test](docs/saas-commerce-smoke-test.md).
+
+## Prospect-to-subscriber journey
+The acquisition and setup journey begins at `/start`, uses distinct program enrollment and SaaS/order records, and routes managed sending packages through the database-backed operator setup queue. See `docs/prospect-to-subscriber-golden-path.md` for the smoke test and `docs/known-limitations.md` for external-provider boundaries.
