@@ -1,6 +1,6 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { requireWorkspaceAccess } from "@/lib/auth/rbac";
+import { requireUserProfile } from "@/lib/auth/rbac";
 
 export function getAdminEmails() {
   return (process.env.ADMIN_EMAILS ?? "")
@@ -15,9 +15,11 @@ export function isOperatorEmail(email?: string | null) {
 }
 
 export async function requireOperatorAccess() {
-  const context = await requireWorkspaceAccess();
+  // Platform operators must be able to repair/bootstrap their first workspace.
+  // Requiring workspace access here made that recovery path impossible.
+  const user = await requireUserProfile();
   const clerkUser = await currentUser();
-  const email = clerkUser?.emailAddresses[0]?.emailAddress ?? context.user.email;
+  const email = clerkUser?.emailAddresses[0]?.emailAddress ?? user.email;
   if (!isOperatorEmail(email)) redirect("/dashboard");
-  return { ...context, operatorEmail: email };
+  return { user, operatorEmail: email };
 }
