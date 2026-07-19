@@ -19,3 +19,6 @@ Provider-backed DNS reconciliation, SES identity execution, mailbox provisioning
 
 ### NOT YET IMPLEMENTED
 Production provider execution requires configured vendor credentials, webhook endpoints, and bounded worker/cron invocation in the deployment environment.
+
+## Initialization
+When the catalog is empty, platform operators can initialize the default catalog from the catalog, sending packages, or platform dashboard surfaces. Initialization is idempotent and persists product and entitlement rows for the core product, agency upgrade, Launch/Growth/Scale packages, and infrastructure add-ons. It deliberately leaves final retail and Stripe price configuration blank.
