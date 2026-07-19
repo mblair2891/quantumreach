@@ -1,7 +1,6 @@
-# saas commerce smoke test
-
-Quantum Reach is operated as a multi-tenant SaaS platform. The platform console under /platform is for company operations: subscribers, workspaces, subscriptions, plans, revenue readiness, affiliates, commissions, payouts, provisioning, managed domains, email infrastructure, providers, support, audit, and settings.
-
-Subscriber business tools live under /dashboard. Client-company subscribers are full SaaS tenants with isolated workspaces. Client portal users remain limited /portal users and are never treated as full SaaS workspace owners.
-
-Stripe controls software subscription access. Skool membership records course/community context only and must not become a runtime dependency for software access. Affiliate attribution uses a documented last-touch foundation, blocks self-referrals, and creates commissions only from successful eligible payments. White-label branding is entitlement-gated and Quantum Reach remains the underlying SaaS provider.
+# SaaS commerce smoke test
+1. Bootstrap the catalog and open a real workspace in Platform.
+2. Assign `QUANTUM_REACH_CORE`, then `GROWTH_SENDER_PACKAGE`, with source `COMPLIMENTARY`.
+3. Confirm the entitlement trace and `/dashboard/sending` show persisted Growth allowances without a restart.
+4. Assign add-ons and verify quantities aggregate. Attempt a second package and verify it is blocked.
+5. Deactivate a manual item and verify its allowance disappears. Confirm Stripe items cannot be edited.

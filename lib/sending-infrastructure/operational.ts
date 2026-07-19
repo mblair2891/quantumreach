@@ -31,7 +31,8 @@ export async function listCatalogProducts(db: Db = prisma) { return db.commerceP
 export function entitlementMap(product: Awaited<ReturnType<typeof listCatalogProducts>>[number]) { return Object.fromEntries(product.entitlements.map((e) => [e.entitlementKey, e.integerValue ?? e.booleanValue ?? e.stringValue ?? 0])); }
 
 export async function getWorkspaceEffectiveEntitlements(workspaceId: string, db: Db = prisma) {
-  const items = await db.saasSubscriptionItem.findMany({ where: { workspaceId, status: { in: activeStatuses as any } }, include: { commerceProduct: { include: { entitlements: true } } } });
+  const now = new Date();
+  const items = await db.saasSubscriptionItem.findMany({ where: { workspaceId, status: { in: activeStatuses as any }, quantity: { gt: 0 }, commerceProduct: { active: true }, AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }, { OR: [{ endsAt: null }, { endsAt: { gt: now } }] }] }, include: { commerceProduct: { include: { entitlements: true } } } });
   const catalog = items.map((i) => ({ key: i.commerceProduct.key, name: i.commerceProduct.name, category: i.commerceProduct.category as any, active: i.commerceProduct.active, recurring: i.commerceProduct.recurring, sortOrder: i.commerceProduct.sortOrder, stripePriceId: i.commerceProduct.stripePriceId, stripeProductId: i.commerceProduct.stripeProductId, entitlements: entitlementMap(i.commerceProduct as any) }));
   const overrides = await db.infrastructureEntitlementOverride.findMany({ where: { workspaceId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } });
   const overrideMap = Object.fromEntries(overrides.map((o) => [o.entitlementKey, o.integerValue ?? o.booleanValue ?? o.stringValue ?? 0]));
