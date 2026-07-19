@@ -170,3 +170,6 @@ Provider-backed DNS reconciliation, SES identity execution, mailbox provisioning
 
 ### NOT YET IMPLEMENTED
 Production provider execution requires configured vendor credentials, webhook endpoints, and bounded worker/cron invocation in the deployment environment.
+
+### Operator platform entry
+`ADMIN_EMAILS` operators land at `/platform` from generic sign-in and may use the header context control to intentionally return to `/dashboard`. Platform catalog initialization is an operator-authorized, idempotent action that creates persisted products and default entitlements without inventing Stripe prices.

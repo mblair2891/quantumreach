@@ -19,3 +19,6 @@ Provider-backed DNS reconciliation, SES identity execution, mailbox provisioning
 
 ### NOT YET IMPLEMENTED
 Production provider execution requires configured vendor credentials, webhook endpoints, and bounded worker/cron invocation in the deployment environment.
+
+## Workspace selection
+The context control currently exposes the operator's default **My Workspace** entry rather than a workspace picker. Multi-workspace selection is deferred until an active-workspace selection model is available; no unauthorized workspace access is implied.
