@@ -3784,6 +3784,8 @@ model CustomerOrder {
  status CustomerOrderStatus @default(DRAFT)
  paymentStatus CustomerPaymentStatus @default(UNPAID)
  paymentMethod String @default("MANUAL")
+ paymentVerifiedAt DateTime?
+ paymentVerifiedById String?
  setupPriority SetupPriority @default(STANDARD)
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -3860,4 +3862,17 @@ model CustomerNotificationIntent {
  metadata Json @default("{}")
  createdAt DateTime @default(now())
  @@index([userId, status])
+}
+
+model InfrastructureOrderStageEvent {
+ id String @id @default(cuid())
+ infrastructureOrderId String
+ previousStage String?
+ newStage String
+ eventType String
+ actorType String
+ actorId String?
+ safeMessage String?
+ createdAt DateTime @default(now())
+ @@index([infrastructureOrderId, createdAt])
 }
