@@ -3743,6 +3743,17 @@ model AcquisitionSession {
  metadata Json @default("{}")
  @@index([userId, clickedAt])
 }
+model FunnelEvent {
+ id String @id @default(cuid())
+ eventType String
+ userId String?
+ acquisitionSessionId String?
+ customerOrderId String?
+ metadata Json @default("{}")
+ createdAt DateTime @default(now())
+ @@index([eventType, createdAt])
+ @@index([userId, createdAt])
+}
 model ProgramOffer {
  id String @id @default(cuid())
  key String @unique
