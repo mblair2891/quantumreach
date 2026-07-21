@@ -13,7 +13,9 @@ export function getBillingConfig() {
     pro: process.env.STRIPE_PRICE_ID_PRO ?? "",
     team: process.env.STRIPE_PRICE_ID_TEAM ?? "",
   };
-  const configured = enabled && hasSecret && hasPublishable && hasWebhook && Boolean(priceIds.pro || priceIds.team);
+  // Catalog Price mappings are authoritative for Checkout; publishable keys are not needed
+  // because this integration redirects to server-created Stripe Checkout Sessions.
+  const configured = enabled && hasSecret && hasWebhook;
   return { enabled, configured, hasSecret, hasPublishable, hasWebhook, priceIds };
 }
 
