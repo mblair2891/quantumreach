@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { recoverStaleInfrastructureJobs, runInfrastructureJobs } from "@/lib/jobs/service";
 
 function authorized(request: Request) {
   const secret = process.env.JOB_RUNNER_SECRET || process.env.CRON_SECRET;
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || request.headers.get("x-job-runner-secret");
-  return Boolean(secret && token && token === secret);
+  if (!secret || !token) return false;
+  const expected = Buffer.from(secret);
+  const received = Buffer.from(token);
+  return expected.length === received.length && crypto.timingSafeEqual(expected, received);
 }
 export async function POST(request: Request) {
   if (!authorized(request)) return NextResponse.json({ ok: false }, { status: 401 });
