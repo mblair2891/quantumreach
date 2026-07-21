@@ -3697,6 +3697,7 @@ enum CustomerPaymentStatus {
  PARTIALLY_REFUNDED
  REFUNDED
  FAILED
+ DISPUTED
 }
 enum SetupPriority {
  STANDARD
@@ -3797,6 +3798,12 @@ model CustomerOrder {
  paymentMethod String @default("MANUAL")
  paymentVerifiedAt DateTime?
  paymentVerifiedById String?
+ stripeCustomerId String?
+ stripeCheckoutSessionId String? @unique
+ stripePaymentIntentId String? @unique
+ stripeSubscriptionId String?
+ refundedAmountCents Int @default(0)
+ disputedAt DateTime?
  setupPriority SetupPriority @default(STANDARD)
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -3804,6 +3811,81 @@ model CustomerOrder {
  infrastructureOrder InfrastructureOrder?
  @@index([userId, status])
  @@index([setupPriority, createdAt])
+ @@index([stripeCustomerId])
+ @@index([stripeSubscriptionId])
+}
+
+enum StripeWebhookProcessingStatus {
+ RECEIVED
+ PROCESSING
+ PROCESSED
+ FAILED
+}
+enum StripePaymentProviderStatus {
+ SUCCEEDED
+ FAILED
+ REFUNDED
+ DISPUTED
+}
+model StripeCustomerLink {
+ id String @id @default(cuid())
+ userId String @unique
+ stripeCustomerId String @unique
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([stripeCustomerId])
+}
+model StripeWebhookEvent {
+ id String @id @default(cuid())
+ stripeEventId String @unique
+ eventType String
+ status StripeWebhookProcessingStatus @default(RECEIVED)
+ customerOrderId String?
+ retryCount Int @default(0)
+ safeError String?
+ receivedAt DateTime @default(now())
+ processedAt DateTime?
+ @@index([status, receivedAt])
+ @@index([customerOrderId])
+}
+model StripePaymentRecord {
+ id String @id @default(cuid())
+ customerOrderId String
+ stripePaymentIntentId String? @unique
+ stripeChargeId String? @unique
+ stripeInvoiceId String? @unique
+ stripeSubscriptionId String?
+ amountCents Int?
+ currency String? @default("usd")
+ status StripePaymentProviderStatus
+ paidAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([customerOrderId])
+ @@index([stripeSubscriptionId])
+}
+model StripeRefundRecord {
+ id String @id @default(cuid())
+ stripeRefundId String @unique
+ customerOrderId String?
+ stripePaymentIntentId String?
+ amountCents Int
+ status String
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([customerOrderId])
+}
+model StripeDisputeRecord {
+ id String @id @default(cuid())
+ stripeDisputeId String @unique
+ customerOrderId String?
+ stripePaymentIntentId String?
+ amountCents Int?
+ status String
+ reason String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([customerOrderId])
 }
 model CustomerOrderItem {
  id String @id @default(cuid())

@@ -12,8 +12,6 @@ describe("private beta readiness infrastructure", () => {
   it("keeps billing disabled and non-blocking when Stripe is not configured", () => {
     delete process.env.STRIPE_SECRET_KEY;
     delete process.env.STRIPE_WEBHOOK_SECRET;
-    delete process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-    delete process.env.STRIPE_PRICE_ID_PRO;
     process.env.BILLING_ENABLED = "false";
 
     expect(getBillingConfig()).toMatchObject({ enabled: false, configured: false, hasSecret: false });
@@ -24,8 +22,6 @@ describe("private beta readiness infrastructure", () => {
     process.env.BILLING_ENABLED = "true";
     process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_placeholder";
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test_placeholder";
-    process.env.STRIPE_PRICE_ID_TEAM = "price_placeholder";
 
     expect(getBillingConfig()).toMatchObject({ enabled: true, configured: true, hasWebhook: true });
     expect(requireBillingConfigured()).toMatchObject({ ok: true });

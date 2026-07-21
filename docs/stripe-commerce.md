@@ -1,0 +1,9 @@
+# Stripe commerce
+
+Stripe commerce is optional until `BILLING_ENABLED=true`; manual and complimentary clearance remain supported. The only Stripe runtime secrets are `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. `APP_BASE_URL` is used for Checkout and Portal return URLs (with `NEXT_PUBLIC_APP_URL` as the existing fallback). Test and live Stripe Price IDs are managed only in the persisted `CommerceProduct.stripePriceId` fields through **/platform/catalog**—there are no `STRIPE_PRICE_*` runtime variables.
+
+The webhook endpoint is `POST /api/billing/webhook`. Subscribe it to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `invoice.paid`, `invoice.payment_failed`, `refund.created`, `refund.updated`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, and `customer.subscription.*`. Successful Checkout/invoice events are payment authorities only after signature verification; success redirects never grant access. Each Stripe event ID is durably idempotent, and failed event records retain a safe error for `/platform/billing` inspection and are retryable through Stripe delivery.
+
+For local testing, run `stripe listen --forward-to localhost:3000/api/billing/webhook`, put the resulting signing secret in local environment configuration, map test Price IDs in the platform catalog, and complete Checkout with Stripe test cards. Enable the Stripe Billing Portal in the Stripe Dashboard before using the portal endpoint.
+
+Before live mode: approve pricing, create and catalog-map live Products/Prices, configure live credentials and a verified live webhook endpoint, configure portal settings, exercise duplicate delivery, refund, dispute, cancellation, and renewal behavior, and complete a production smoke test. Refunds and disputes are retained for operator review; no workspace is automatically deleted.

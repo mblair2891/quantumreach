@@ -10,7 +10,7 @@ The validated meeting workflow remains Zoom-first: create a Zoom meeting in Quan
 - Keep the Zoom webhook endpoint set to `https://www.quantumreach.app/api/webhooks/zoom`.
 - Configure Cloudflare R2 CORS for browser uploads.
 - Add `ADMIN_EMAILS` as a comma-separated allowlist for internal operator access.
-- Leave `BILLING_ENABLED=false` until Stripe checkout, portal, webhook, and price IDs are fully configured.
+- Leave `BILLING_ENABLED=false` until Stripe checkout, portal, webhook, and catalog Price IDs are fully configured.
 
 ## Billing behavior
 
