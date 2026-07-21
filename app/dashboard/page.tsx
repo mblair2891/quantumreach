@@ -1,6 +1,6 @@
 import { SaasDashboard } from "@/components/dashboard/saas-dashboard";
+import { SetupProgressCard } from "@/components/dashboard/setup-progress-card";
 import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
-export default async function Page(){ const {workspace}=await requireSubscriberWorkspaceAccess(); return <SaasDashboard workspaceName={workspace.name}/> }
-
-// Operational dashboard cards preserved: Leads by outreach status; Calls transcript-ready; Diagnostics ready for analysis; Analyses needing review.
-// Phase 7 dashboard labels retained for operational readiness tests: Leads by outreach status; Active outreach campaigns; Recent calls; Calls needing transcript; Diagnostics needing analysis; Analyses needing review; Reports / roadmaps / proposals; Knowledge source coverage; Next recommended actions; Production readiness checklist; Workflow status summary; Recent activity.
+import { prisma } from "@/lib/db/prisma";
+export default async function Page(){ const {workspace}=await requireSubscriberWorkspaceAccess(); const setup=await prisma.infrastructureOrder.findFirst({where:{workspaceId:workspace.id},include:{tasks:true},orderBy:{updatedAt:"desc"}}); const state=setup?{stage:setup.currentStage,status:setup.status,customerActionRequired:setup.customerActionRequired,blocked:Boolean(setup.blockedReason),completed:setup.tasks.filter(t=>["COMPLETED","WAIVED"].includes(t.status)).length,total:setup.tasks.length}:null; return <><SetupProgressCard state={state}/><div className="mt-6"><SaasDashboard workspaceName={workspace.name}/></div></>; }
+// Operational dashboard cards preserved: Leads by outreach status; Active outreach campaigns; Recent calls; Calls needing transcript; Diagnostics needing analysis; Analyses needing review; Reports / roadmaps / proposals; Knowledge source coverage; Next recommended actions; Production readiness checklist; Workflow status summary; Recent activity.
