@@ -15,7 +15,7 @@ export const platformNavigation: NavSection[] = [
  { heading: "CUSTOMERS", items: [{label:"Subscribers",href:"/platform/subscribers",icon:Users},{label:"Workspaces",href:"/platform/workspaces",icon:Briefcase}]},
  { heading: "COMMERCE", items: [{label:"Subscriptions",href:"/platform/subscriptions",icon:CreditCard},{label:"Plans",href:"/platform/plans",icon:ClipboardList},{label:"Revenue",href:"/platform/revenue",icon:BarChart3}]},
  { heading: "PARTNERS", items: [{label:"Affiliates",href:"/platform/affiliates",icon:Handshake},{label:"Commissions",href:"/platform/commissions",icon:Wallet},{label:"Payouts",href:"/platform/payouts",icon:CreditCard}]},
- { heading: "OPERATIONS", items: [{label:"Provisioning",href:"/platform/provisioning",icon:ClipboardList},{label:"Managed Domains",href:"/platform/domains",icon:Globe2},{label:"Email Infrastructure",href:"/platform/email",icon:Mail},{label:"Providers",href:"/platform/providers",icon:Zap},{label:"Support",href:"/platform/support",icon:ShieldCheck}]},
+ { heading: "OPERATIONS", items: [{label:"Provisioning",href:"/platform/provisioning",icon:ClipboardList},{label:"Infrastructure Jobs",href:"/platform/infrastructure-jobs",icon:ClipboardList},{label:"Managed Domains",href:"/platform/domains",icon:Globe2},{label:"Email Infrastructure",href:"/platform/email",icon:Mail},{label:"Providers",href:"/platform/providers",icon:Zap},{label:"Support",href:"/platform/support",icon:ShieldCheck}]},
  { heading: "SYSTEM", items: [{label:"Audit",href:"/platform/audit",icon:FileText},{label:"Platform Settings",href:"/platform/settings",icon:Settings}]},
 ];
 export const clientPortalNavigation: NavSection[] = [
