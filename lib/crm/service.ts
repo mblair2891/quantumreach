@@ -59,6 +59,31 @@ export async function updateContact(workspaceId: string, id: string, input: unkn
 export async function updateLead(workspaceId: string, id: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); await getLeadDetail(workspaceId, id); const data = leadSchema.parse(input); const companyId = emptyToUndefined(data.companyId); const contactId = emptyToUndefined(data.contactId); await assertCompany(workspaceId, companyId); await assertContact(workspaceId, contactId); const record = await prisma.lead.update({ where: { id }, data: { name: data.name, email: emptyToUndefined(data.email), source: emptyToUndefined(data.source), sourcePlatform: emptyToUndefined(data.sourcePlatform), sourceUrl: emptyToUndefined(data.sourceUrl), importMethod: data.importMethod, campaignName: emptyToUndefined(data.campaignName), sourceNotes: emptyToUndefined(data.sourceNotes), outreachPermissionStatus: data.outreachPermissionStatus, companyId, contactId, score: emptyToUndefined(data.score) } }); await audit(workspaceId, "lead.source_updated", "Lead", id, user.id, { sourcePlatform: data.sourcePlatform, importMethod: data.importMethod, outreachPermissionStatus: data.outreachPermissionStatus }); return record; }
 export async function updateOpportunity(workspaceId: string, id: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); await getOpportunityDetail(workspaceId, id); const data = opportunitySchema.parse(input); const companyId = emptyToUndefined(data.companyId); const contactId = emptyToUndefined(data.contactId); const leadId = emptyToUndefined(data.leadId); const pipelineId = emptyToUndefined(data.pipelineId); const stageId = emptyToUndefined(data.stageId); await Promise.all([assertCompany(workspaceId, companyId), assertContact(workspaceId, contactId), assertLead(workspaceId, leadId), assertPipeline(workspaceId, pipelineId), assertStage(workspaceId, stageId)]); const record = await prisma.opportunity.update({ where: { id }, data: { name: data.name, amount: toMoney(data.amount), closeDate: toDate(data.closeDate), companyId, contactId, leadId, pipelineId, stageId } }); await audit(workspaceId, "update", "Opportunity", id, user.id); return record; }
 
+/** Converts a closed-won deal into the existing Client and ImplementationProject models.
+ * The client is reused by workspace/company and the project by opportunity, so repeated
+ * clicks or a retried server action cannot create duplicate delivery records. */
+export async function convertWonOpportunityToClient(workspaceId: string, opportunityId: string) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const opportunity = await prisma.opportunity.findFirst({ where: { id: opportunityId, workspaceId }, include: { company: true, contact: true, proposals: { orderBy: { updatedAt: "desc" }, take: 1 } } });
+  if (!opportunity) notFound();
+  if (opportunity.status !== "WON") throw new Error("Only won opportunities can be converted to a client.");
+  const clientName = opportunity.company?.name ?? [opportunity.contact?.firstName, opportunity.contact?.lastName].filter(Boolean).join(" ") ?? opportunity.name;
+  const existingClient = opportunity.companyId ? await prisma.client.findFirst({ where: { workspaceId, companyId: opportunity.companyId, status: "ACTIVE" }, orderBy: { createdAt: "asc" } }) : null;
+  const client = existingClient ?? await prisma.client.create({ data: { workspaceId, companyId: opportunity.companyId, name: clientName, createdById: user.id } });
+  const existingProject = await prisma.implementationProject.findFirst({ where: { workspaceId, opportunityId }, orderBy: { createdAt: "asc" } });
+  const project = existingProject ?? await prisma.implementationProject.create({ data: { workspaceId, opportunityId, proposalId: opportunity.proposals[0]?.id, name: `${client.name} onboarding`, summary: "Created from a won opportunity.", createdById: user.id } });
+  await audit(workspaceId, "opportunity.converted_to_client", "Opportunity", opportunityId, user.id, { clientId: client.id, projectId: project.id, reusedClient: Boolean(existingClient), reusedProject: Boolean(existingProject) });
+  return { client, project, reusedClient: Boolean(existingClient), reusedProject: Boolean(existingProject) };
+}
+
+export async function setOpportunityOutcome(workspaceId: string, opportunityId: string, outcome: "WON" | "LOST") {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  await getOpportunityDetail(workspaceId, opportunityId);
+  const opportunity = await prisma.opportunity.update({ where: { id: opportunityId }, data: { status: outcome } });
+  await audit(workspaceId, `opportunity.${outcome.toLowerCase()}`, "Opportunity", opportunityId, user.id);
+  return outcome === "WON" ? { opportunity, conversion: await convertWonOpportunityToClient(workspaceId, opportunityId) } : { opportunity, conversion: null };
+}
+
 export async function archiveCrmRecord(workspaceId: string, type: CrmSlug, id: string) {
   const { user } = await requireWorkspaceAccess(workspaceId);
   if (type === "companies") { await getCompanyDetail(workspaceId, id); await prisma.company.update({ where: { id }, data: { status: "ARCHIVED" satisfies RecordStatus } }); await audit(workspaceId, "archive", "Company", id, user.id); redirect("/dashboard/companies"); }
