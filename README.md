@@ -1,5 +1,9 @@
 # Quantum Reach
 
+## Subscriber customer journey
+
+The subscriber dashboard now derives a workspace-scoped next best action and offers an explicit, provider-free fictional prospect entry point. See [the customer golden-path guide](docs/customer-golden-path.md) for route boundaries, simulation labeling, focused validation, reset guidance, and the exact 33-step manual smoke test.
+
 Quantum Reach is an enterprise-grade, multi-tenant SaaS foundation for CRM-led decision intelligence: native CRM, structured diagnostics, AI orchestration, business analysis, ROI/cost-of-inaction modeling, executive reporting, strategic roadmaps, proposals, and implementation handoff.
 
 **Completion classification for this build:** Built with limitations. The repository now contains the production-oriented MVP foundation, but it is not production-validated or deployment-smoke-tested until real provider credentials, migrations, and Vercel validation are completed.
