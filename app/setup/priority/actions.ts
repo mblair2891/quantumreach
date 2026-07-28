@@ -1,7 +1,15 @@
 "use server";
 import { redirect } from "next/navigation";
 import { SetupPriority } from "@prisma/client";
-import { requireUserProfile } from "@/lib/auth/rbac";
-import { selectSetupPriority } from "@/lib/customer-journey/service";
-import { trackFunnelEvent } from "@/lib/customer-journey/funnel";
-export async function choosePriority(formData: FormData) { const user = await requireUserProfile(); const priority = String(formData.get("priority")) as SetupPriority; const order = await selectSetupPriority(user.id, priority); await trackFunnelEvent("PRIORITY_SELECTED", { userId: user.id, customerOrderId: order.customerOrderId, metadata: { priority } }); redirect("/setup/confirmation"); }
+import { getDraftSession, readDraft, saveDraftSelection, setupProductKeys } from "@/lib/customer-journey/acquisition-draft";
+import { prisma } from "@/lib/db/prisma";
+export async function choosePriority(formData: FormData) {
+  const session = await getDraftSession(); const draft = session ? readDraft(session.metadata) : {};
+  if (!draft.coreProductId || !draft.infrastructureProductId) redirect("/setup/infrastructure");
+  const priority = String(formData.get("priority")) as Exclude<SetupPriority, "MANUAL_HOLD">;
+  if (!(priority in setupProductKeys)) throw new Error("That setup priority is not available.");
+  const product = await prisma.commerceProduct.findFirst({ where: { key: setupProductKeys[priority], category: "SETUP_FEE", active: true } });
+  if (!product) throw new Error("That setup priority is not currently available.");
+  await saveDraftSelection({ setupPriority: priority });
+  redirect("/setup/confirmation");
+}
