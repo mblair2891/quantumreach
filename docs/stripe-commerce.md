@@ -1,9 +1,28 @@
-# Stripe commerce
+# Stripe test-mode commerce
 
-Stripe commerce is optional until `BILLING_ENABLED=true`; manual and complimentary clearance remain supported. The only Stripe runtime secrets are `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. `APP_BASE_URL` is used for Checkout and Portal return URLs (with `NEXT_PUBLIC_APP_URL` as the existing fallback). Test and live Stripe Price IDs are managed only in the persisted `CommerceProduct.stripePriceId` fields through **/platform/catalog**—there are no `STRIPE_PRICE_*` runtime variables.
+## Architecture and safety
 
-The webhook endpoint is `POST /api/billing/webhook`. Subscribe it to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `invoice.paid`, `invoice.payment_failed`, `refund.created`, `refund.updated`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, and `customer.subscription.*`. Successful Checkout/invoice events are payment authorities only after signature verification; success redirects never grant access. Each Stripe event ID is durably idempotent, and failed event records retain a safe error for `/platform/billing` inspection and are retryable through Stripe delivery.
+`BILLING_ENABLED=false` is the rollback switch. Checkout loads the authenticated prospect's persisted order, maps stable product codes to server-only `STRIPE_PRICE_*` variables, and redirects to a Stripe-hosted session. It never accepts a browser amount, Price, or Customer ID. Manual and complimentary clearance are unchanged.
 
-For local testing, run `stripe listen --forward-to localhost:3000/api/billing/webhook`, put the resulting signing secret in local environment configuration, map test Price IDs in the platform catalog, and complete Checkout with Stripe test cards. Enable the Stripe Billing Portal in the Stripe Dashboard before using the portal endpoint.
+Stripe posts to `POST /api/webhooks/stripe` (the legacy `/api/billing/webhook` alias remains supported). The route reads the raw body and verifies `Stripe-Signature` before writing or processing anything. The unique event ledger makes delivery retryable. Paid Checkout is the canonical initial-clearance event; invoice events never grant initial clearance. The centralized customer-journey service grants `STRIPE` clearance and calls the existing retry-safe fulfillment workflow.
 
-Before live mode: approve pricing, create and catalog-map live Products/Prices, configure live credentials and a verified live webhook endpoint, configure portal settings, exercise duplicate delivery, refund, dispute, cancellation, and renewal behavior, and complete a production smoke test. Refunds and disputes are retained for operator review; no workspace is automatically deleted.
+Subscription events synchronize provider status and items without deprovisioning. Refund and dispute events retain records, update payment/review state, and reverse unpaid commissions without deleting customer resources. Replay failed events from Stripe; processed event IDs are no-ops.
+
+## Configuration
+
+Configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `APP_BASE_URL`, and the product mappings listed in `.env.example` in Vercel Preview. Only mappings for products in an order are required. Keep `BILLING_ENABLED=false` until migrations and preview validation pass. Never commit identifiers or credentials.
+
+For local test mode, use the official Stripe CLI to forward events to `localhost:3000/api/webhooks/stripe`, place its signing secret in `STRIPE_WEBHOOK_SECRET`, and follow Stripe's current test-card documentation. Replay an event with the Stripe CLI to verify idempotency.
+
+## Smoke test
+
+1. Complete `/start`, `/join`, infrastructure selection, and Standard or Priority setup as a new prospect.
+2. At `/setup/confirmation`, continue to Checkout and complete a Stripe test-mode payment.
+3. Confirm one webhook ledger row, `STRIPE` clearance, enrollment activation, one workspace/owner/profile, Core and package assignments, setup priority, notification, queue, attribution, and at most one pending commission.
+4. Replay the same event and confirm no duplicates.
+5. Exercise asynchronous failure, subscription cancellation/past-due, partial/full refund, and dispute fixtures. Confirm billing/review state changes but no destructive deprovisioning.
+6. Separately verify MANUAL and COMPLIMENTARY operator clearance.
+
+## Activation and rollback
+
+Before activation: deploy migrations to Preview, configure test keys and required Prices, register the webhook, run automated checks and the smoke test, then explicitly set `BILLING_ENABLED=true`. Production/live mode is not activated by this implementation. To roll back, set `BILLING_ENABLED=false`; keep the signed webhook deployed so already-created sessions can reconcile, and retain all ledger records.

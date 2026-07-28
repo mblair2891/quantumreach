@@ -9,6 +9,12 @@ export async function stripePost<T>(path: string, body: Record<string, string | 
   if (!response.ok) throw new Error(json.error?.message || "Stripe request failed.");
   return json;
 }
+export async function stripeGet<T>(path: string): Promise<T> {
+  const response = await fetch(`${api}${path}`, { headers: { Authorization: `Bearer ${configured()}` }, cache: "no-store" });
+  const json = await response.json() as T & { error?: { message?: string } };
+  if (!response.ok) throw new Error(json.error?.message || "Stripe request failed.");
+  return json;
+}
 export function verifyStripeSignature(payload: string, header: string | null, secret = process.env.STRIPE_WEBHOOK_SECRET) {
   if (!secret || !header) return false;
   const pieces = header.split(","); const timestamp = pieces.find((part) => part.startsWith("t="))?.slice(2); const signatures = pieces.filter((part) => part.startsWith("v1=")).map((part) => part.slice(3));

@@ -114,7 +114,7 @@ Workspace owners and admins can use `/dashboard/settings`, `/dashboard/settings/
 
 ### Billing setup
 
-Billing is feature-gated for private beta. Set `BILLING_ENABLED=false` unless Stripe is intentionally configured with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; configure test or live Stripe Price IDs in the persisted platform product catalog. When billing is disabled or incomplete, checkout and portal routes return a safe disabled response and the rest of the app continues to run.
+Billing is feature-gated for private beta. Keep `BILLING_ENABLED=false` unless Stripe test mode is intentionally configured. Checkout resolves Price IDs exclusively from the `STRIPE_PRICE_*` environment mapping documented in [docs/stripe-commerce.md](docs/stripe-commerce.md); browser amounts and Price IDs are ignored. Manual and complimentary clearance remain available when Stripe Checkout is disabled.
 
 ### Deployment and smoke tests
 
