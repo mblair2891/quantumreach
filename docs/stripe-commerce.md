@@ -2,15 +2,15 @@
 
 ## Architecture and safety
 
-`BILLING_ENABLED=false` is the rollback switch. Checkout loads the authenticated prospect's persisted order, maps stable product codes to server-only `STRIPE_PRICE_*` variables, and redirects to a Stripe-hosted session. It never accepts a browser amount, Price, or Customer ID. Manual and complimentary clearance are unchanged.
+`BILLING_ENABLED=false` is the rollback switch. The server-only provider boundary uses the official Stripe Node SDK 17.7.0 with a lazy, reusable client. Checkout loads the authenticated prospect's persisted order, maps stable product codes to server-only `STRIPE_PRICE_*` variables, and redirects to a Stripe-hosted session. It never accepts a browser amount, Price, or Customer ID. Manual and complimentary clearance are unchanged.
 
-Stripe posts to `POST /api/webhooks/stripe` (the legacy `/api/billing/webhook` alias remains supported). The route reads the raw body and verifies `Stripe-Signature` before writing or processing anything. The unique event ledger makes delivery retryable. Paid Checkout is the canonical initial-clearance event; invoice events never grant initial clearance. The centralized customer-journey service grants `STRIPE` clearance and calls the existing retry-safe fulfillment workflow.
+Stripe posts to canonical `POST /api/webhooks/stripe`; only this endpoint should be registered in Stripe. The legacy `/api/billing/webhook` route is a temporary compatibility alias to the same handler and has no separate financial logic. The route reads the raw body and verifies `Stripe-Signature` with `stripe.webhooks.constructEvent` before writing or processing anything. The unique event ledger makes delivery through either path harmless and retryable. Paid Checkout is the canonical initial-clearance event; invoice events never grant initial clearance. The centralized customer-journey service grants `STRIPE` clearance and calls the existing retry-safe fulfillment workflow.
 
 Subscription events synchronize provider status and items without deprovisioning. Refund and dispute events retain records, update payment/review state, and reverse unpaid commissions without deleting customer resources. Replay failed events from Stripe; processed event IDs are no-ops.
 
 ## Configuration
 
-Configure `DATABASE_URL`, `DIRECT_DATABASE_URL`, `BILLING_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `APP_BASE_URL` (or `NEXT_PUBLIC_APP_URL`), and the applicable product mappings listed in `.env.example` in Vercel Preview. Only mappings for products in an order are required. Keep `BILLING_ENABLED=false` until migrations and preview validation pass. Never commit identifiers or credentials.
+Configure `DATABASE_URL`, `DIRECT_DATABASE_URL`, `BILLING_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `APP_BASE_URL` (or `NEXT_PUBLIC_APP_URL`), and the applicable product mappings listed in `.env.example` in Vercel Preview. Put secrets in `.env.local`, Vercel environment settings, or an equivalent secret store. Keys and webhook secrets must never be committed. Only mappings for products in an order are required. Keep `BILLING_ENABLED=false` until migrations and preview validation pass.
 
 ### Stripe CLI test-mode sequence
 
