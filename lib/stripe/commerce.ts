@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
-import { stripeGet, stripePost } from "./client";
+import Stripe from "stripe";
+import { getStripeClient } from "./client";
 import { resolveStripePrice } from "./prices";
 
 type Product = { id: string; key: string; recurring: boolean; active: boolean };
@@ -19,24 +20,44 @@ export async function checkoutProducts(orderId: string) {
 }
 export async function getOrCreateStripeCustomer(userId: string, email: string) {
   const link = await prisma.stripeCustomerLink.findUnique({ where: { userId } }); if (link) return link.stripeCustomerId;
-  const customer = await stripePost<{ id: string }>("/customers", { email, "metadata[userId]": userId }, `customer:${userId}`);
+  const customer = await getStripeClient().customers.create(
+    { email, metadata: { userId } },
+    { idempotencyKey: `customer:${userId}` },
+  );
   const saved = await prisma.stripeCustomerLink.upsert({ where: { userId }, create: { userId, stripeCustomerId: customer.id }, update: {} }); return saved.stripeCustomerId;
 }
 export async function createCheckout(orderId: string, user: { id: string; email: string }) {
   const { order, products } = await checkoutProducts(orderId); if (order.userId !== user.id) throw new Error("Order ownership validation failed.");
   if (order.stripeCheckoutSessionId) {
-    const current = await stripeGet<{ status: string; url: string | null }>(`/checkout/sessions/${encodeURIComponent(order.stripeCheckoutSessionId)}`);
+    const current = await getStripeClient().checkout.sessions.retrieve(order.stripeCheckoutSessionId);
     if (current.status === "open" && current.url) return { url: current.url };
     if (current.status === "complete") throw new Error("Payment is already complete.");
   }
   const customer = await getOrCreateStripeCustomer(user.id, user.email); const recurring = products.some((product) => product.recurring);
   if (recurring && products.some((product) => !product.recurring)) throw new Error("This order mixes recurring and one-time products and cannot use one Checkout Session.");
   const base = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const body: Record<string, string | number | boolean | undefined> = { mode: recurring ? "subscription" : "payment", customer, success_url: `${base}/setup/status`, cancel_url: `${base}/setup/confirmation?checkout=cancelled`, "metadata[quantumReachOrderId]": order.id, "metadata[programEnrollmentId]": order.programEnrollmentId || undefined, "metadata[acquisitionAttributionId]": order.acquisitionSessionId || undefined, "metadata[affiliateAttributionId]": order.affiliateAttributionId || undefined };
-  body[recurring ? "subscription_data[metadata][quantumReachOrderId]" : "payment_intent_data[metadata][quantumReachOrderId]"] = order.id;
-  products.forEach((product, index) => { body[`line_items[${index}][price]`] = product.stripePriceId!; body[`line_items[${index}][quantity]`] = 1; });
-  const session = await stripePost<{ id: string; url: string }>("/checkout/sessions", body, `checkout:${order.id}`);
+  const metadata: Stripe.MetadataParam = {
+    quantumReachOrderId: order.id,
+    ...(order.programEnrollmentId ? { programEnrollmentId: order.programEnrollmentId } : {}),
+    ...(order.acquisitionSessionId ? { acquisitionAttributionId: order.acquisitionSessionId } : {}),
+    ...(order.affiliateAttributionId ? { affiliateAttributionId: order.affiliateAttributionId } : {}),
+  };
+  const params: Stripe.Checkout.SessionCreateParams = {
+    mode: recurring ? "subscription" : "payment",
+    customer,
+    success_url: `${base}/setup/status`,
+    cancel_url: `${base}/setup/confirmation?checkout=cancelled`,
+    metadata,
+    line_items: products.map((product) => ({ price: product.stripePriceId, quantity: 1 })),
+    ...(recurring
+      ? { subscription_data: { metadata: { quantumReachOrderId: order.id } } }
+      : { payment_intent_data: { metadata: { quantumReachOrderId: order.id } } }),
+  };
+  const session = await getStripeClient().checkout.sessions.create(params, { idempotencyKey: `checkout:${order.id}` });
+  if (!session.url) throw new Error("Stripe did not return a Checkout URL.");
   await prisma.customerOrder.update({ where: { id: order.id }, data: { status: "CHECKOUT_PENDING", paymentMethod: "STRIPE", stripeCustomerId: customer, stripeCheckoutSessionId: session.id } });
   return { url: session.url };
 }
-export async function createPortal(customerId: string, returnUrl: string) { return stripePost<{ url: string }>("/billing_portal/sessions", { customer: customerId, return_url: returnUrl }); }
+export async function createPortal(customerId: string, returnUrl: string) {
+  return getStripeClient().billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
+}
