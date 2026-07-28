@@ -10,9 +10,30 @@ Subscription events synchronize provider status and items without deprovisioning
 
 ## Configuration
 
-Configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `APP_BASE_URL`, and the product mappings listed in `.env.example` in Vercel Preview. Only mappings for products in an order are required. Keep `BILLING_ENABLED=false` until migrations and preview validation pass. Never commit identifiers or credentials.
+Configure `DATABASE_URL`, `DIRECT_DATABASE_URL`, `BILLING_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `APP_BASE_URL` (or `NEXT_PUBLIC_APP_URL`), and the applicable product mappings listed in `.env.example` in Vercel Preview. Only mappings for products in an order are required. Keep `BILLING_ENABLED=false` until migrations and preview validation pass. Never commit identifiers or credentials.
 
-For local test mode, use the official Stripe CLI to forward events to `localhost:3000/api/webhooks/stripe`, place its signing secret in `STRIPE_WEBHOOK_SECRET`, and follow Stripe's current test-card documentation. Replay an event with the Stripe CLI to verify idempotency.
+### Stripe CLI test-mode sequence
+
+Run these commands locally, not against production:
+
+```bash
+stripe login
+stripe listen --forward-to http://localhost:3000/api/webhooks/stripe
+```
+
+Copy the `whsec_...` signing secret printed by `stripe listen` directly into `.env.local` as `STRIPE_WEBHOOK_SECRET`; never paste that secret into chat, source control, tickets, or documentation. In another terminal, verify signed delivery with:
+
+```bash
+stripe trigger checkout.session.completed
+```
+
+Then complete a full test-mode Checkout through the application using Stripe's current test-card documentation. Find the resulting event ID in the Stripe Dashboard or CLI output and replay the exact same event:
+
+```bash
+stripe events resend evt_REPLACE_WITH_TEST_EVENT_ID
+```
+
+Confirm the webhook ledger contains one provider event ID and that the replay creates no duplicate workspace, owner membership, product assignment, notification intent, or affiliate commission.
 
 ## Smoke test
 
