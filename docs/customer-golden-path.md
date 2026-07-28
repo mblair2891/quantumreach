@@ -66,4 +66,31 @@ Run `npm test -- tests/customer-guided-journey.test.ts`, followed by the full co
 
 ## Known limitations
 
-This pass adds the dashboard orchestration and safe first-prospect entry point; it does not represent a completed production smoke test. Several existing module pages remain foundational, and external-provider simulations beyond prospect creation must only be used where their existing workflow explicitly persists and labels them. Launch, deployment, provider delivery, payment, and legal enforceability require separate environment-specific validation.
+The guided service now persists every example transition through first deliverable approval, but this environment did not provide a genuine non-production database or authenticated subscriber session for the full manual smoke test. The service contract tests verify transition coverage and provider boundaries statically; database-backed idempotency, cross-workspace denial, responsive rendering, deployment, provider delivery, payment, and legal enforceability still require environment-specific validation.
+
+## Persisted guided transitions
+
+The Summit Dental opportunity page exposes one prerequisite-checked action at a time. Repeating a completed action is safe because progression is derived from persisted `GUIDED_*` activity markers. The sequence writes the following existing records:
+
+1. `ResearchRun` with separated facts, assumptions, and discovery questions.
+2. `Lead` score plus an opportunity `Note` containing the deterministic 78/100 qualification breakdown.
+3. `OutreachCampaign`, three `OutreachStep` records, and `LeadOutreachStatus`; approval is a separate action.
+4. A blocked `EmailSend` and `EmailEvent` explicitly stating that no delivery/provider call occurred.
+5. A simulated inbound `CommunicationLog` and pending notification intent; no transactional email is marked sent.
+6. An internal `CallSession`, followed separately by a simulated transcript, `DiagnosticSession`, and `Transcript`.
+7. Editable `AnalysisRecord`, followed by explicit review approval.
+8. Editable `Proposal`, simulated share/view, and explicit simulated acceptance.
+9. `Contract` with a non-legal-signature notice, followed by simulated send/view/signature events in its content.
+10. Explicit won status and retry-safe reuse of the existing client/project conversion service.
+11. Eleven onboarding `ProjectTask` records and a requested four-phase `ProjectMilestone`/`ProjectTask` plan.
+12. An `ExecutiveReport` used as the closest existing deliverable artifact, followed by explicit simulated client approval.
+
+All scenario records retain proposed setup/monthly values separately from invoice, payment, and collected-revenue state. The dashboard includes simulated replies and uses scenario events to prevent completed meeting or proposal transitions from moving the recommendation backward.
+
+## Reset
+
+The opportunity page requires an explicit confirmation checkbox. Reset derives the scenario from the authenticated workspace, deletes only related scenario artifacts in dependency-safe order, leaves provider and usage records untouched, and appends a workspace audit event. Reset is repeat-safe from the UI: after reset, the user returns to the dashboard and may explicitly create a new example prospect.
+
+## Focused testing
+
+Run `npm test -- --run tests/customer-guided-journey.test.ts tests/customer-guided-scenario-service.test.ts`. The service contract suite covers all transition branches, ordering, simulation markers, provider non-invocation, workspace scoping, reset, and non-mutation of Stripe/usage records. Full database execution still requires genuine non-production `DATABASE_URL` and `DIRECT_DATABASE_URL` values.
