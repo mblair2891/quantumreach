@@ -3136,19 +3136,22 @@ model SaasPlan {
 }
 
 model SaasSubscription {
-  id                       String                 @id @default(cuid())
-  userId                   String
-  workspaceId              String?
-  planKey                  String?
-  stripeCustomerId         String?
-  stripeSubscriptionId     String?                @unique
-  stripeSubscriptionItemId String?
-  status                   SaasSubscriptionStatus @default(INCOMPLETE)
-  currentPeriodEnd         DateTime?
-  affiliateAttributionId   String?
-  commissionEligible       Boolean                @default(false)
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
+  id                         String                 @id @default(cuid())
+  userId                     String
+  workspaceId                String?
+  planKey                    String?
+  stripeCustomerId           String?
+  stripeSubscriptionId       String?                @unique
+  stripeSubscriptionItemId   String?
+  status                     SaasSubscriptionStatus @default(INCOMPLETE)
+  currentPeriodEnd           DateTime?
+  affiliateAttributionId     String?
+  commissionEligible         Boolean                @default(false)
+  customerOrderId            String?
+  commercialCatalogVersionId String?
+  acceptedCommercialTerms    Json?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
 
   @@index([userId, status])
   @@index([workspaceId])
@@ -3802,28 +3805,31 @@ model ProgramEnrollment {
 }
 
 model CustomerOrder {
-  id                      String                @id @default(cuid())
-  userId                  String
-  workspaceId             String?
-  programEnrollmentId     String?
-  acquisitionSessionId    String?
-  affiliateAttributionId  String?
-  status                  CustomerOrderStatus   @default(DRAFT)
-  paymentStatus           CustomerPaymentStatus @default(UNPAID)
-  paymentMethod           String                @default("MANUAL")
-  paymentVerifiedAt       DateTime?
-  paymentVerifiedById     String?
-  stripeCustomerId        String?
-  stripeCheckoutSessionId String?               @unique
-  stripePaymentIntentId   String?               @unique
-  stripeSubscriptionId    String?
-  refundedAmountCents     Int                   @default(0)
-  disputedAt              DateTime?
-  setupPriority           SetupPriority         @default(STANDARD)
-  createdAt               DateTime              @default(now())
-  updatedAt               DateTime              @updatedAt
-  items                   CustomerOrderItem[]
-  infrastructureOrder     InfrastructureOrder?
+  id                         String                @id @default(cuid())
+  userId                     String
+  workspaceId                String?
+  programEnrollmentId        String?
+  acquisitionSessionId       String?
+  affiliateAttributionId     String?
+  status                     CustomerOrderStatus   @default(DRAFT)
+  paymentStatus              CustomerPaymentStatus @default(UNPAID)
+  paymentMethod              String                @default("MANUAL")
+  paymentVerifiedAt          DateTime?
+  paymentVerifiedById        String?
+  stripeCustomerId           String?
+  stripeCheckoutSessionId    String?               @unique
+  stripePaymentIntentId      String?               @unique
+  stripeSubscriptionId       String?
+  refundedAmountCents        Int                   @default(0)
+  disputedAt                 DateTime?
+  setupPriority              SetupPriority         @default(STANDARD)
+  commercialCatalogVersionId String?
+  acceptedCommercialTerms    Json?
+  commercialTermsAcceptedAt  DateTime?
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+  items                      CustomerOrderItem[]
+  infrastructureOrder        InfrastructureOrder?
 
   @@index([userId, status])
   @@index([setupPriority, createdAt])
@@ -4016,6 +4022,7 @@ model CommercialCatalogVersion {
   version         Int
   effectiveAt     DateTime
   retiredAt       DateTime?
+  status          String    @default("DRAFT")
   terms           Json
   costAssumptions Json      @default("{}")
   createdById     String?
@@ -4023,6 +4030,45 @@ model CommercialCatalogVersion {
 
   @@unique([productKey, version])
   @@index([productKey, effectiveAt])
+}
+
+model SendingCapacityReservation {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  managedMailboxId  String
+  managedDomainId   String
+  idempotencyKey    String    @unique
+  usageDate         DateTime
+  trafficType       String
+  status            String    @default("RESERVED")
+  isSimulated       Boolean   @default(false)
+  outboundMessageId String?
+  providerMessageId String?
+  safeFailureCode   String?
+  reservedAt        DateTime  @default(now())
+  committedAt       DateTime?
+  releasedAt        DateTime?
+
+  @@index([workspaceId, usageDate, status])
+  @@index([managedMailboxId, usageDate, status])
+  @@index([managedDomainId, usageDate, status])
+}
+
+model WarmupOverride {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  targetType    String
+  targetId      String
+  scope         String
+  reason        String
+  previousState String
+  overrideState String
+  createdById   String
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([workspaceId, targetId, expiresAt])
 }
 
 model WarmupPolicy {
@@ -4137,23 +4183,27 @@ model SendingCapacityLedger {
 }
 
 model WorkspaceAICredential {
-  id              String    @id @default(cuid())
-  workspaceId     String
-  provider        String
-  encryptedSecret String
-  maskedKey       String
-  status          String    @default("UNTESTED")
-  enabled         Boolean   @default(false)
-  allowedModels   Json      @default("[]")
-  defaultModel    String?
-  createdById     String
-  rotatedById     String?
-  lastTestedAt    DateTime?
-  lastSucceededAt DateTime?
-  lastSafeFailure String?
-  revokedAt       DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  workspaceId       String
+  provider          String
+  encryptedSecret   String
+  maskedKey         String
+  status            String    @default("UNTESTED")
+  enabled           Boolean   @default(false)
+  allowedModels     Json      @default("[]")
+  defaultModel      String?
+  featureDefaults   Json      @default("{}")
+  projectDefaults   Json      @default("{}")
+  clientPermissions Json      @default("{}")
+  monthlyAlertMinor Int?
+  createdById       String
+  rotatedById       String?
+  lastTestedAt      DateTime?
+  lastSucceededAt   DateTime?
+  lastSafeFailure   String?
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@unique([workspaceId, provider])
   @@index([workspaceId, enabled])
