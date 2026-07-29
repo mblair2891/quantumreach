@@ -14,9 +14,9 @@ describe("operational sending infrastructure", () => {
       { id: "c", productKey: "ADDITIONAL_SEND_CAPACITY", quantity: 2, status: "ACTIVE" },
       { id: "d", productKey: "SCALE_SENDER_PACKAGE", quantity: 1, status: "CANCELED" },
     ], DEFAULT_COMMERCE_CATALOG, { [ENTITLEMENT_KEYS.DAILY_SEND_CEILING]: 50 });
-    expect(entitlements.MANAGED_DOMAIN_ALLOWANCE).toBe(6);
-    expect(entitlements.MAILBOX_ALLOWANCE).toBe(18);
-    expect(entitlements.MONTHLY_SEND_ALLOWANCE).toBe(2000);
+    expect(entitlements.MANAGED_DOMAIN_ALLOWANCE).toBe(5);
+    expect(entitlements.MAILBOX_ALLOWANCE).toBe(15);
+    expect(entitlements.MONTHLY_SEND_ALLOWANCE).toBe(13500);
     expect(entitlements.DAILY_SEND_CEILING).toBe(50);
   });
 

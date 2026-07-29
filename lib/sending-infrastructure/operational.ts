@@ -5,6 +5,7 @@ import { getMailboxProvider, getProviderReadiness } from "./providers";
 import { CloudflareDnsProvider } from "./cloudflare";
 import { enforceAllowance, evaluateSenderReadiness } from "./readiness";
 import { idempotencyKey, localPartIsValid, mailboxAddress } from "./provisioning";
+import { DEFAULT_ADDONS, DEFAULT_COMMERCIAL_PLANS } from "@/lib/commercial/packages";
 
 export const entitlementKeys = Object.values(ENTITLEMENT_KEYS);
 export const numericEntitlements = new Set<string>(entitlementKeys.filter((k) => !k.endsWith("_ENABLED")));
@@ -17,9 +18,12 @@ export function parseBool(form: FormData, key: string) { return ["on", "true", "
 
 export async function bootstrapCommerceCatalog(db: Db = prisma) {
   for (const product of DEFAULT_COMMERCE_CATALOG) {
-    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder }, create: { key: product.key, name: product.name, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder } });
+    const plan = DEFAULT_COMMERCIAL_PLANS.find((candidate) => candidate.key === product.key);
+    const metadata = plan ? { recurringPriceCents: plan.monthlyCents, setupFeeCents: plan.setupCents, slug: plan.slug, description: plan.description, whoItsFor: plan.targetCustomer, onboarding: plan.onboarding, support: plan.support, recommended: plan.recommended, version: plan.version, effectiveAt: plan.effectiveAt, cogsRangeCents: plan.cogsRangeCents } : undefined;
+    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, ...(metadata ? { metadata } : {}) }, create: { key: product.key, name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: metadata ?? {} } });
     for (const [entitlementKey, value] of Object.entries(product.entitlements)) await upsertProductEntitlement(saved.id, entitlementKey as EntitlementKey, value as any, db);
   }
+  for (const addon of DEFAULT_ADDONS) await db.commerceProduct.upsert({ where: { key: addon.key }, update: { name: addon.name, active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata: { priceCents: addon.priceCents } }, create: { key: addon.key, name: addon.name, category: addon.key.includes("MAILBOX") ? "SENDER_ADDON" : addon.key.includes("SEND") ? "SEND_CAPACITY_ADDON" : "DOMAIN_ADDON", active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata: { priceCents: addon.priceCents }, sortOrder: 100 } });
 }
 
 export async function upsertProductEntitlement(productId: string, entitlementKey: EntitlementKey, value: number | boolean | string, db: Db = prisma) {
