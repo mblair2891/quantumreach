@@ -191,3 +191,7 @@ The acquisition and setup journey begins at `/start`, uses distinct program enro
 Commercial plans, health-based warm-up, live-readiness, provider boundaries, and subscriber-provided AI are documented in `docs/commercial-packages.md`, `docs/provider-architecture.md`, `docs/managed-warmup.md`, `docs/live-readiness-policy.md`, `docs/byo-ai.md`, `docs/cost-model.md`, and `docs/commercial-preview-smoke-test.md`.
 
 Provider execution defaults off. Configure only placeholders in source: `DOMAIN_PROVISIONING_ENABLED`, `MAILBOX_PROVISIONING_ENABLED`, `DNS_AUTOMATION_ENABLED`, `SES_SENDING_ENABLED`, `WARMUP_CONTROLLER_ENABLED`, `LIVE_CAMPAIGN_SENDING_ENABLED`, `BYO_AI_ENABLED`, provider-specific AI flags, and `AI_CREDENTIAL_ENCRYPTION_KEY`. Add actual values directly to `.env` or deployment-provider settings; never paste secrets into chat or commit them.
+
+### Database-backed commercial validation
+
+Use an isolated PostgreSQL database and set `DATABASE_URL`, `DIRECT_DATABASE_URL`, and `TEST_DATABASE_CONFIRMATION=quantumreach_test`, then run `npm run test:db`. The command deploys migrations before executing only `tests-db`. It fails clearly when variables are absent and never prints connection strings. Run `npm run prisma:migrate:deploy` and `npm run build` with the same non-production database for the clean Preview build gate.
