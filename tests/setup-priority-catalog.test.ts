@@ -76,4 +76,29 @@ describe("setup-priority catalog bootstrap", () => {
     expect(confirmation).toContain('label="Priority price"');
     expect(confirmation).toContain("Nothing has been charged or provisioned");
   });
+
+  it("keeps initialization for an empty catalog and exposes synchronization for a populated catalog", () => {
+    const page = readFileSync("app/platform/catalog/page.tsx", "utf8");
+    expect(page).toContain('products.length > 0 && <CatalogBootstrap label="Sync Default Catalog" mode="sync" />');
+    expect(page).toContain("products.length===0?");
+    expect(page).toContain("<CatalogBootstrap />");
+    expect(page).toContain("Create Product");
+    expect(page).toContain("form action={saveProductAction}");
+  });
+
+  it("uses the shared protected action with mode-specific synchronization confirmation", () => {
+    const component = readFileSync("components/platform/catalog-bootstrap.tsx", "utf8");
+    const action = readFileSync("app/platform/catalog/actions.ts", "utf8");
+    const page = readFileSync("app/platform/catalog/page.tsx", "utf8");
+    expect(component).toContain('mode?: "initialize" | "sync"');
+    expect(component).toContain("Sync the default Quantum Reach product catalog?");
+    expect(component).toContain("This adds missing default products and refreshes safe catalog defaults. Existing Stripe mappings and operator-entered metadata are preserved. No Stripe prices will be created.");
+    expect(component).toContain('submit: "Sync catalog"');
+    expect(component).toContain("form action={bootstrapCatalogAction}");
+    expect(action).toContain("await requireOperatorAccess()");
+    expect(action).toContain("await bootstrapCommerceCatalog()");
+    expect((component.match(/export function CatalogBootstrap/g) ?? [])).toHaveLength(1);
+    expect(page).toContain('import { CatalogBootstrap } from "@/components/platform/catalog-bootstrap"');
+    expect(page).not.toContain("function CatalogBootstrap");
+  });
 });
