@@ -564,7 +564,7 @@ model Permission {
 
 model AuditLog {
   id          String   @id @default(cuid())
-  workspaceId String
+  workspaceId String?
   actorId     String?
   action      String
   entityType  String
@@ -573,7 +573,7 @@ model AuditLog {
   createdAt   DateTime @default(now())
 
   actor     UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, entityType, entityId])
   @@index([actorId])
