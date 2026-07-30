@@ -1,14 +1,15 @@
 import { randomUUID } from "crypto";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
-import type { CommerceProduct, Prisma, SetupPriority } from "@prisma/client";
+import type { CommerceProduct, Prisma } from "@prisma/client";
 
 export const acquisitionCookie = "qr_acquisition";
-export const setupProductKeys: Record<Exclude<SetupPriority, "MANUAL_HOLD">, string> = {
-  STANDARD: "STANDARD_SETUP", PRIORITY: "PRIORITY_SETUP", EXPEDITED: "EXPEDITED_SETUP",
+export type CustomerSetupPriority = "STANDARD" | "PRIORITY";
+export const setupProductKeys: Record<CustomerSetupPriority, string> = {
+  STANDARD: "STANDARD_SETUP", PRIORITY: "PRIORITY_SETUP",
 };
 
-export type DraftSelection = { coreProductId?: string; infrastructureProductId?: string; setupPriority?: Exclude<SetupPriority, "MANUAL_HOLD">; returnRoute?: string };
+export type DraftSelection = { coreProductId?: string; infrastructureProductId?: string; setupPriority?: CustomerSetupPriority; returnRoute?: string };
 export type CatalogPrice = { recurringCents: number; oneTimeCents: number; configured: boolean };
 
 function record(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
@@ -22,7 +23,7 @@ export function readDraft(metadata: Prisma.JsonValue): DraftSelection {
   return {
     coreProductId: typeof draft.coreProductId === "string" ? draft.coreProductId : undefined,
     infrastructureProductId: typeof draft.infrastructureProductId === "string" ? draft.infrastructureProductId : undefined,
-    setupPriority: ["STANDARD", "PRIORITY", "EXPEDITED"].includes(String(draft.setupPriority)) ? draft.setupPriority as DraftSelection["setupPriority"] : undefined,
+    setupPriority: ["STANDARD", "PRIORITY"].includes(String(draft.setupPriority)) ? draft.setupPriority as DraftSelection["setupPriority"] : undefined,
     returnRoute: typeof draft.returnRoute === "string" ? draft.returnRoute : undefined,
   };
 }
@@ -31,7 +32,9 @@ export function catalogPrice(product: Pick<CommerceProduct, "recurring" | "metad
   const metadata = record(product.metadata);
   const recurring = cents(metadata.recurringPriceCents ?? metadata.priceCents ?? metadata.unitAmountCents);
   const oneTime = cents(metadata.setupFeeCents ?? metadata.oneTimePriceCents ?? (!product.recurring ? metadata.priceCents : undefined));
-  return { recurringCents: product.recurring ? recurring : 0, oneTimeCents: oneTime, configured: recurring > 0 || oneTime > 0 };
+  const keys = product.recurring ? ["recurringPriceCents", "priceCents", "unitAmountCents"] : ["setupFeeCents", "oneTimePriceCents", "priceCents"];
+  const configured = keys.some(key => typeof metadata[key] === "number" && Number.isInteger(metadata[key]) && Number(metadata[key]) >= 0);
+  return { recurringCents: product.recurring ? recurring : 0, oneTimeCents: oneTime, configured };
 }
 
 function cents(value: unknown) { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0; }

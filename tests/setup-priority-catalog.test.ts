@@ -11,6 +11,8 @@ function memoryCatalog(seed: Row[] = []) {
   const db = {
     commerceProduct: {
       findUnique: async ({ where }: any) => rows.get(where.key) ?? null,
+      update: async ({ where, data }: any) => { const current = [...rows.values()].find((row) => row.id === where.id)!; const saved = { ...current, ...data }; rows.set(saved.key, saved); return saved; },
+      delete: async ({ where }: any) => { const current = [...rows.values()].find((row) => row.id === where.id)!; rows.delete(current.key); return current; },
       upsert: async ({ where, update, create }: any) => {
         const current = rows.get(where.key);
         const saved = current ? { ...current, ...update } : { id: `p${next++}`, stripeProductId: null, stripePriceId: null, stripeSetupPriceId: null, ...create };
@@ -18,7 +20,7 @@ function memoryCatalog(seed: Row[] = []) {
         return saved;
       },
     },
-    commerceProductEntitlement: { upsert: async () => ({}) },
+    commerceProductEntitlement: { upsert: async () => ({}) }, customerOrderItem: { count: async () => 0 }, saasSubscriptionItem: { count: async () => 0 },
   };
   return { db: db as any, rows };
 }
@@ -26,27 +28,27 @@ function memoryCatalog(seed: Row[] = []) {
 describe("setup-priority catalog bootstrap", () => {
   it("defines the three exact active one-time setup products in deterministic order", () => {
     expect(DEFAULT_SETUP_PRODUCTS.map((p) => p.key)).toEqual(Object.values(setupProductKeys));
-    expect(DEFAULT_SETUP_PRODUCTS.map((p) => p.sortOrder)).toEqual([10, 20, 30]);
+    expect(DEFAULT_SETUP_PRODUCTS.map((p) => p.sortOrder)).toEqual([10, 20]);
     for (const product of DEFAULT_SETUP_PRODUCTS) {
       expect(product).toMatchObject({ category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME" });
-      expect(product.oneTimePriceCents).toBeGreaterThan(0);
+      expect(product.oneTimePriceCents).toBeGreaterThanOrEqual(0);
     }
-    expect(DEFAULT_SETUP_PRODUCTS.find((p) => p.key === "EXPEDITED_SETUP")?.key).not.toBe("EXPEDITED_PROVISIONING");
+    expect(DEFAULT_SETUP_PRODUCTS).toMatchObject([{ key: "STANDARD_SETUP", name: "Standard", oneTimePriceCents: 0 }, { key: "PRIORITY_SETUP", name: "Head of the line", oneTimePriceCents: 25000 }]);
   });
 
   it("bootstraps setup products idempotently while preserving mappings and unrelated metadata", async () => {
-    const { db, rows } = memoryCatalog([{ id: "existing", key: "PRIORITY_SETUP", name: "Old", metadata: { priceCents: 33300, operatorNote: "preserve" }, stripeProductId: "prod_keep", stripePriceId: "price_keep", stripeSetupPriceId: "price_setup_keep" }]);
+    const { db, rows } = memoryCatalog([{ id: "legacy-standard", key: "STANDARD_SETUP", name: "Old standard", metadata: { priceCents: 10000 }, stripeProductId: null, stripePriceId: null, stripeSetupPriceId: null }, { id: "obsolete", key: "EXPEDITED_SETUP", name: "Expedited", metadata: { priceCents: 50000 }, stripeProductId: null, stripePriceId: null, stripeSetupPriceId: null }, { id: "existing", key: "PRIORITY_SETUP", name: "Old", metadata: { priceCents: 33300, operatorNote: "preserve" }, stripeProductId: "prod_keep", stripePriceId: "price_keep", stripeSetupPriceId: "price_setup_keep" }]);
     await bootstrapCommerceCatalog(db);
     await bootstrapCommerceCatalog(db);
     const setup = [...rows.values()].filter((row) => Object.values(setupProductKeys).includes(row.key as any));
-    expect(setup).toHaveLength(3);
+    expect(setup).toHaveLength(2);
     expect(setup.map((row) => row.key)).toEqual(expect.arrayContaining(Object.values(setupProductKeys)));
     for (const row of setup) {
       expect(row).toMatchObject({ category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME" });
-      expect(catalogPrice(row as any).oneTimeCents).toBeGreaterThan(0);
+      expect(catalogPrice(row as any).configured).toBe(true);
     }
     expect(rows.get("PRIORITY_SETUP")).toMatchObject({ stripeProductId: "prod_keep", stripePriceId: "price_keep", stripeSetupPriceId: "price_setup_keep", metadata: { priceCents: 33300, setupPriorityProduct: true, operatorNote: "preserve" } });
-    expect(catalogPrice(rows.get("PRIORITY_SETUP") as any).oneTimeCents).toBe(33300);
+    expect(catalogPrice(rows.get("PRIORITY_SETUP") as any).oneTimeCents).toBe(33300); expect(catalogPrice(rows.get("STANDARD_SETUP") as any)).toMatchObject({ oneTimeCents: 0, configured: true }); expect(rows.has("EXPEDITED_SETUP")).toBe(false);
   });
 
   it("keeps Launch Growth and Scale defaults unchanged", () => {
@@ -57,7 +59,7 @@ describe("setup-priority catalog bootstrap", () => {
     ]);
   });
 
-  it("renders three persisted choices and a safe incomplete-catalog state", () => {
+  it("renders two persisted choices and a safe incomplete-catalog state", () => {
     const page = readFileSync("app/setup/priority/page.tsx", "utf8");
     expect(page).toContain("Object.values(setupProductKeys).every");
     expect(page).toContain("Setup options are temporarily unavailable.");

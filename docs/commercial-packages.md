@@ -6,4 +6,4 @@ Add-ons are persisted catalog products, never calculation constants: managed dom
 
 ## Setup priority products
 
-`STANDARD_SETUP`, `PRIORITY_SETUP`, and `EXPEDITED_SETUP` are one-time acquisition queue-priority choices. `EXPEDITED_SETUP` is distinct from the optional `EXPEDITED_PROVISIONING` add-on; separate keys preserve separate order intent even when launch defaults share a price. Catalog bootstrap merges default pricing metadata into existing metadata and preserves operator pricing overrides and Stripe mappings.
+`STANDARD_SETUP` is the normal queue with no additional charge. `PRIORITY_SETUP` is shown as **Head of the line** and adds a $250 one-time queue-priority surcharge. Neither choice changes the implementation fee already included in Launch, Growth, or Scale, nor bypasses compliance, safety, provider, deliverability, or warm-up requirements. `EXPEDITED_PROVISIONING` remains a separate optional add-on and is not a customer setup-priority choice. Catalog sync removes an unreferenced obsolete `EXPEDITED_SETUP` product and otherwise retires it.

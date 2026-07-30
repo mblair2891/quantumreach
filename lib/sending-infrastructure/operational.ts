@@ -23,12 +23,20 @@ export function mergeCatalogMetadata(defaults: Record<string, unknown>, existing
 export async function upsertSetupProducts(db: Db = prisma) {
   for (const setup of DEFAULT_SETUP_PRODUCTS) {
     const existing = await db.commerceProduct.findUnique({ where: { key: setup.key }, select: { metadata: true } });
-    const metadata = mergeCatalogMetadata({ priceCents: setup.oneTimePriceCents, setupPriorityProduct: true }, existing?.metadata);
+    const existingMetadata = metadataRecord(existing?.metadata);
+    const legacyDefaultPrice = setup.key === "STANDARD_SETUP" && existingMetadata.priceCents === 10000;
+    const metadata = mergeCatalogMetadata({ priceCents: setup.oneTimePriceCents, setupPriorityProduct: true }, legacyDefaultPrice ? { ...existingMetadata, priceCents: setup.oneTimePriceCents } : existingMetadata);
     await db.commerceProduct.upsert({
       where: { key: setup.key },
       update: { name: setup.name, description: setup.description, category: setup.category, active: setup.active, recurring: setup.recurring, billingInterval: setup.billingInterval, sortOrder: setup.sortOrder, metadata },
       create: { key: setup.key, name: setup.name, description: setup.description, category: setup.category, active: setup.active, recurring: setup.recurring, billingInterval: setup.billingInterval, sortOrder: setup.sortOrder, metadata },
     });
+  }
+  const obsolete = await db.commerceProduct.findUnique({ where: { key: "EXPEDITED_SETUP" }, select: { id: true } });
+  if (obsolete) {
+    const [orderLines, subscriptionItems] = await Promise.all([db.customerOrderItem.count({ where: { commerceProductId: obsolete.id } }), db.saasSubscriptionItem.count({ where: { commerceProductId: obsolete.id } })]);
+    if (orderLines === 0 && subscriptionItems === 0) await db.commerceProduct.delete({ where: { id: obsolete.id } });
+    else await db.commerceProduct.update({ where: { id: obsolete.id }, data: { active: false } });
   }
 }
 

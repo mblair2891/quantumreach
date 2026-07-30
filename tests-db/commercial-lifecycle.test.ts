@@ -5,18 +5,18 @@ describe("PostgreSQL commercial lifecycle",()=>{it("persists immutable accepted 
 
 it("repairs a partially initialized setup catalog idempotently without erasing mappings", async () => {
   const { upsertSetupProducts } = await import("@/lib/sending-infrastructure/operational");
-  const keys = ["STANDARD_SETUP", "PRIORITY_SETUP", "EXPEDITED_SETUP"];
+  const keys = ["STANDARD_SETUP", "PRIORITY_SETUP"];const catalogKeys=[...keys,"EXPEDITED_SETUP"];
   const rollback = new Error("ROLLBACK_SETUP_CATALOG_TEST");
   await expect(db.$transaction(async (tx) => {
-    await tx.commerceProduct.deleteMany({ where: { key: { in: keys } } });
-    await tx.commerceProduct.create({ data: { key: "PRIORITY_SETUP", name: "Existing priority", category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME", sortOrder: 99, stripeProductId: "prod_test_preserve", stripePriceId: "price_test_preserve", metadata: { priceCents: 32100, operatorNote: "keep" } } });
+    await tx.commerceProduct.deleteMany({ where: { key: { in: catalogKeys } } });
+    await tx.commerceProduct.create({ data: { key: "EXPEDITED_SETUP", name: "Obsolete", category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME", sortOrder: 30, metadata: { priceCents: 50000 } } });await tx.commerceProduct.create({ data: { key: "PRIORITY_SETUP", name: "Existing priority", category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME", sortOrder: 99, stripeProductId: "prod_test_preserve", stripePriceId: "price_test_preserve", metadata: { priceCents: 32100, operatorNote: "keep" } } });
     await upsertSetupProducts(tx as any);
     await upsertSetupProducts(tx as any);
     const products = await tx.commerceProduct.findMany({ where: { key: { in: keys }, category: "SETUP_FEE", active: true }, orderBy: { sortOrder: "asc" } });
     expect(products.map((p) => p.key)).toEqual(keys);
-    expect(products).toHaveLength(3);
+    expect(products).toHaveLength(2);
     expect(products.every((p) => !p.recurring && p.billingInterval === "ONE_TIME")).toBe(true);
-    expect(products.find((p) => p.key === "PRIORITY_SETUP")).toMatchObject({ stripeProductId: "prod_test_preserve", stripePriceId: "price_test_preserve", metadata: expect.objectContaining({ priceCents: 32100, operatorNote: "keep", setupPriorityProduct: true }) });
+    expect(await tx.commerceProduct.findUnique({where:{key:"EXPEDITED_SETUP"}})).toBeNull();expect(products.find((p) => p.key === "PRIORITY_SETUP")).toMatchObject({ stripeProductId: "prod_test_preserve", stripePriceId: "price_test_preserve", metadata: expect.objectContaining({ priceCents: 32100, operatorNote: "keep", setupPriorityProduct: true }) });
     throw rollback;
   })).rejects.toBe(rollback);
 });

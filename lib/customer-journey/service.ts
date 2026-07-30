@@ -40,7 +40,7 @@ export async function createInfrastructureOrder(input: { userId: string; product
 }
 
 export async function selectSetupPriority(userId: string, priority: SetupPriority) {
-  if (!["STANDARD", "PRIORITY", "EXPEDITED"].includes(priority)) throw new Error("The selected setup priority is not available.");
+  if (!["STANDARD", "PRIORITY"].includes(priority)) throw new Error("The selected setup priority is not available.");
   return prisma.$transaction(async tx => {
     const infrastructure = await tx.infrastructureOrder.findFirstOrThrow({ where: { order: { userId } }, orderBy: { createdAt: "desc" } });
     await tx.customerOrderItem.deleteMany({ where: { orderId: infrastructure.customerOrderId, itemType: "SETUP_PRIORITY" } });
