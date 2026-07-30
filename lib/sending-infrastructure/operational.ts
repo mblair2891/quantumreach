@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from "@/lib/db/prisma";
+import type { Prisma } from "@prisma/client";
 import { DEFAULT_COMMERCE_CATALOG, ENTITLEMENT_KEYS, EntitlementKey, aggregateEntitlements } from "./catalog";
 import { getMailboxProvider, getProviderReadiness } from "./providers";
 import { CloudflareDnsProvider } from "./cloudflare";
 import { enforceAllowance, evaluateSenderReadiness } from "./readiness";
 import { idempotencyKey, localPartIsValid, mailboxAddress } from "./provisioning";
 import { createWarmupProfileForMailbox } from "./warmup-service";
-import { DEFAULT_ADDONS, DEFAULT_COMMERCIAL_PLANS } from "@/lib/commercial/packages";
+import { DEFAULT_ADDONS, DEFAULT_COMMERCIAL_PLANS, DEFAULT_SETUP_PRODUCTS } from "@/lib/commercial/packages";
 
 export const entitlementKeys = Object.values(ENTITLEMENT_KEYS);
 export const numericEntitlements = new Set<string>(entitlementKeys.filter((k) => !k.endsWith("_ENABLED")));
@@ -16,15 +17,36 @@ type Db = typeof prisma;
 export function parseString(form: FormData, key: string, required = true) { const value = String(form.get(key) ?? "").trim(); if (required && !value) throw new Error(`${key} is required.`); return value || null; }
 export function parseIntField(form: FormData, key: string, fallback = 0) { const raw = String(form.get(key) ?? "").trim(); if (!raw) return fallback; const n = Number(raw); if (!Number.isInteger(n) || n < 0) throw new Error(`${key} must be a non-negative integer.`); return n; }
 export function parseBool(form: FormData, key: string) { return ["on", "true", "1", "yes"].includes(String(form.get(key) ?? "").toLowerCase()); }
+function metadataRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+export function mergeCatalogMetadata(defaults: Record<string, unknown>, existing: unknown) { return { ...defaults, ...metadataRecord(existing) } as Prisma.InputJsonObject; }
+
+export async function upsertSetupProducts(db: Db = prisma) {
+  for (const setup of DEFAULT_SETUP_PRODUCTS) {
+    const existing = await db.commerceProduct.findUnique({ where: { key: setup.key }, select: { metadata: true } });
+    const metadata = mergeCatalogMetadata({ priceCents: setup.oneTimePriceCents, setupPriorityProduct: true }, existing?.metadata);
+    await db.commerceProduct.upsert({
+      where: { key: setup.key },
+      update: { name: setup.name, description: setup.description, category: setup.category, active: setup.active, recurring: setup.recurring, billingInterval: setup.billingInterval, sortOrder: setup.sortOrder, metadata },
+      create: { key: setup.key, name: setup.name, description: setup.description, category: setup.category, active: setup.active, recurring: setup.recurring, billingInterval: setup.billingInterval, sortOrder: setup.sortOrder, metadata },
+    });
+  }
+}
 
 export async function bootstrapCommerceCatalog(db: Db = prisma) {
   for (const product of DEFAULT_COMMERCE_CATALOG) {
     const plan = DEFAULT_COMMERCIAL_PLANS.find((candidate) => candidate.key === product.key);
     const metadata = plan ? { recurringPriceCents: plan.monthlyCents, setupFeeCents: plan.setupCents, slug: plan.slug, description: plan.description, whoItsFor: plan.targetCustomer, onboarding: plan.onboarding, support: plan.support, recommended: plan.recommended, version: plan.version, effectiveAt: plan.effectiveAt, cogsRangeCents: plan.cogsRangeCents } : undefined;
-    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, ...(metadata ? { metadata } : {}) }, create: { key: product.key, name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: metadata ?? {} } });
+    const existing = await db.commerceProduct.findUnique({ where: { key: product.key }, select: { metadata: true } });
+    const mergedMetadata = mergeCatalogMetadata(metadata ?? {}, existing?.metadata);
+    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata }, create: { key: product.key, name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata } });
     for (const [entitlementKey, value] of Object.entries(product.entitlements)) await upsertProductEntitlement(saved.id, entitlementKey as EntitlementKey, value as any, db);
   }
-  for (const addon of DEFAULT_ADDONS) await db.commerceProduct.upsert({ where: { key: addon.key }, update: { name: addon.name, active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata: { priceCents: addon.priceCents } }, create: { key: addon.key, name: addon.name, category: addon.key.includes("MAILBOX") ? "SENDER_ADDON" : addon.key.includes("SEND") ? "SEND_CAPACITY_ADDON" : "DOMAIN_ADDON", active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata: { priceCents: addon.priceCents }, sortOrder: 100 } });
+  for (const addon of DEFAULT_ADDONS) {
+    const existing = await db.commerceProduct.findUnique({ where: { key: addon.key }, select: { metadata: true } });
+    const metadata = mergeCatalogMetadata({ priceCents: addon.priceCents }, existing?.metadata);
+    await db.commerceProduct.upsert({ where: { key: addon.key }, update: { name: addon.name, active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata }, create: { key: addon.key, name: addon.name, category: addon.key.includes("MAILBOX") ? "SENDER_ADDON" : addon.key.includes("SEND") ? "SEND_CAPACITY_ADDON" : "DOMAIN_ADDON", active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata, sortOrder: 100 } });
+  }
+  await upsertSetupProducts(db);
 }
 
 export async function upsertProductEntitlement(productId: string, entitlementKey: EntitlementKey, value: number | boolean | string, db: Db = prisma) {

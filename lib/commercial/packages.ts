@@ -23,6 +23,26 @@ export const DEFAULT_ADDONS = [
   { key: "EXPEDITED_PROVISIONING", name: "Expedited provisioning", recurring: false, interval: "ONE_TIME", priceCents: 50000, entitlements: {} },
 ] as const;
 
+export type SetupPriorityProduct = {
+  key: "STANDARD_SETUP" | "PRIORITY_SETUP" | "EXPEDITED_SETUP";
+  name: string;
+  description: string;
+  category: "SETUP_FEE";
+  active: true;
+  recurring: false;
+  billingInterval: "ONE_TIME";
+  oneTimePriceCents: number;
+  sortOrder: number;
+};
+
+/** Acquisition queue-priority products. EXPEDITED_SETUP is distinct from the
+ * optional EXPEDITED_PROVISIONING add-on even though both currently cost $500. */
+export const DEFAULT_SETUP_PRODUCTS: readonly SetupPriorityProduct[] = [
+  { key: "STANDARD_SETUP", name: "Standard setup", description: "Standard setup review and queue handling for your Quantum Reach launch.", category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME", oneTimePriceCents: 10000, sortOrder: 10 },
+  { key: "PRIORITY_SETUP", name: "Priority setup", description: "Priority queue handling for teams that need an accelerated setup review.", category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME", oneTimePriceCents: 25000, sortOrder: 20 },
+  { key: "EXPEDITED_SETUP", name: "Expedited setup", description: "Expedited queue handling for the fastest available setup review without bypassing safety checks.", category: "SETUP_FEE", active: true, recurring: false, billingInterval: "ONE_TIME", oneTimePriceCents: 50000, sortOrder: 30 },
+] as const;
+
 export function planEntitlements(plan: CommercialPlan) { return { [ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE]: plan.domains, [ENTITLEMENT_KEYS.MAILBOX_ALLOWANCE]: plan.mailboxes, [ENTITLEMENT_KEYS.SENDER_IDENTITY_ALLOWANCE]: plan.mailboxes, [ENTITLEMENT_KEYS.MONTHLY_SEND_ALLOWANCE]: plan.monthlySends, [ENTITLEMENT_KEYS.ACTIVE_OUTREACH_CONTACT_ALLOWANCE]: plan.contacts, TEAM_USER_ALLOWANCE: plan.teamUsers, DAILY_DOMAIN_CAPACITY: 105, DAILY_MAILBOX_CAPACITY: 35, COMPLETE_PLATFORM_INCLUDED: true }; }
 
 export function snapshotAcceptedTerms(plan: CommercialPlan, addons: { key: string; quantity: number; unitPriceCents: number }[] = []) { if (!DEFAULT_COMMERCIAL_PLANS.some(p => p.key === plan.key) || plan.monthlyCents < 0 || plan.setupCents < 0) throw new Error("INVALID_COMMERCIAL_PLAN"); return Object.freeze({ planKey: plan.key, planVersion: plan.version, acceptedAt: new Date().toISOString(), currency: plan.currency, monthlyCents: plan.monthlyCents, setupCents: plan.setupCents, limits: planEntitlements(plan), addons: addons.map(a => ({ ...a })), catalogSnapshot: { name: plan.name, description: plan.description, onboarding: plan.onboarding, support: plan.support } }); }
