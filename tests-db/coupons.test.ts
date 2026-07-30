@@ -2,16 +2,19 @@ import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { buildAcquisitionChargeSummary } from "@/lib/commercial/charge-lines";
-import { applyCoupon } from "@/lib/commercial/coupons";
+import { applyCoupon, normalizeCouponCode } from "@/lib/commercial/coupons";
 
 const db = new PrismaClient();
-const suffix = `DB${randomUUID().replaceAll("-", "")}`;
+// Production lookups normalize submitted codes to uppercase. Keep direct DB
+// fixtures in that canonical form so lowercased lookup inputs exercise the
+// case-insensitive path rather than creating an impossible mixed-case fixture.
+const suffix = `DB${randomUUID().replaceAll("-", "")}`.toUpperCase();
 const couponIds: string[] = [];
 const orderIds: string[] = [];
 
 const couponData = (normalizedCode: string, overrides: Record<string, unknown> = {}) => ({
   code: normalizedCode,
-  normalizedCode,
+  normalizedCode: normalizeCouponCode(normalizedCode),
   displayName: `DB coupon ${normalizedCode}`,
   active: true,
   percentageOff: 100,
