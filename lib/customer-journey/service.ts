@@ -3,6 +3,7 @@ import { InfrastructureOrderStatus, Prisma, SetupPriority } from "@prisma/client
 import { trackFunnelEvent } from "./funnel";
 import { loadValidatedDraft } from "./acquisition-draft";
 import { acceptCommercialTerms } from "@/lib/commercial/service";
+import { reserveCouponForOrder } from "@/lib/commercial/coupons";
 
 export const priorityRank: Record<SetupPriority, number> = { EXPEDITED: 0, PRIORITY: 1, STANDARD: 2, MANUAL_HOLD: 3 };
 export const requiredSetupTasks = [
@@ -88,6 +89,7 @@ export async function finalizeAcquisitionOrder(userId: string, anonymousId: stri
       { orderId: order.id, commerceProductId: selected.setup.id, itemType: "SETUP_PRIORITY", metadata: { productKey: selected.setup.key, priority: selected.draft.setupPriority! } },
     ] });
     await acceptCommercialTerms({ orderId: order.id, productId: selected.infrastructure.id }, tx);
+    await reserveCouponForOrder({ acquisitionSessionId: acquisition.id, orderId: order.id, customerAccountId: userId }, tx);
     await tx.infrastructureOrder.upsert({ where: { customerOrderId: order.id }, update: { selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority! }, create: { customerOrderId: order.id, selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority!, status: "WAITING_ON_CUSTOMER", currentStage: "Required setup information", customerActionRequired: true, tasks: { create: requiredSetupTasks.map(([taskType, title]) => ({ taskType, title })) }, operatorTasks: { create: { taskType: "DOMAIN_REVIEW", title: "Review domain and provider readiness", priority: selected.draft.setupPriority! } } } });
     return order;
   });

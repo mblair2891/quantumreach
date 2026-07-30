@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from "@/lib/db/prisma";
 import Stripe from "stripe";
 import { getStripeClient } from "./client";
@@ -29,6 +30,10 @@ export async function getOrCreateStripeCustomer(userId: string, email: string) {
 }
 export async function createCheckout(orderId: string, user: { id: string; email: string }) {
   const { order, products } = await checkoutProducts(orderId); if (order.userId !== user.id) throw new Error("Order ownership validation failed.");
+  const couponSnapshot = order.acceptedCouponSnapshot && typeof order.acceptedCouponSnapshot === "object" && !Array.isArray(order.acceptedCouponSnapshot) ? order.acceptedCouponSnapshot as Record<string, any> : null;
+  const stripePromotionCodeId = couponSnapshot?.coupon?.stripePromotionCodeId as string | undefined;
+  const stripeCouponId = couponSnapshot?.coupon?.stripeCouponId as string | undefined;
+  if (couponSnapshot && !stripePromotionCodeId && !stripeCouponId) throw new Error("Accepted coupon requires an explicit Stripe mapping before checkout.");
   if (order.stripeCheckoutSessionId) {
     const current = await getStripeClient().checkout.sessions.retrieve(order.stripeCheckoutSessionId);
     if (current.status === "open" && current.url) return { url: current.url };
@@ -50,8 +55,9 @@ export async function createCheckout(orderId: string, user: { id: string; email:
     cancel_url: `${base}/setup/confirmation?checkout=cancelled`,
     metadata,
     line_items: products.map((product) => ({ price: product.stripePriceId, quantity: 1 })),
+    ...(stripePromotionCodeId ? { discounts: [{ promotion_code: stripePromotionCodeId }] } : stripeCouponId ? { discounts: [{ coupon: stripeCouponId }] } : {}),
     ...(recurring
-      ? { subscription_data: { metadata: { quantumReachOrderId: order.id } } }
+      ? { subscription_data: { metadata: { quantumReachOrderId: order.id }, ...(couponSnapshot?.coupon?.trialDays ? { trial_period_days: couponSnapshot.coupon.trialDays as number } : {}) } }
       : { payment_intent_data: { metadata: { quantumReachOrderId: order.id } } }),
   };
   const session = await getStripeClient().checkout.sessions.create(params, { idempotencyKey: `checkout:${order.id}` });

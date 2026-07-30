@@ -3825,6 +3825,7 @@ model CustomerOrder {
   setupPriority              SetupPriority         @default(STANDARD)
   commercialCatalogVersionId String?
   acceptedCommercialTerms    Json?
+  acceptedCouponSnapshot     Json?
   commercialTermsAcceptedAt  DateTime?
   createdAt                  DateTime              @default(now())
   updatedAt                  DateTime              @updatedAt
@@ -3835,6 +3836,73 @@ model CustomerOrder {
   @@index([setupPriority, createdAt])
   @@index([stripeCustomerId])
   @@index([stripeSubscriptionId])
+}
+
+enum CouponRedemptionStatus {
+  APPLIED
+  RESERVED
+  REDEEMED
+  RELEASED
+  REVERSED
+  EXPIRED
+}
+
+model CommercialCoupon {
+  id                            String             @id @default(cuid())
+  code                          String
+  normalizedCode                String             @unique
+  displayName                   String
+  description                   String?
+  active                        Boolean            @default(false)
+  validFrom                     DateTime?
+  expiresAt                     DateTime?
+  percentageOff                 Int
+  recurringDiscountMonths       Int?
+  trialDays                     Int?
+  minimumOrderAmountCents       Int                @default(0)
+  maximumTotalRedemptions       Int?
+  maximumRedemptionsPerCustomer Int?
+  stripeCouponId                String?
+  stripePromotionCodeId         String?
+  version                       Int                @default(1)
+  eligiblePackageKeys           String[]
+  eligibleProductKeys           String[]
+  eligibleChargeTypes           String[]
+  metadata                      Json               @default("{}")
+  createdAt                     DateTime           @default(now())
+  updatedAt                     DateTime           @updatedAt
+  retiredAt                     DateTime?
+  redemptions                   CouponRedemption[]
+
+  @@index([active, validFrom, expiresAt])
+  @@index([retiredAt])
+}
+
+model CouponRedemption {
+  id                     String                 @id @default(cuid())
+  couponId               String
+  acquisitionSessionId   String
+  customerAccountId      String?
+  orderId                String?
+  normalizedCodeSnapshot String
+  couponVersion          Int
+  status                 CouponRedemptionStatus @default(APPLIED)
+  appliedAt              DateTime               @default(now())
+  reservedAt             DateTime?
+  redeemedAt             DateTime?
+  releasedAt             DateTime?
+  reversedAt             DateTime?
+  expiresAt              DateTime?
+  idempotencyKey         String                 @unique
+  calculationSnapshot    Json
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  coupon                 CommercialCoupon       @relation(fields: [couponId], references: [id], onDelete: Restrict)
+
+  @@index([couponId, status])
+  @@index([acquisitionSessionId, status])
+  @@index([customerAccountId, status])
+  @@index([orderId])
 }
 
 enum StripeWebhookProcessingStatus {
