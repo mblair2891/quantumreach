@@ -4,6 +4,7 @@ import { trackFunnelEvent } from "./funnel";
 import { loadValidatedDraft } from "./acquisition-draft";
 import { acceptCommercialTerms } from "@/lib/commercial/service";
 import { reserveCouponForOrder } from "@/lib/commercial/coupons";
+import { lockAffiliateAttribution } from "@/lib/affiliates/service";
 
 export const priorityRank: Record<SetupPriority, number> = { EXPEDITED: 0, PRIORITY: 1, STANDARD: 2, MANUAL_HOLD: 3 };
 export const requiredSetupTasks = [
@@ -90,6 +91,7 @@ export async function finalizeAcquisitionOrder(userId: string, anonymousId: stri
     ] });
     await acceptCommercialTerms({ orderId: order.id, productId: selected.infrastructure.id }, tx);
     await reserveCouponForOrder({ acquisitionSessionId: acquisition.id, orderId: order.id, customerAccountId: userId }, tx);
+    await lockAffiliateAttribution({ acquisitionSessionId: acquisition.id, orderId: order.id, customerUserId: userId }, tx);
     await tx.infrastructureOrder.upsert({ where: { customerOrderId: order.id }, update: { selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority! }, create: { customerOrderId: order.id, selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority!, status: "WAITING_ON_CUSTOMER", currentStage: "Required setup information", customerActionRequired: true, tasks: { create: requiredSetupTasks.map(([taskType, title]) => ({ taskType, title })) }, operatorTasks: { create: { taskType: "DOMAIN_REVIEW", title: "Review domain and provider readiness", priority: selected.draft.setupPriority! } } } });
     return order;
   });

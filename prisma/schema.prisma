@@ -3203,6 +3203,102 @@ model AffiliateAttribution {
   @@index([affiliateAccountId, createdAt])
 }
 
+enum AffiliateMembershipPeriodStatus {
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+enum AffiliateCodeLifecycleStatus {
+  ACTIVE
+  SUSPENDED
+  RETIRED
+}
+
+enum AffiliateReferralAttributionStatus {
+  CAPTURED
+  LOCKED
+  INVALIDATED
+}
+
+/// Durable affiliate identity. Commercial coupon concepts intentionally have no relation here.
+model AffiliateParticipant {
+  id          String   @id @default(cuid())
+  userId      String?  @unique
+  email       String   @unique
+  displayName String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships AffiliateMembershipPeriod[]
+}
+
+/// One irreversible, continuous period of affiliate participation.
+model AffiliateMembershipPeriod {
+  id                String                          @id @default(cuid())
+  participantId     String
+  status            AffiliateMembershipPeriodStatus @default(ACTIVE)
+  startedAt         DateTime                        @default(now())
+  endedAt           DateTime?
+  terminationReason String?
+  createdById       String?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+
+  participant AffiliateParticipant           @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  code        AffiliateMembershipCode?
+  referrals   AffiliateReferralAttribution[]
+
+  @@index([participantId, status])
+  @@index([status, startedAt])
+}
+
+model AffiliateMembershipCode {
+  id                 String                       @id @default(cuid())
+  membershipPeriodId String                       @unique
+  code               String
+  normalizedCode     String                       @unique
+  status             AffiliateCodeLifecycleStatus @default(ACTIVE)
+  activatedAt        DateTime                     @default(now())
+  retiredAt          DateTime?
+  retirementReason   String?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  membershipPeriod AffiliateMembershipPeriod      @relation(fields: [membershipPeriodId], references: [id], onDelete: Restrict)
+  referrals        AffiliateReferralAttribution[]
+
+  @@index([status, normalizedCode])
+}
+
+model AffiliateReferralAttribution {
+  id                          String                             @id @default(cuid())
+  affiliateMembershipPeriodId String
+  affiliateCodeId             String
+  acquisitionSessionId        String?
+  orderId                     String?
+  customerUserId              String?
+  workspaceId                 String?
+  status                      AffiliateReferralAttributionStatus @default(CAPTURED)
+  capturedAt                  DateTime                           @default(now())
+  lockedAt                    DateTime?
+  invalidatedAt               DateTime?
+  invalidationReason          String?
+  sourceMetadata              Json                               @default("{}")
+  createdAt                   DateTime                           @default(now())
+  updatedAt                   DateTime                           @updatedAt
+
+  membershipPeriod AffiliateMembershipPeriod @relation(fields: [affiliateMembershipPeriodId], references: [id], onDelete: Restrict)
+  affiliateCode    AffiliateMembershipCode   @relation(fields: [affiliateCodeId], references: [id], onDelete: Restrict)
+
+  @@index([acquisitionSessionId, status])
+  @@index([orderId, status])
+  @@index([customerUserId, status])
+  @@index([workspaceId, status])
+  @@index([affiliateMembershipPeriodId, capturedAt])
+}
+
 model AffiliateClick {
   id                 String   @id @default(cuid())
   affiliateAccountId String
