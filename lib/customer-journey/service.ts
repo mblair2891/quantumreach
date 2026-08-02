@@ -4,7 +4,7 @@ import { trackFunnelEvent } from "./funnel";
 import { loadValidatedDraft } from "./acquisition-draft";
 import { acceptCommercialTerms } from "@/lib/commercial/service";
 import { reserveCouponForOrder } from "@/lib/commercial/coupons";
-import { lockAffiliateAttribution } from "@/lib/affiliates/service";
+import { ensureAffiliateMembershipForActiveSubscriber, lockAffiliateAttribution } from "@/lib/affiliates/service";
 
 export const priorityRank: Record<SetupPriority, number> = { EXPEDITED: 0, PRIORITY: 1, STANDARD: 2, MANUAL_HOLD: 3 };
 export const requiredSetupTasks = [
@@ -138,6 +138,7 @@ export async function fulfillCustomerOrder(orderId:string) {
     const corePlan = await prisma.saasPlan.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" } });
     const subscription = await prisma.saasSubscription.findFirst({ where: { userId: user.id, workspaceId: workspace.id, status: { in: ["ACTIVE", "TRIALING"] } } })
       ?? await prisma.saasSubscription.create({ data: { userId: user.id, workspaceId: workspace.id, planKey: corePlan?.key ?? "QUANTUM_REACH_CORE", status: "ACTIVE", affiliateAttributionId: order.affiliateAttributionId } });
+    if (order.paymentMethod !== "COMPLIMENTARY") await ensureAffiliateMembershipForActiveSubscriber({ userId: user.id, email: user.email, displayName: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email, subscriptionId: subscription.id, correlationId: eventKey });
     if (order.acceptedCommercialTerms) await prisma.saasSubscription.update({ where: { id: subscription.id }, data: { customerOrderId: order.id, commercialCatalogVersionId: order.commercialCatalogVersionId, acceptedCommercialTerms: order.acceptedCommercialTerms } });
     await prisma.customerOrder.update({ where: { id: orderId }, data: { workspaceId: workspace.id, status: "PARTIALLY_FULFILLED" } });
     if (order.programEnrollmentId) await prisma.programEnrollment.update({ where: { id: order.programEnrollmentId }, data: { status: "ACTIVE", activatedAt: new Date() } });

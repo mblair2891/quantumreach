@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Prisma, type AffiliateCodeLifecycleStatus, type AffiliateMembershipPeriodStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
@@ -6,6 +7,101 @@ export function validateAffiliateCode(code: string) {
   const normalized = normalizeAffiliateCode(code);
   if (normalized.length < 3 || normalized.length > 64) throw new Error("AFFILIATE_CODE_INVALID");
   return normalized;
+}
+
+const affiliateCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const automaticEnrollmentAttempts = 5;
+
+/** Generates an opaque, non-derived, customer-readable code using rejection sampling. */
+export function generateAffiliateCode() {
+  let value = "";
+  while (value.length < 8) {
+    for (const byte of randomBytes(16)) {
+      const unbiasedLimit = Math.floor(256 / affiliateCodeAlphabet.length) * affiliateCodeAlphabet.length;
+      if (byte >= unbiasedLimit) continue;
+      value += affiliateCodeAlphabet[byte % affiliateCodeAlphabet.length];
+      if (value.length === 8) break;
+    }
+  }
+  return `QR-${value}`;
+}
+
+export type SubscriberAffiliateLifecycleInput = {
+  userId: string;
+  email: string;
+  displayName: string;
+  subscriptionId: string;
+  correlationId: string;
+};
+
+function automaticAuditMetadata(input: SubscriberAffiliateLifecycleInput, trigger: "SUBSCRIPTION_ACTIVATED" | "SUBSCRIPTION_ACCESS_ENDED") {
+  return { scope: "PLATFORM", actorType: "SYSTEM", trigger, correlationId: input.correlationId, subscriberUserId: input.userId, subscriptionId: input.subscriptionId };
+}
+
+function retryableEnrollmentError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2034"].includes(error.code);
+}
+
+/** Idempotent authority for automatic enrollment on paid subscriber access activation. */
+export async function ensureAffiliateMembershipForActiveSubscriber(input: SubscriberAffiliateLifecycleInput) {
+  for (let attempt = 1; attempt <= automaticEnrollmentAttempts; attempt += 1) {
+    try {
+      return await prisma.$transaction(async tx => {
+        let participant = await tx.affiliateParticipant.findFirst({ where: { OR: [{ userId: input.userId }, { email: input.email.trim().toLowerCase() }] } });
+        let participantCreated = false;
+        if (participant?.userId && participant.userId !== input.userId) throw new Error("AFFILIATE_PARTICIPANT_IDENTITY_CONFLICT");
+        if (!participant) {
+          participant = await tx.affiliateParticipant.create({ data: { userId: input.userId, email: input.email.trim().toLowerCase(), displayName: input.displayName.trim() } });
+          participantCreated = true;
+        } else if (!participant.userId) {
+          participant = await tx.affiliateParticipant.update({ where: { id: participant.id }, data: { userId: input.userId, displayName: input.displayName.trim() } });
+        }
+        const existing = await tx.affiliateMembershipPeriod.findFirst({ where: { participantId: participant.id, status: { in: ["ACTIVE", "SUSPENDED"] } }, include: { code: true } });
+        if (existing?.code) return { participant, membership: existing, code: existing.code, created: false };
+
+        const previous = await tx.affiliateMembershipPeriod.findFirst({ where: { participantId: participant.id, status: "ENDED" }, orderBy: { endedAt: "desc" } });
+        const membership = await tx.affiliateMembershipPeriod.create({ data: { participantId: participant.id } });
+        const codeValue = generateAffiliateCode();
+        const code = await tx.affiliateMembershipCode.create({ data: { membershipPeriodId: membership.id, code: codeValue, normalizedCode: codeValue } });
+        const base = { ...automaticAuditMetadata(input, "SUBSCRIPTION_ACTIVATED"), participantId: participant.id, membershipPeriodId: membership.id, codeId: code.id, isResubscription: Boolean(previous), previous: previous ? { membershipPeriodId: previous.id, status: previous.status, endedAt: previous.endedAt } : null };
+        if (participantCreated) await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_PARTICIPANT_AUTOMATICALLY_CREATED", entityType: "AffiliateParticipant", entityId: participant.id, metadata: { ...base, next: { userId: participant.userId, email: participant.email } } } });
+        await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_MEMBERSHIP_AUTOMATICALLY_STARTED", entityType: "AffiliateMembershipPeriod", entityId: membership.id, metadata: { ...base, next: { status: membership.status, startedAt: membership.startedAt } } } });
+        await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_CODE_AUTOMATICALLY_GENERATED", entityType: "AffiliateMembershipCode", entityId: code.id, metadata: { ...base, next: { status: code.status, normalizedCode: code.normalizedCode } } } });
+        return { participant, membership: { ...membership, code }, code, created: true };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (attempt < automaticEnrollmentAttempts && retryableEnrollmentError(error)) {
+        await new Promise(resolve => setTimeout(resolve, attempt * 25));
+        continue;
+      }
+      if (retryableEnrollmentError(error)) throw new Error("AFFILIATE_AUTOMATIC_ENROLLMENT_FAILED");
+      throw error;
+    }
+  }
+  throw new Error("AFFILIATE_AUTOMATIC_ENROLLMENT_FAILED");
+}
+
+/** Idempotently ends access only after the application has declared subscriber access ended. */
+export async function endAffiliateMembershipForSubscriberAccessEnd(input: SubscriberAffiliateLifecycleInput) {
+  return prisma.$transaction(async tx => {
+    const participant = await tx.affiliateParticipant.findUnique({ where: { userId: input.userId } });
+    if (!participant) return null;
+    const membership = await tx.affiliateMembershipPeriod.findFirst({ where: { participantId: participant.id, status: { in: ["ACTIVE", "SUSPENDED"] } }, include: { code: true } });
+    if (!membership) return null;
+    const now = new Date();
+    const ended = await tx.affiliateMembershipPeriod.update({ where: { id: membership.id }, data: { status: "ENDED", endedAt: now, terminationReason: "SUBSCRIBER_ACCESS_ENDED" } });
+    const retired = membership.code?.status === "RETIRED" ? membership.code : membership.code ? await tx.affiliateMembershipCode.update({ where: { id: membership.code.id }, data: { status: "RETIRED", retiredAt: now, retirementReason: "SUBSCRIBER_ACCESS_ENDED" } }) : null;
+    const base = { ...automaticAuditMetadata(input, "SUBSCRIPTION_ACCESS_ENDED"), participantId: participant.id, membershipPeriodId: membership.id, codeId: retired?.id, previous: { status: membership.status, codeStatus: membership.code?.status }, next: { status: ended.status, endedAt: ended.endedAt, codeStatus: retired?.status } };
+    await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_MEMBERSHIP_AUTOMATICALLY_ENDED", entityType: "AffiliateMembershipPeriod", entityId: membership.id, metadata: base } });
+    if (retired) await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_CODE_AUTOMATICALLY_RETIRED", entityType: "AffiliateMembershipCode", entityId: retired.id, metadata: base } });
+    return { participant, membership: ended, code: retired };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function reconcileAffiliateMembershipForSubscriptionStatus(input: SubscriberAffiliateLifecycleInput & { status: string }) {
+  if (["ACTIVE", "TRIALING"].includes(input.status)) return ensureAffiliateMembershipForActiveSubscriber(input);
+  if (["CANCELED", "UNPAID"].includes(input.status)) return endAffiliateMembershipForSubscriberAccessEnd(input);
+  return null;
 }
 
 export async function createAffiliateParticipant(input:{email:string;displayName:string;userId?:string;createdById?:string}) {
