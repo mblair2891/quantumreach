@@ -3401,6 +3401,7 @@ model SaasWorkspaceProfile {
 
 enum SaasSubscriptionItemSource {
   STRIPE
+  SIMULATED_TEST
   MANUAL_OPERATOR
   COMPLIMENTARY
   MIGRATION
@@ -3927,11 +3928,35 @@ model CustomerOrder {
   updatedAt                  DateTime              @updatedAt
   items                      CustomerOrderItem[]
   infrastructureOrder        InfrastructureOrder?
+  simulatedPayment           SimulatedPaymentRecord?
 
   @@index([userId, status])
   @@index([setupPriority, createdAt])
   @@index([stripeCustomerId])
   @@index([stripeSubscriptionId])
+}
+
+model SimulatedPaymentRecord {
+  id                String        @id @default(cuid())
+  customerOrderId   String        @unique
+  actorUserId       String
+  source            String        @default("SIMULATED_TEST")
+  status            String        @default("PROCESSING")
+  amountCents       Int
+  currency          String        @default("USD")
+  correlationId     String        @unique
+  environment       String
+  packageKey        String
+  subscriptionId    String?
+  workspaceId       String?
+  safeError         String?
+  initiatedAt       DateTime      @default(now())
+  completedAt       DateTime?
+  updatedAt         DateTime      @updatedAt
+  order             CustomerOrder @relation(fields: [customerOrderId], references: [id], onDelete: Restrict)
+
+  @@index([source, status])
+  @@index([actorUserId, initiatedAt])
 }
 
 enum CouponRedemptionStatus {
