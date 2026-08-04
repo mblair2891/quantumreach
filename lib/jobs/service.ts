@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { createMailboxForJob } from "@/lib/sending-infrastructure/worker";
+import { processQueuedEmailSend } from "@/lib/sending-infrastructure/campaign-service";
 import { CloudflareDnsProvider } from "@/lib/sending-infrastructure/cloudflare";
+import { expireWarmupOverrides, runMailboxWarmupEvaluation } from "@/lib/sending-infrastructure/warmup-service";
 
 /** Durable serverless job runner. Jobs are claimed with a conditional update so two cron
  * invocations cannot execute the same record. Provider operations must remain idempotent. */
@@ -9,7 +11,8 @@ export type InfrastructureJobType =
   | "MAILBOX_SYNC" | "SENDER_IDENTITY_SETUP" | "SES_IDENTITY_VERIFICATION"
   | "CAMPAIGN_SEND_BATCH" | "REPLY_SYNC" | "USAGE_RECONCILIATION"
   | "DELIVERABILITY_RECONCILIATION" | "SUBSCRIPTION_RECONCILIATION"
-  | "PROVIDER_HEALTH_CHECK" | "SETUP_QUEUE_RECALCULATION";
+  | "PROVIDER_HEALTH_CHECK" | "SETUP_QUEUE_RECALCULATION"
+  | "WARMUP_DAILY_EVALUATION" | "WARMUP_OVERRIDE_EXPIRATION";
 
 const retryDelayMs = (attempt: number) => Math.min(6 * 60 * 60_000, 60_000 * 2 ** Math.max(0, attempt - 1));
 const safeError = (error: unknown) => error instanceof Error ? error.message.slice(0, 500) : "Unexpected job failure.";
@@ -46,9 +49,12 @@ async function executeClaimedJob(job: NonNullable<Awaited<ReturnType<typeof clai
   console.info(JSON.stringify({ event: "infrastructure_job_execute", jobId: job.id, jobType: job.jobType, workspaceId: job.workspaceId, attempt: job.attemptCount }));
   if (job.jobType === "MAILBOX_PROVISION") await createMailboxForJob(job);
   else if (job.jobType === "DOMAIN_DNS_CONFIGURATION") await configureDomainDns(job);
+  else if (job.jobType === "WARMUP_DAILY_EVALUATION") { const payload=job.payload as {profileId?:string;evaluationDate?:string;isSimulated?:boolean;scenarioIdentifier?:string}; if(!payload.profileId)throw new Error("Warm-up profile is required."); await runMailboxWarmupEvaluation({profileId:payload.profileId,evaluationDate:payload.evaluationDate?new Date(payload.evaluationDate):undefined,isSimulated:payload.isSimulated,scenarioIdentifier:payload.scenarioIdentifier}); }
+  else if (job.jobType === "WARMUP_OVERRIDE_EXPIRATION") await expireWarmupOverrides();
+  else if (job.jobType === "CAMPAIGN_SEND_BATCH") { const payload=job.payload as {emailSendId?:string}; if(!payload.emailSendId)throw new Error("Email send is required."); await processQueuedEmailSend(payload.emailSendId); }
   // Other job types are deliberately durable no-ops until their configured provider adapter exists.
   // They remain observable rather than reporting fabricated external success.
-  else if (["MAILBOX_SYNC", "REPLY_SYNC", "CAMPAIGN_SEND_BATCH", "SES_IDENTITY_VERIFICATION"].includes(job.jobType)) {
+  else if (["MAILBOX_SYNC", "REPLY_SYNC", "SES_IDENTITY_VERIFICATION"].includes(job.jobType)) {
     throw new Error(`${job.jobType} requires a configured provider adapter.`);
   }
 }

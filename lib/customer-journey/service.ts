@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db/prisma";
 import { InfrastructureOrderStatus, Prisma, SetupPriority } from "@prisma/client";
 import { trackFunnelEvent } from "./funnel";
 import { loadValidatedDraft } from "./acquisition-draft";
+import { acceptCommercialTerms } from "@/lib/commercial/service";
+import { reserveCouponForOrder } from "@/lib/commercial/coupons";
+import { ensureAffiliateMembershipForActiveSubscriber, lockAffiliateAttribution } from "@/lib/affiliates/service";
 
 export const priorityRank: Record<SetupPriority, number> = { EXPEDITED: 0, PRIORITY: 1, STANDARD: 2, MANUAL_HOLD: 3 };
 export const requiredSetupTasks = [
@@ -39,7 +42,7 @@ export async function createInfrastructureOrder(input: { userId: string; product
 }
 
 export async function selectSetupPriority(userId: string, priority: SetupPriority) {
-  if (!["STANDARD", "PRIORITY", "EXPEDITED"].includes(priority)) throw new Error("The selected setup priority is not available.");
+  if (!["STANDARD", "PRIORITY"].includes(priority)) throw new Error("The selected setup priority is not available.");
   return prisma.$transaction(async tx => {
     const infrastructure = await tx.infrastructureOrder.findFirstOrThrow({ where: { order: { userId } }, orderBy: { createdAt: "desc" } });
     await tx.customerOrderItem.deleteMany({ where: { orderId: infrastructure.customerOrderId, itemType: "SETUP_PRIORITY" } });
@@ -63,7 +66,7 @@ export async function readyForWorkspace(orderId: string) {
 }
 
 export async function bootstrapProgramOffer() { return prisma.programOffer.upsert({ where: { key: "QUANTUM_REACH_AGENCY_PROGRAM" }, update: {}, create: { key: "QUANTUM_REACH_AGENCY_PROGRAM", name: "Quantum Reach Agency Program", active: true, courseDeliveryType: "SKOOL" } }); }
-export async function isOrderFinanciallyCleared(order: { paymentStatus: string; paymentMethod: string }) { return order.paymentStatus === "PAID" && ["MANUAL", "COMPLIMENTARY", "STRIPE"].includes(order.paymentMethod); }
+export async function isOrderFinanciallyCleared(order: { paymentStatus: string; paymentMethod: string }) { return order.paymentStatus === "PAID" && ["MANUAL", "COMPLIMENTARY", "STRIPE", "SIMULATED_TEST"].includes(order.paymentMethod); }
 export async function createProgramOrder(userId: string, acquisitionSessionId?: string | null) { const offer=await bootstrapProgramOffer(); const result=await prisma.$transaction(async tx=>{ const acquisition=acquisitionSessionId?await tx.acquisitionSession.findUnique({where:{id:acquisitionSessionId}}):await tx.acquisitionSession.findFirst({where:{userId},orderBy:{clickedAt:"desc"}}); const enrollment=await tx.programEnrollment.upsert({where:{userId_programOfferId:{userId,programOfferId:offer.id}},update:{},create:{userId,programOfferId:offer.id,status:"PENDING",source:"MANUAL",externalProvider:"SKOOL"}}); const existing=await tx.customerOrder.findFirst({where:{userId,programEnrollmentId:enrollment.id,status:{in:["DRAFT","CHECKOUT_PENDING"]}}}); const order=existing??await tx.customerOrder.create({data:{userId,programEnrollmentId:enrollment.id,acquisitionSessionId:acquisition?.id,affiliateAttributionId:acquisition?.affiliateAttributionId,status:"CHECKOUT_PENDING",paymentStatus:"UNPAID",paymentMethod:"MANUAL",items:{create:{itemType:"PROGRAM",metadata:{programOfferKey:offer.key}}}}}); await tx.customerNotificationIntent.create({data:{userId,customerOrderId:order.id,recipient:"pending-auth-email",templateKey:"INFRASTRUCTURE_SELECTION_REQUIRED",metadata:{path:"/setup/infrastructure"}}}); return {enrollment,order}; }); await trackFunnelEvent("PROGRAM_ORDER_CREATED",{userId,acquisitionSessionId:acquisitionSessionId??undefined,customerOrderId:result.order.id}); return result; }
 
 /** Converts a safe anonymous draft into one canonical, still-unpaid authenticated order. */
@@ -86,6 +89,9 @@ export async function finalizeAcquisitionOrder(userId: string, anonymousId: stri
       { orderId: order.id, commerceProductId: selected.infrastructure.id, itemType: "SENDING_PACKAGE", metadata: { productKey: selected.infrastructure.key } },
       { orderId: order.id, commerceProductId: selected.setup.id, itemType: "SETUP_PRIORITY", metadata: { productKey: selected.setup.key, priority: selected.draft.setupPriority! } },
     ] });
+    await acceptCommercialTerms({ orderId: order.id, productId: selected.infrastructure.id }, tx);
+    await reserveCouponForOrder({ acquisitionSessionId: acquisition.id, orderId: order.id, customerAccountId: userId }, tx);
+    await lockAffiliateAttribution({ acquisitionSessionId: acquisition.id, orderId: order.id, customerUserId: userId }, tx);
     await tx.infrastructureOrder.upsert({ where: { customerOrderId: order.id }, update: { selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority! }, create: { customerOrderId: order.id, selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority!, status: "WAITING_ON_CUSTOMER", currentStage: "Required setup information", customerActionRequired: true, tasks: { create: requiredSetupTasks.map(([taskType, title]) => ({ taskType, title })) }, operatorTasks: { create: { taskType: "DOMAIN_REVIEW", title: "Review domain and provider readiness", priority: selected.draft.setupPriority! } } } });
     return order;
   });
@@ -130,13 +136,18 @@ export async function fulfillCustomerOrder(orderId:string) {
     await prisma.workspaceBranding.upsert({ where: { workspaceId: workspace.id }, update: {}, create: { workspaceId: workspace.id, brandName: businessName } });
     await prisma.saasSubscriberProfile.upsert({ where: { userId: user.id }, create: { userId: user.id, workspaceId: workspace.id, subscriberType: "DIRECT_CUSTOMER", onboardingProgress: { joinProfileComplete: false } }, update: { workspaceId: workspace.id } });
     const corePlan = await prisma.saasPlan.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" } });
+    const couponSnapshot = order.acceptedCouponSnapshot && typeof order.acceptedCouponSnapshot === "object" && !Array.isArray(order.acceptedCouponSnapshot) ? order.acceptedCouponSnapshot as Prisma.JsonObject : {};
+    const couponRule = couponSnapshot.coupon && typeof couponSnapshot.coupon === "object" && !Array.isArray(couponSnapshot.coupon) ? couponSnapshot.coupon as Prisma.JsonObject : {};
+    const initialStatus = order.paymentMethod === "SIMULATED_TEST" && Number(couponRule.trialDays ?? 0) > 0 ? "TRIALING" : "ACTIVE";
     const subscription = await prisma.saasSubscription.findFirst({ where: { userId: user.id, workspaceId: workspace.id, status: { in: ["ACTIVE", "TRIALING"] } } })
-      ?? await prisma.saasSubscription.create({ data: { userId: user.id, workspaceId: workspace.id, planKey: corePlan?.key ?? "QUANTUM_REACH_CORE", status: "ACTIVE", affiliateAttributionId: order.affiliateAttributionId } });
+      ?? await prisma.saasSubscription.create({ data: { userId: user.id, workspaceId: workspace.id, planKey: corePlan?.key ?? "QUANTUM_REACH_CORE", status: initialStatus, affiliateAttributionId: order.affiliateAttributionId } });
+    if (order.paymentMethod !== "COMPLIMENTARY") await ensureAffiliateMembershipForActiveSubscriber({ userId: user.id, email: user.email, displayName: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email, subscriptionId: subscription.id, correlationId: eventKey });
+    if (order.acceptedCommercialTerms) await prisma.saasSubscription.update({ where: { id: subscription.id }, data: { customerOrderId: order.id, commercialCatalogVersionId: order.commercialCatalogVersionId, acceptedCommercialTerms: order.acceptedCommercialTerms } });
     await prisma.customerOrder.update({ where: { id: orderId }, data: { workspaceId: workspace.id, status: "PARTIALLY_FULFILLED" } });
     if (order.programEnrollmentId) await prisma.programEnrollment.update({ where: { id: order.programEnrollmentId }, data: { status: "ACTIVE", activatedAt: new Date() } });
     for (const key of ["QUANTUM_REACH_CORE", ...order.items.map(item => getProductKey(item.metadata)).filter((key): key is string => Boolean(key))]) {
       const product = await prisma.commerceProduct.findFirst({ where: { key, active: true } });
-      if (product && !(await prisma.saasSubscriptionItem.findFirst({ where: { workspaceId: workspace.id, commerceProductId: product.id, status: "ACTIVE" } }))) await prisma.saasSubscriptionItem.create({ data: { workspaceId: workspace.id, commerceProductId: product.id, source: order.paymentMethod === "STRIPE" ? "STRIPE" : order.paymentMethod === "COMPLIMENTARY" ? "COMPLIMENTARY" : "MANUAL_OPERATOR", status: "ACTIVE" } });
+      if (product && !(await prisma.saasSubscriptionItem.findFirst({ where: { workspaceId: workspace.id, commerceProductId: product.id, status: "ACTIVE" } }))) await prisma.saasSubscriptionItem.create({ data: { workspaceId: workspace.id, commerceProductId: product.id, source: order.paymentMethod === "STRIPE" ? "STRIPE" : order.paymentMethod === "SIMULATED_TEST" ? "SIMULATED_TEST" : order.paymentMethod === "COMPLIMENTARY" ? "COMPLIMENTARY" : "MANUAL_OPERATOR", status: "ACTIVE" } });
     }
     const infra = await prisma.infrastructureOrder.findUnique({ where: { customerOrderId: orderId } });
     if (infra) { await prisma.infrastructureOrder.update({ where: { id: infra.id }, data: { workspaceId: workspace.id } }); await deriveInfrastructureOrderState(infra.id); }

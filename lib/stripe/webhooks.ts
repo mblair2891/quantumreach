@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { verifyStripePayment } from "@/lib/customer-journey/service";
 import type Stripe from "stripe";
 import { resolveStripePrice } from "./prices";
+import { reconcileAffiliateMembershipForSubscriptionStatus } from "@/lib/affiliates/service";
 
 type StripeStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "CANCELED" | "UNPAID" | "INCOMPLETE";
 type StripeEvent = Pick<Stripe.Event, "id" | "type"> & { data: { object: Record<string, any> } };
@@ -39,7 +40,7 @@ async function syncPaid(object: Record<string, any>, eventId: string) {
   await verifyStripePayment(order.id, eventId, paymentIntentId, subscriptionId);
 }
 
-async function syncSubscription(object: Record<string, any>) {
+async function syncSubscription(object: Record<string, any>, eventId: string) {
   const providerSubscriptionId = stripeId(object); if (!providerSubscriptionId) return;
   const order = await findOrder(object);
   // A subscription can arrive before Checkout/payment fulfillment. Retaining the webhook as FAILED
@@ -47,6 +48,8 @@ async function syncSubscription(object: Record<string, any>) {
   if (!order?.workspaceId) throw new Error("Stripe subscription cannot yet be correlated to a fulfilled workspace.");
   const status = subscriptionStatus(object.status); const periodEnd = object.current_period_end ? new Date(Number(object.current_period_end) * 1000) : undefined;
   const subscription = await prisma.saasSubscription.upsert({ where: { stripeSubscriptionId: providerSubscriptionId }, create: { userId: order.userId, workspaceId: order.workspaceId, stripeCustomerId: order.stripeCustomerId, stripeSubscriptionId: providerSubscriptionId, status, currentPeriodEnd: periodEnd, affiliateAttributionId: order.affiliateAttributionId, commissionEligible: Boolean(order.affiliateAttributionId) }, update: { status, currentPeriodEnd: periodEnd, workspaceId: order.workspaceId, stripeCustomerId: order.stripeCustomerId } });
+  const subscriber = await prisma.userProfile.findUniqueOrThrow({ where: { id: order.userId } });
+  await reconcileAffiliateMembershipForSubscriptionStatus({ userId: subscriber.id, email: subscriber.email, displayName: [subscriber.firstName, subscriber.lastName].filter(Boolean).join(" ") || subscriber.email, subscriptionId: subscription.id, correlationId: eventId, status });
   const priceIds = new Map<string, Record<string, any>>((object.items?.data ?? []).filter((item: any) => typeof item.price?.id === "string").map((item: any) => [item.price.id as string, item]));
   const catalog = await prisma.commerceProduct.findMany({ where: { active: true } });
   const products = catalog.map((product) => { try { return { ...product, stripePriceId: resolveStripePrice(product.key) }; } catch { return null; } }).filter((product): product is NonNullable<typeof product> => Boolean(product?.stripePriceId && priceIds.has(product.stripePriceId)));
@@ -81,7 +84,7 @@ export async function processStripeEvent(event: StripeEvent) {
     if (["checkout.session.async_payment_failed", "payment_intent.payment_failed"].includes(event.type)) { const order=await findOrder(object); if(order && order.paymentStatus!=="PAID") await prisma.customerOrder.update({where:{id:order.id},data:{paymentStatus:"FAILED",status:"FAILED"}}); }
     if (["refund.created", "refund.updated", "charge.refunded"].includes(event.type)) await syncRefund(object);
     if (event.type.startsWith("charge.dispute.")) await syncDispute(object);
-    if (event.type.startsWith("customer.subscription.")) await syncSubscription(object);
+    if (event.type.startsWith("customer.subscription.")) await syncSubscription(object, event.id);
     const order=await findOrder(object); await prisma.stripeWebhookEvent.update({ where: { id: record.id }, data: { status: "PROCESSED", processedAt: new Date(), safeError: null, customerOrderId: order?.id } });
   } catch (error) {
     await prisma.stripeWebhookEvent.update({ where: { id: record.id }, data: { status: "FAILED", safeError: error instanceof Error ? error.message.slice(0, 500) : "Webhook processing failed" } });

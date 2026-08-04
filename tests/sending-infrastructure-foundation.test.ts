@@ -16,16 +16,16 @@ describe("managed sending infrastructure foundations", () => {
       { productKey: COMMERCE_PRODUCT_KEYS.DOMAIN_PACK, quantity: 2, stripeSubscriptionItemId: "si_domain" },
       { productKey: COMMERCE_PRODUCT_KEYS.SENDER_PACK, stripeSubscriptionItemId: "si_sender" },
     ]);
-    expect(entitlements[ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE]).toBe(8);
-    expect(entitlements[ENTITLEMENT_KEYS.MAILBOX_ALLOWANCE]).toBe(21);
-    expect(entitlements[ENTITLEMENT_KEYS.SENDER_IDENTITY_ALLOWANCE]).toBe(21);
+    expect(entitlements[ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE]).toBe(7);
+    expect(entitlements[ENTITLEMENT_KEYS.MAILBOX_ALLOWANCE]).toBe(18);
+    expect(entitlements[ENTITLEMENT_KEYS.SENDER_IDENTITY_ALLOWANCE]).toBe(18);
   });
   it("enforces domain mailbox sender and monthly send allowances with override", () => {
     const e = aggregateEntitlements([{ productKey: COMMERCE_PRODUCT_KEYS.LAUNCH }]);
-    expect(enforceAllowance("domain", e, 3).allowed).toBe(false);
-    expect(enforceAllowance("mailbox", e, 8).allowed).toBe(true);
-    expect(enforceAllowance("sender", e, 9, 1, true).reason).toBe("ADMIN_OVERRIDE");
-    expect(enforceAllowance("monthlySend", e, 0).allowed).toBe(false);
+    expect(enforceAllowance("domain", e, 2).allowed).toBe(false);
+    expect(enforceAllowance("mailbox", e, 5).allowed).toBe(true);
+    expect(enforceAllowance("sender", e, 6, 1, true).reason).toBe("ADMIN_OVERRIDE");
+    expect(enforceAllowance("monthlySend", e, 4500).allowed).toBe(false);
   });
   it("always blocks suppression unsubscribe complaints disabled sandbox and unready senders", () => {
     const e = aggregateEntitlements([{ productKey: COMMERCE_PRODUCT_KEYS.SEND_CAPACITY }]);

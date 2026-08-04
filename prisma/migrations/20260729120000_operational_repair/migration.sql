@@ -1,0 +1,13 @@
+ALTER TABLE "CustomerOrder" ADD COLUMN "commercialCatalogVersionId" TEXT, ADD COLUMN "acceptedCommercialTerms" JSONB, ADD COLUMN "commercialTermsAcceptedAt" TIMESTAMP(3);
+ALTER TABLE "SaasSubscription" ADD COLUMN "customerOrderId" TEXT, ADD COLUMN "commercialCatalogVersionId" TEXT, ADD COLUMN "acceptedCommercialTerms" JSONB;
+ALTER TABLE "CommercialCatalogVersion" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'DRAFT';
+CREATE TABLE "SendingCapacityReservation" ("id" TEXT NOT NULL, "workspaceId" TEXT NOT NULL, "managedMailboxId" TEXT NOT NULL, "managedDomainId" TEXT NOT NULL, "idempotencyKey" TEXT NOT NULL, "usageDate" TIMESTAMP(3) NOT NULL, "trafficType" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'RESERVED', "isSimulated" BOOLEAN NOT NULL DEFAULT false, "outboundMessageId" TEXT, "providerMessageId" TEXT, "safeFailureCode" TEXT, "reservedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "committedAt" TIMESTAMP(3), "releasedAt" TIMESTAMP(3), CONSTRAINT "SendingCapacityReservation_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "SendingCapacityReservation_idempotencyKey_key" ON "SendingCapacityReservation"("idempotencyKey");
+CREATE INDEX "SendingCapacityReservation_workspace_date_status_idx" ON "SendingCapacityReservation"("workspaceId", "usageDate", "status");
+CREATE INDEX "SendingCapacityReservation_mailbox_date_status_idx" ON "SendingCapacityReservation"("managedMailboxId", "usageDate", "status");
+CREATE INDEX "SendingCapacityReservation_domain_date_status_idx" ON "SendingCapacityReservation"("managedDomainId", "usageDate", "status");
+CREATE TABLE "WarmupOverride" ("id" TEXT NOT NULL, "workspaceId" TEXT NOT NULL, "targetType" TEXT NOT NULL, "targetId" TEXT NOT NULL, "scope" TEXT NOT NULL, "reason" TEXT NOT NULL, "previousState" TEXT NOT NULL, "overrideState" TEXT NOT NULL, "createdById" TEXT NOT NULL, "expiresAt" TIMESTAMP(3) NOT NULL, "revokedAt" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "WarmupOverride_pkey" PRIMARY KEY ("id"));
+CREATE INDEX "WarmupOverride_workspace_target_expires_idx" ON "WarmupOverride"("workspaceId", "targetId", "expiresAt");
+CREATE INDEX "CustomerOrder_commercialCatalogVersionId_idx" ON "CustomerOrder"("commercialCatalogVersionId");
+CREATE INDEX "SaasSubscription_customerOrderId_idx" ON "SaasSubscription"("customerOrderId");
+ALTER TABLE "WorkspaceAICredential" ADD COLUMN "featureDefaults" JSONB NOT NULL DEFAULT '{}', ADD COLUMN "projectDefaults" JSONB NOT NULL DEFAULT '{}', ADD COLUMN "clientPermissions" JSONB NOT NULL DEFAULT '{}', ADD COLUMN "monthlyAlertMinor" INTEGER;
