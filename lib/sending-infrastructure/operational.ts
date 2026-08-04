@@ -7,7 +7,7 @@ import { CloudflareDnsProvider } from "./cloudflare";
 import { enforceAllowance, evaluateSenderReadiness } from "./readiness";
 import { idempotencyKey, localPartIsValid, mailboxAddress } from "./provisioning";
 import { createWarmupProfileForMailbox } from "./warmup-service";
-import { DEFAULT_ADDONS, DEFAULT_COMMERCIAL_PLANS, DEFAULT_SETUP_PRODUCTS, type SetupPriorityProduct } from "@/lib/commercial/packages";
+import { DEFAULT_ADDONS, DEFAULT_COMMERCIAL_PLANS, DEFAULT_SETUP_PRODUCTS } from "@/lib/commercial/packages";
 
 export const entitlementKeys = Object.values(ENTITLEMENT_KEYS);
 export const numericEntitlements = new Set<string>(entitlementKeys.filter((k) => !k.endsWith("_ENABLED")));
@@ -20,11 +20,8 @@ export function parseBool(form: FormData, key: string) { return ["on", "true", "
 function metadataRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 export function mergeCatalogMetadata(defaults: Record<string, unknown>, existing: unknown) { return { ...defaults, ...metadataRecord(existing) } as Prisma.InputJsonObject; }
 
-export type SetupProductDefinition = Omit<SetupPriorityProduct, "key"> & { key: string };
-
-/** Shared implementation accepts isolated definitions so tests never mutate global catalog rows. */
-export async function upsertSetupProductDefinitions(setups: readonly SetupProductDefinition[], db: Db = prisma) {
-  for (const setup of setups) {
+export async function upsertSetupProducts(db: Db = prisma) {
+  for (const setup of DEFAULT_SETUP_PRODUCTS) {
     const existing = await db.commerceProduct.findUnique({ where: { key: setup.key }, select: { metadata: true } });
     const existingMetadata = metadataRecord(existing?.metadata);
     const legacyDefaultPrice = setup.key === "STANDARD_SETUP" && existingMetadata.priceCents === 10000;
@@ -35,10 +32,6 @@ export async function upsertSetupProductDefinitions(setups: readonly SetupProduc
       create: { key: setup.key, name: setup.name, description: setup.description, category: setup.category, active: setup.active, recurring: setup.recurring, billingInterval: setup.billingInterval, sortOrder: setup.sortOrder, metadata },
     });
   }
-}
-
-export async function upsertSetupProducts(db: Db = prisma) {
-  await upsertSetupProductDefinitions(DEFAULT_SETUP_PRODUCTS, db);
   const obsolete = await db.commerceProduct.findUnique({ where: { key: "EXPEDITED_SETUP" }, select: { id: true } });
   if (obsolete) {
     const [orderLines, subscriptionItems] = await Promise.all([db.customerOrderItem.count({ where: { commerceProductId: obsolete.id } }), db.saasSubscriptionItem.count({ where: { commerceProductId: obsolete.id } })]);

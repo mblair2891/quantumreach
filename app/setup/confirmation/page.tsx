@@ -6,11 +6,13 @@ import { requireUserProfile } from "@/lib/auth/rbac";
 import { catalogPrice, loadValidatedDraft, money } from "@/lib/customer-journey/acquisition-draft";
 import { buildAcquisitionChargeSummary } from "@/lib/commercial/charge-lines";
 import { applyCouponToSummary, getAppliedCoupon, type CouponCalculation } from "@/lib/commercial/coupons";
-import { applyCouponAction, removeCouponAction } from "./actions";
+import { applyCouponAction, removeCouponAction, simulateSuccessfulPaymentAction } from "./actions";
 import { FunnelProgress } from "@/components/funnel/progress";
 import { FunnelShell } from "@/components/funnel/shell";
+import { SimulatedPaymentButton } from "@/components/funnel/simulated-payment-button";
+import { isSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 
-export default async function Confirmation({ searchParams }: { searchParams: { submitted?: string; couponMessage?: string } }) {
+export default async function Confirmation({ searchParams }: { searchParams: { submitted?: string; couponMessage?: string; testPayment?: string } }) {
   let selection; try { selection = await loadValidatedDraft(); } catch { redirect("/start?selection=expired"); }
   const setupPrice = catalogPrice(selection.setup);
   const setupProductKey = selection.setup.key;
@@ -25,7 +27,7 @@ export default async function Confirmation({ searchParams }: { searchParams: { s
   if (searchParams.submitted === "1" && userId) {
     const user = await requireUserProfile();
     const order = await prisma.customerOrder.findFirst({ where: { userId: user.id, acquisitionSessionId: selection.session.id }, orderBy: { createdAt: "desc" } });
-    if (order) return <FunnelShell><main className="mx-auto max-w-3xl px-5 py-16"><FunnelProgress current={6}/><p className="funnel-eyebrow">Order submitted</p><h1 className="funnel-title mt-3 text-4xl font-semibold">Your selections are saved.</h1><p className="mt-4 text-slate-600">Order {order.id} is <strong>unpaid</strong> and awaiting authorized operator clearance. No infrastructure purchase or provider provisioning is being claimed.</p><Link className="funnel-primary mt-7" href="/setup/status">View setup status</Link></main></FunnelShell>;
+    if (order) return <FunnelShell><main className="mx-auto max-w-3xl px-5 py-16"><FunnelProgress current={6}/><p className="funnel-eyebrow">Order submitted</p><h1 className="funnel-title mt-3 text-4xl font-semibold">Your selections are saved.</h1><p className="mt-4 text-slate-600">Order {order.id} is <strong>{order.paymentStatus.toLowerCase()}</strong> and awaiting authorized financial clearance. No infrastructure purchase or provider provisioning is being claimed before clearance.</p>{searchParams.testPayment === "failed" ? <p role="alert" className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-800">The test payment could not be completed safely. Refresh the order status and try again.</p> : null}{isSimulatedPaymentEnvironment() && order.paymentStatus !== "PAID" ? <section className="mt-7 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 p-6 dark:border-indigo-700 dark:bg-indigo-950/40"><h2 className="font-semibold text-indigo-950 dark:text-indigo-100">Preview payment testing</h2><p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">Preview test payment — no real card will be charged. Your accepted package, setup priority, coupon snapshot, attribution, and monetary totals will be preserved.</p><form action={simulateSuccessfulPaymentAction} className="mt-5"><input type="hidden" name="orderId" value={order.id}/><SimulatedPaymentButton /></form></section> : null}<Link className="funnel-secondary mt-7" href="/setup/status">View setup status</Link></main></FunnelShell>;
   }
   const resume = encodeURIComponent(selection.session.anonymousId ?? selection.session.id);
   const returnUrl = encodeURIComponent(`/join?resume=${resume}`);
