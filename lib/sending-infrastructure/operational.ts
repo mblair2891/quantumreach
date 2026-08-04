@@ -1,10 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from "@/lib/db/prisma";
+import type { Prisma } from "@prisma/client";
 import { DEFAULT_COMMERCE_CATALOG, ENTITLEMENT_KEYS, EntitlementKey, aggregateEntitlements } from "./catalog";
 import { getMailboxProvider, getProviderReadiness } from "./providers";
 import { CloudflareDnsProvider } from "./cloudflare";
 import { enforceAllowance, evaluateSenderReadiness } from "./readiness";
 import { idempotencyKey, localPartIsValid, mailboxAddress } from "./provisioning";
+import { createWarmupProfileForMailbox } from "./warmup-service";
+import { DEFAULT_ADDONS, DEFAULT_COMMERCIAL_PLANS, DEFAULT_SETUP_PRODUCTS, type SetupPriorityProduct } from "@/lib/commercial/packages";
 
 export const entitlementKeys = Object.values(ENTITLEMENT_KEYS);
 export const numericEntitlements = new Set<string>(entitlementKeys.filter((k) => !k.endsWith("_ENABLED")));
@@ -14,12 +17,51 @@ type Db = typeof prisma;
 export function parseString(form: FormData, key: string, required = true) { const value = String(form.get(key) ?? "").trim(); if (required && !value) throw new Error(`${key} is required.`); return value || null; }
 export function parseIntField(form: FormData, key: string, fallback = 0) { const raw = String(form.get(key) ?? "").trim(); if (!raw) return fallback; const n = Number(raw); if (!Number.isInteger(n) || n < 0) throw new Error(`${key} must be a non-negative integer.`); return n; }
 export function parseBool(form: FormData, key: string) { return ["on", "true", "1", "yes"].includes(String(form.get(key) ?? "").toLowerCase()); }
+function metadataRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+export function mergeCatalogMetadata(defaults: Record<string, unknown>, existing: unknown) { return { ...defaults, ...metadataRecord(existing) } as Prisma.InputJsonObject; }
+
+export type SetupProductDefinition = Omit<SetupPriorityProduct, "key"> & { key: string };
+
+/** Shared implementation accepts isolated definitions so tests never mutate global catalog rows. */
+export async function upsertSetupProductDefinitions(setups: readonly SetupProductDefinition[], db: Db = prisma) {
+  for (const setup of setups) {
+    const existing = await db.commerceProduct.findUnique({ where: { key: setup.key }, select: { metadata: true } });
+    const existingMetadata = metadataRecord(existing?.metadata);
+    const legacyDefaultPrice = setup.key === "STANDARD_SETUP" && existingMetadata.priceCents === 10000;
+    const metadata = mergeCatalogMetadata({ priceCents: setup.oneTimePriceCents, setupPriorityProduct: true }, legacyDefaultPrice ? { ...existingMetadata, priceCents: setup.oneTimePriceCents } : existingMetadata);
+    await db.commerceProduct.upsert({
+      where: { key: setup.key },
+      update: { name: setup.name, description: setup.description, category: setup.category, active: setup.active, recurring: setup.recurring, billingInterval: setup.billingInterval, sortOrder: setup.sortOrder, metadata },
+      create: { key: setup.key, name: setup.name, description: setup.description, category: setup.category, active: setup.active, recurring: setup.recurring, billingInterval: setup.billingInterval, sortOrder: setup.sortOrder, metadata },
+    });
+  }
+}
+
+export async function upsertSetupProducts(db: Db = prisma) {
+  await upsertSetupProductDefinitions(DEFAULT_SETUP_PRODUCTS, db);
+  const obsolete = await db.commerceProduct.findUnique({ where: { key: "EXPEDITED_SETUP" }, select: { id: true } });
+  if (obsolete) {
+    const [orderLines, subscriptionItems] = await Promise.all([db.customerOrderItem.count({ where: { commerceProductId: obsolete.id } }), db.saasSubscriptionItem.count({ where: { commerceProductId: obsolete.id } })]);
+    if (orderLines === 0 && subscriptionItems === 0) await db.commerceProduct.delete({ where: { id: obsolete.id } });
+    else await db.commerceProduct.update({ where: { id: obsolete.id }, data: { active: false } });
+  }
+}
 
 export async function bootstrapCommerceCatalog(db: Db = prisma) {
   for (const product of DEFAULT_COMMERCE_CATALOG) {
-    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder }, create: { key: product.key, name: product.name, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder } });
+    const plan = DEFAULT_COMMERCIAL_PLANS.find((candidate) => candidate.key === product.key);
+    const metadata = plan ? { recurringPriceCents: plan.monthlyCents, setupFeeCents: plan.setupCents, slug: plan.slug, description: plan.description, whoItsFor: plan.targetCustomer, onboarding: plan.onboarding, support: plan.support, recommended: plan.recommended, version: plan.version, effectiveAt: plan.effectiveAt, cogsRangeCents: plan.cogsRangeCents } : undefined;
+    const existing = await db.commerceProduct.findUnique({ where: { key: product.key }, select: { metadata: true } });
+    const mergedMetadata = mergeCatalogMetadata(metadata ?? {}, existing?.metadata);
+    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata }, create: { key: product.key, name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata } });
     for (const [entitlementKey, value] of Object.entries(product.entitlements)) await upsertProductEntitlement(saved.id, entitlementKey as EntitlementKey, value as any, db);
   }
+  for (const addon of DEFAULT_ADDONS) {
+    const existing = await db.commerceProduct.findUnique({ where: { key: addon.key }, select: { metadata: true } });
+    const metadata = mergeCatalogMetadata({ priceCents: addon.priceCents }, existing?.metadata);
+    await db.commerceProduct.upsert({ where: { key: addon.key }, update: { name: addon.name, active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata }, create: { key: addon.key, name: addon.name, category: addon.key.includes("MAILBOX") ? "SENDER_ADDON" : addon.key.includes("SEND") ? "SEND_CAPACITY_ADDON" : "DOMAIN_ADDON", active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata, sortOrder: 100 } });
+  }
+  await upsertSetupProducts(db);
 }
 
 export async function upsertProductEntitlement(productId: string, entitlementKey: EntitlementKey, value: number | boolean | string, db: Db = prisma) {
@@ -48,7 +90,7 @@ export async function getSubscriberSendingSnapshot(workspaceId: string, db: Db =
 
 export async function getDeliverabilityMetrics(workspaceId: string, db: Db = prisma) { const [sent, delivered, hardBounces, softBounces, complaints, unsubscribes, suppressions, replies] = await Promise.all([db.outboundMessageLedger.count({ where: { workspaceId, sentAt: { not: null } } }), db.outboundMessageLedger.count({ where: { workspaceId, deliveredAt: { not: null } } }), db.outboundMessageLedger.count({ where: { workspaceId, bouncedAt: { not: null }, failureCode: { contains: "HARD" } } }), db.outboundMessageLedger.count({ where: { workspaceId, bouncedAt: { not: null }, NOT: { failureCode: { contains: "HARD" } } } }), db.outboundMessageLedger.count({ where: { workspaceId, complainedAt: { not: null } } }), db.outboundMessageLedger.count({ where: { workspaceId, unsubscribedAt: { not: null } } }), db.outboundMessageLedger.count({ where: { workspaceId, status: "SUPPRESSED" } }), db.inboundEmailMessage.count({ where: { workspaceId } })]); return { sent, delivered, hardBounces, softBounces, complaints, unsubscribes, suppressions, replies }; }
 
-export async function createMailboxRequest(workspaceId: string, domainId: string, localPart: string, displayName?: string | null, db: Db = prisma) { if (!localPartIsValid(localPart)) throw new Error("Invalid mailbox local part."); const domain = await db.managedDomain.findFirst({ where: { id: domainId, OR: [{ workspaceId }, { assignments: { some: { workspaceId, status: "ACTIVE" as any } } }] }, include: { dnsRecords: true, sesIdentity: true } }); if (!domain) throw new Error("Domain is not assigned to this workspace."); const { effective } = await getWorkspaceEffectiveEntitlements(workspaceId, db); const used = await db.managedMailbox.count({ where: { workspaceId } }); const allowance = enforceAllowance("mailbox", effective, used); if (!allowance.allowed) throw new Error(allowance.reason); const emailAddress = mailboxAddress(localPart, domain.domainName); if (await db.managedMailbox.findUnique({ where: { workspaceId_emailAddress: { workspaceId, emailAddress } } })) throw new Error("Mailbox already exists."); const provider = getMailboxProvider(); const health = provider.getProviderHealth(); const eventKey = idempotencyKey(["mailbox", workspaceId, emailAddress]); const status = health.state === "NOT_CONFIGURED" ? "PENDING_PROVIDER_CONFIGURATION" : "PROVISIONING"; const mailbox = await db.managedMailbox.create({ data: { workspaceId, managedDomainId: domain.id, provider: provider.key as any, localPart, emailAddress, displayName, status: status as any, provisioningStatus: status } }); await db.mailboxProvisioningEvent.create({ data: { workspaceId, managedMailboxId: mailbox.id, idempotencyKey: eventKey, status, safeSummary: health.safeMessage } }); await enqueueInfrastructureJob({ workspaceId, jobType: "MAILBOX_PROVISION", idempotencyKey: eventKey, payload: { mailboxId: mailbox.id } }, db); return mailbox; }
+export async function createMailboxRequest(workspaceId: string, domainId: string, localPart: string, displayName?: string | null, db: Db = prisma) { if (!localPartIsValid(localPart)) throw new Error("Invalid mailbox local part."); const domain = await db.managedDomain.findFirst({ where: { id: domainId, OR: [{ workspaceId }, { assignments: { some: { workspaceId, status: "ACTIVE" as any } } }] }, include: { dnsRecords: true, sesIdentity: true } }); if (!domain) throw new Error("Domain is not assigned to this workspace."); const { effective } = await getWorkspaceEffectiveEntitlements(workspaceId, db); const used = await db.managedMailbox.count({ where: { workspaceId } }); const allowance = enforceAllowance("mailbox", effective, used); if (!allowance.allowed) throw new Error(allowance.reason); const emailAddress = mailboxAddress(localPart, domain.domainName); if (await db.managedMailbox.findUnique({ where: { workspaceId_emailAddress: { workspaceId, emailAddress } } })) throw new Error("Mailbox already exists."); const provider = getMailboxProvider(); const health = provider.getProviderHealth(); const eventKey = idempotencyKey(["mailbox", workspaceId, emailAddress]); const status = health.state === "NOT_CONFIGURED" ? "PENDING_PROVIDER_CONFIGURATION" : "PROVISIONING"; const mailbox = await db.managedMailbox.create({ data: { workspaceId, managedDomainId: domain.id, provider: provider.key as any, localPart, emailAddress, displayName, status: status as any, provisioningStatus: status } }); await db.mailboxProvisioningEvent.create({ data: { workspaceId, managedMailboxId: mailbox.id, idempotencyKey: eventKey, status, safeSummary: health.safeMessage } }); await createWarmupProfileForMailbox({ workspaceId, mailboxId: mailbox.id, domainId: domain.id, isSimulated: process.env.VERCEL_ENV === "preview" }, db); await enqueueInfrastructureJob({ workspaceId, jobType: "MAILBOX_PROVISION", idempotencyKey: eventKey, payload: { mailboxId: mailbox.id } }, db); return mailbox; }
 
 export async function enqueueInfrastructureJob(input: { workspaceId?: string | null; jobType: string; idempotencyKey: string; payload?: unknown }, db: Db = prisma) { return (db as any).infrastructureJob.upsert({ where: { idempotencyKey: input.idempotencyKey }, update: {}, create: { workspaceId: input.workspaceId, jobType: input.jobType, idempotencyKey: input.idempotencyKey, payload: (input.payload ?? {}) as any } }); }
 export async function retryInfrastructureJob(id: string, db: Db = prisma) { return (db as any).infrastructureJob.update({ where: { id }, data: { status: "QUEUED", lockedAt: null, lockedBy: null, attemptCount: { increment: 1 }, nextAttemptAt: new Date() } }); }

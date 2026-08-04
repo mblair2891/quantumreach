@@ -54,11 +54,7 @@ export default async function Page() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild variant="outline">
-              <Link href="/dashboard/settings/integrations/meetings">
-                Open integrations center
-              </Link>
-            </Button>
+            <div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/dashboard/settings/integrations/meetings">Open integrations center</Link></Button><Button asChild variant="outline"><Link href="/dashboard/settings/ai">Manage AI providers</Link></Button></div>
           </CardContent>
         </Card>
         <Card>

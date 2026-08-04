@@ -564,7 +564,7 @@ model Permission {
 
 model AuditLog {
   id          String   @id @default(cuid())
-  workspaceId String
+  workspaceId String?
   actorId     String?
   action      String
   entityType  String
@@ -573,7 +573,7 @@ model AuditLog {
   createdAt   DateTime @default(now())
 
   actor     UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, entityType, entityId])
   @@index([actorId])
@@ -3136,19 +3136,22 @@ model SaasPlan {
 }
 
 model SaasSubscription {
-  id                       String                 @id @default(cuid())
-  userId                   String
-  workspaceId              String?
-  planKey                  String?
-  stripeCustomerId         String?
-  stripeSubscriptionId     String?                @unique
-  stripeSubscriptionItemId String?
-  status                   SaasSubscriptionStatus @default(INCOMPLETE)
-  currentPeriodEnd         DateTime?
-  affiliateAttributionId   String?
-  commissionEligible       Boolean                @default(false)
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
+  id                         String                 @id @default(cuid())
+  userId                     String
+  workspaceId                String?
+  planKey                    String?
+  stripeCustomerId           String?
+  stripeSubscriptionId       String?                @unique
+  stripeSubscriptionItemId   String?
+  status                     SaasSubscriptionStatus @default(INCOMPLETE)
+  currentPeriodEnd           DateTime?
+  affiliateAttributionId     String?
+  commissionEligible         Boolean                @default(false)
+  customerOrderId            String?
+  commercialCatalogVersionId String?
+  acceptedCommercialTerms    Json?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
 
   @@index([userId, status])
   @@index([workspaceId])
@@ -3198,6 +3201,102 @@ model AffiliateAttribution {
 
   @@index([prospectUserId])
   @@index([affiliateAccountId, createdAt])
+}
+
+enum AffiliateMembershipPeriodStatus {
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+enum AffiliateCodeLifecycleStatus {
+  ACTIVE
+  SUSPENDED
+  RETIRED
+}
+
+enum AffiliateReferralAttributionStatus {
+  CAPTURED
+  LOCKED
+  INVALIDATED
+}
+
+/// Durable affiliate identity. Commercial coupon concepts intentionally have no relation here.
+model AffiliateParticipant {
+  id          String   @id @default(cuid())
+  userId      String?  @unique
+  email       String   @unique
+  displayName String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships AffiliateMembershipPeriod[]
+}
+
+/// One irreversible, continuous period of affiliate participation.
+model AffiliateMembershipPeriod {
+  id                String                          @id @default(cuid())
+  participantId     String
+  status            AffiliateMembershipPeriodStatus @default(ACTIVE)
+  startedAt         DateTime                        @default(now())
+  endedAt           DateTime?
+  terminationReason String?
+  createdById       String?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+
+  participant AffiliateParticipant           @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  code        AffiliateMembershipCode?
+  referrals   AffiliateReferralAttribution[]
+
+  @@index([participantId, status])
+  @@index([status, startedAt])
+}
+
+model AffiliateMembershipCode {
+  id                 String                       @id @default(cuid())
+  membershipPeriodId String                       @unique
+  code               String
+  normalizedCode     String                       @unique
+  status             AffiliateCodeLifecycleStatus @default(ACTIVE)
+  activatedAt        DateTime                     @default(now())
+  retiredAt          DateTime?
+  retirementReason   String?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  membershipPeriod AffiliateMembershipPeriod      @relation(fields: [membershipPeriodId], references: [id], onDelete: Restrict)
+  referrals        AffiliateReferralAttribution[]
+
+  @@index([status, normalizedCode])
+}
+
+model AffiliateReferralAttribution {
+  id                          String                             @id @default(cuid())
+  affiliateMembershipPeriodId String
+  affiliateCodeId             String
+  acquisitionSessionId        String?
+  orderId                     String?
+  customerUserId              String?
+  workspaceId                 String?
+  status                      AffiliateReferralAttributionStatus @default(CAPTURED)
+  capturedAt                  DateTime                           @default(now())
+  lockedAt                    DateTime?
+  invalidatedAt               DateTime?
+  invalidationReason          String?
+  sourceMetadata              Json                               @default("{}")
+  createdAt                   DateTime                           @default(now())
+  updatedAt                   DateTime                           @updatedAt
+
+  membershipPeriod AffiliateMembershipPeriod @relation(fields: [affiliateMembershipPeriodId], references: [id], onDelete: Restrict)
+  affiliateCode    AffiliateMembershipCode   @relation(fields: [affiliateCodeId], references: [id], onDelete: Restrict)
+
+  @@index([acquisitionSessionId, status])
+  @@index([orderId, status])
+  @@index([customerUserId, status])
+  @@index([workspaceId, status])
+  @@index([affiliateMembershipPeriodId, capturedAt])
 }
 
 model AffiliateClick {
@@ -3363,67 +3462,67 @@ enum InfrastructureProvisioningStatus {
 }
 
 model CommerceProduct {
-  id                    String                  @id @default(cuid())
-  key                   String                  @unique
-  name                  String
-  description           String?
-  category              CommerceProductCategory
-  active                Boolean                 @default(true)
-  recurring             Boolean                 @default(true)
-  billingInterval       CommerceBillingInterval @default(MONTH)
-  stripeProductId       String?
-  stripePriceId         String?
-  stripeSetupPriceId    String?
-  commissionCategory    CommerceProductCategory?
-  metadata              Json                    @default("{}")
-  sortOrder             Int                     @default(0)
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
+  id                 String                   @id @default(cuid())
+  key                String                   @unique
+  name               String
+  description        String?
+  category           CommerceProductCategory
+  active             Boolean                  @default(true)
+  recurring          Boolean                  @default(true)
+  billingInterval    CommerceBillingInterval  @default(MONTH)
+  stripeProductId    String?
+  stripePriceId      String?
+  stripeSetupPriceId String?
+  commissionCategory CommerceProductCategory?
+  metadata           Json                     @default("{}")
+  sortOrder          Int                      @default(0)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
-  entitlements          CommerceProductEntitlement[]
-  subscriptionItems     SaasSubscriptionItem[]
+  entitlements      CommerceProductEntitlement[]
+  subscriptionItems SaasSubscriptionItem[]
 
   @@index([category, active])
   @@index([stripePriceId])
 }
 
 model CommerceProductEntitlement {
-  id             String          @id @default(cuid())
+  id             String   @id @default(cuid())
   productId      String
   entitlementKey String
   integerValue   Int?
   booleanValue   Boolean?
   stringValue    String?
-  metadata       Json            @default("{}")
-  createdAt      DateTime        @default(now())
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
 
-  product        CommerceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product CommerceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([productId, entitlementKey])
   @@index([entitlementKey])
 }
 
 model SaasSubscriptionItem {
-  id                         String                 @id @default(cuid())
-  workspaceId                String
-  saasSubscriptionId         String?
-  commerceProductId          String
-  stripeSubscriptionItemId   String?                @unique
-  quantity                   Int                    @default(1)
-  status                     SaasSubscriptionStatus @default(ACTIVE)
-  source                     SaasSubscriptionItemSource @default(STRIPE)
-  assignedById               String?
-  assignedAt                 DateTime @default(now())
-  startsAt                   DateTime?
-  endsAt                     DateTime?
-  note                       String?
-  currentPeriodStart         DateTime?
-  currentPeriodEnd           DateTime?
-  metadata                   Json                   @default("{}")
-  createdAt                  DateTime               @default(now())
-  updatedAt                  DateTime               @updatedAt
+  id                       String                     @id @default(cuid())
+  workspaceId              String
+  saasSubscriptionId       String?
+  commerceProductId        String
+  stripeSubscriptionItemId String?                    @unique
+  quantity                 Int                        @default(1)
+  status                   SaasSubscriptionStatus     @default(ACTIVE)
+  source                   SaasSubscriptionItemSource @default(STRIPE)
+  assignedById             String?
+  assignedAt               DateTime                   @default(now())
+  startsAt                 DateTime?
+  endsAt                   DateTime?
+  note                     String?
+  currentPeriodStart       DateTime?
+  currentPeriodEnd         DateTime?
+  metadata                 Json                       @default("{}")
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
 
-  commerceProduct            CommerceProduct        @relation(fields: [commerceProductId], references: [id], onDelete: Restrict)
+  commerceProduct CommerceProduct @relation(fields: [commerceProductId], references: [id], onDelete: Restrict)
 
   @@unique([workspaceId, commerceProductId, stripeSubscriptionItemId])
   @@index([workspaceId, status])
@@ -3432,7 +3531,7 @@ model SaasSubscriptionItem {
 }
 
 model InfrastructureEntitlementOverride {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   workspaceId    String
   entitlementKey String
   integerValue   Int?
@@ -3441,7 +3540,7 @@ model InfrastructureEntitlementOverride {
   reason         String
   expiresAt      DateTime?
   createdById    String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   @@index([workspaceId, entitlementKey])
 }
@@ -3472,36 +3571,36 @@ model ManagedMailbox {
 }
 
 model MailboxProvisioningEvent {
-  id                 String   @id @default(cuid())
-  workspaceId         String
-  managedMailboxId    String?
-  idempotencyKey      String   @unique
-  status             String   @default("PENDING")
-  safeSummary         String?
-  errorCode           String?
-  safeErrorMessage    String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id               String   @id @default(cuid())
+  workspaceId      String
+  managedMailboxId String?
+  idempotencyKey   String   @unique
+  status           String   @default("PENDING")
+  safeSummary      String?
+  errorCode        String?
+  safeErrorMessage String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([workspaceId, status])
 }
 
 model InfrastructureSenderIdentity {
-  id                  String   @id @default(cuid())
-  workspaceId          String
-  managedMailboxId     String?
-  managedDomainId      String
-  fromAddress          String
-  displayName          String?
-  replyToAddress       String?
-  sesIdentityState     String   @default("NOT_CREATED")
-  dkimState            String   @default("NOT_CREATED")
-  sendingEnabled       Boolean  @default(false)
-  campaignEligible     Boolean  @default(false)
-  dailySendCap         Int?
-  healthState          String   @default("UNKNOWN")
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id               String   @id @default(cuid())
+  workspaceId      String
+  managedMailboxId String?
+  managedDomainId  String
+  fromAddress      String
+  displayName      String?
+  replyToAddress   String?
+  sesIdentityState String   @default("NOT_CREATED")
+  dkimState        String   @default("NOT_CREATED")
+  sendingEnabled   Boolean  @default(false)
+  campaignEligible Boolean  @default(false)
+  dailySendCap     Int?
+  healthState      String   @default("UNKNOWN")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([workspaceId, fromAddress])
   @@index([workspaceId, campaignEligible])
@@ -3509,80 +3608,80 @@ model InfrastructureSenderIdentity {
 
 model DesiredDnsRecord {
   id              String   @id @default(cuid())
-  workspaceId      String?
-  managedDomainId  String
-  recordType       String
-  name             String
-  value            String
-  ttl              Int?
-  purpose          String
-  status           String   @default("REQUIRED")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  workspaceId     String?
+  managedDomainId String
+  recordType      String
+  name            String
+  value           String
+  ttl             Int?
+  purpose         String
+  status          String   @default("REQUIRED")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([managedDomainId, recordType, name, value])
 }
 
 model DnsReconciliationRun {
-  id               String   @id @default(cuid())
+  id                String    @id @default(cuid())
   workspaceId       String?
   managedDomainId   String
   provider          String
-  status            String   @default("PENDING")
-  missingRecords    Json     @default("[]")
-  mismatchedRecords Json     @default("[]")
-  appliedRecords    Json     @default("[]")
+  status            String    @default("PENDING")
+  missingRecords    Json      @default("[]")
+  mismatchedRecords Json      @default("[]")
+  appliedRecords    Json      @default("[]")
   safeSummary       String?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
   completedAt       DateTime?
 }
 
 model InboundEmailMessage {
-  id                    String   @id @default(cuid())
-  workspaceId            String
-  managedMailboxId       String
-  externalMessageId      String
-  internetMessageId      String?
-  inReplyTo              String?
-  references             String?
-  sender                 String
-  recipients             Json
-  subject                String?
-  receivedAt             DateTime
-  bodyText               String?
-  safeHtml               String?
-  processingStatus       String   @default("PENDING")
-  linkedContactId        String?
-  linkedCampaignId       String?
+  id                      String   @id @default(cuid())
+  workspaceId             String
+  managedMailboxId        String
+  externalMessageId       String
+  internetMessageId       String?
+  inReplyTo               String?
+  references              String?
+  sender                  String
+  recipients              Json
+  subject                 String?
+  receivedAt              DateTime
+  bodyText                String?
+  safeHtml                String?
+  processingStatus        String   @default("PENDING")
+  linkedContactId         String?
+  linkedCampaignId        String?
   linkedOutboundMessageId String?
-  threadKey              String?
-  createdAt              DateTime @default(now())
+  threadKey               String?
+  createdAt               DateTime @default(now())
 
   @@unique([workspaceId, managedMailboxId, externalMessageId])
   @@index([workspaceId, threadKey])
 }
 
 model OutboundMessageLedger {
-  id                 String   @id @default(cuid())
-  workspaceId         String
-  campaignId          String?
-  contactId           String?
-  senderIdentityId    String?
-  managedMailboxId    String?
-  managedDomainId     String?
-  provider            String
-  providerMessageId   String?
-  messageId           String?  @unique
-  status              String   @default("QUEUED")
-  queuedAt            DateTime @default(now())
-  sentAt              DateTime?
-  deliveredAt         DateTime?
-  bouncedAt           DateTime?
-  complainedAt        DateTime?
-  repliedAt           DateTime?
-  unsubscribedAt      DateTime?
-  failureCode         String?
-  safeFailureMessage  String?
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  campaignId         String?
+  contactId          String?
+  senderIdentityId   String?
+  managedMailboxId   String?
+  managedDomainId    String?
+  provider           String
+  providerMessageId  String?
+  messageId          String?   @unique
+  status             String    @default("QUEUED")
+  queuedAt           DateTime  @default(now())
+  sentAt             DateTime?
+  deliveredAt        DateTime?
+  bouncedAt          DateTime?
+  complainedAt       DateTime?
+  repliedAt          DateTime?
+  unsubscribedAt     DateTime?
+  failureCode        String?
+  safeFailureMessage String?
 
   @@index([workspaceId, status])
   @@index([providerMessageId])
@@ -3599,37 +3698,37 @@ model CampaignSendJob {
 }
 
 model WorkspaceInfrastructureUsage {
-  id                          String   @id @default(cuid())
-  workspaceId                  String
-  periodStart                  DateTime
-  periodEnd                    DateTime
-  sentMessageCount             Int      @default(0)
-  managedDomainCount           Int      @default(0)
-  activeMailboxCount           Int      @default(0)
-  senderIdentityCount          Int      @default(0)
-  activeOutreachContactCount   Int      @default(0)
-  campaignSendCount            Int      @default(0)
-  providerErrorCount           Int      @default(0)
-  updatedAt                    DateTime @updatedAt
+  id                         String   @id @default(cuid())
+  workspaceId                String
+  periodStart                DateTime
+  periodEnd                  DateTime
+  sentMessageCount           Int      @default(0)
+  managedDomainCount         Int      @default(0)
+  activeMailboxCount         Int      @default(0)
+  senderIdentityCount        Int      @default(0)
+  activeOutreachContactCount Int      @default(0)
+  campaignSendCount          Int      @default(0)
+  providerErrorCount         Int      @default(0)
+  updatedAt                  DateTime @updatedAt
 
   @@unique([workspaceId, periodStart, periodEnd])
 }
 
 model InfrastructureJob {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   workspaceId    String?
   jobType        String
-  status         String   @default("QUEUED")
-  payload        Json     @default("{}")
-  idempotencyKey String   @unique
+  status         String    @default("QUEUED")
+  payload        Json      @default("{}")
+  idempotencyKey String    @unique
   lockedAt       DateTime?
   lockedBy       String?
-  attemptCount   Int      @default(0)
-  maxAttempts    Int      @default(5)
-  nextAttemptAt  DateTime @default(now())
+  attemptCount   Int       @default(0)
+  maxAttempts    Int       @default(5)
+  nextAttemptAt  DateTime  @default(now())
   lastSafeError  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([status, nextAttemptAt])
   @@index([workspaceId, jobType])
@@ -3653,319 +3752,663 @@ model CommissionRule {
 }
 
 model WorkspaceInfrastructureProvisioning {
-  id             String                         @id @default(cuid())
+  id             String                           @id @default(cuid())
   workspaceId    String
   status         InfrastructureProvisioningStatus @default(PENDING)
-  idempotencyKey String                         @unique
-  stages         Json                           @default("{}")
-  requestedPlan  Json                           @default("{}")
+  idempotencyKey String                           @unique
+  stages         Json                             @default("{}")
+  requestedPlan  Json                             @default("{}")
   safeSummary    String?
-  createdAt      DateTime                       @default(now())
-  updatedAt      DateTime                       @updatedAt
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
 
   @@index([workspaceId, status])
 }
 
 enum CourseDeliveryType {
- SKOOL
- SELF_HOSTED
- EXTERNAL
- MANUAL
+  SKOOL
+  SELF_HOSTED
+  EXTERNAL
+  MANUAL
 }
+
 enum ProgramEnrollmentStatus {
- PENDING
- ACTIVE
- PAUSED
- CANCELED
- COMPLETED
- MANUAL_REVIEW
+  PENDING
+  ACTIVE
+  PAUSED
+  CANCELED
+  COMPLETED
+  MANUAL_REVIEW
 }
+
 enum CustomerOrderStatus {
- DRAFT
- CHECKOUT_PENDING
- PAID
- PARTIALLY_FULFILLED
- FULFILLED
- CANCELED
- REFUNDED
- FAILED
+  DRAFT
+  CHECKOUT_PENDING
+  PAID
+  PARTIALLY_FULFILLED
+  FULFILLED
+  CANCELED
+  REFUNDED
+  FAILED
 }
+
 enum CustomerPaymentStatus {
- UNPAID
- PENDING
- PAID
- PARTIALLY_REFUNDED
- REFUNDED
- FAILED
- DISPUTED
+  UNPAID
+  PENDING
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
+  DISPUTED
 }
+
 enum SetupPriority {
- STANDARD
- PRIORITY
- EXPEDITED
- MANUAL_HOLD
+  STANDARD
+  PRIORITY
+  EXPEDITED
+  MANUAL_HOLD
 }
+
 enum InfrastructureOrderStatus {
- PENDING
- QUEUED
- IN_PROGRESS
- WAITING_ON_CUSTOMER
- WAITING_ON_PROVIDER
- READY
- FAILED
- CANCELED
+  PENDING
+  QUEUED
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  WAITING_ON_PROVIDER
+  READY
+  FAILED
+  CANCELED
 }
+
 enum SetupTaskStatus {
- PENDING
- IN_PROGRESS
- COMPLETED
- BLOCKED
- WAIVED
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+  WAIVED
 }
+
 enum NotificationIntentStatus {
- PENDING
- SENT
- FAILED
- SKIPPED
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
 }
 
 model AcquisitionSession {
- id String @id @default(cuid())
- anonymousId String? @unique
- userId String?
- source String?
- medium String?
- campaign String?
- content String?
- term String?
- landingPage String
- affiliateAttributionId String?
- clickedAt DateTime @default(now())
- metadata Json @default("{}")
- @@index([userId, clickedAt])
+  id                     String   @id @default(cuid())
+  anonymousId            String?  @unique
+  userId                 String?
+  source                 String?
+  medium                 String?
+  campaign               String?
+  content                String?
+  term                   String?
+  landingPage            String
+  affiliateAttributionId String?
+  clickedAt              DateTime @default(now())
+  metadata               Json     @default("{}")
+
+  @@index([userId, clickedAt])
 }
+
 model FunnelEvent {
- id String @id @default(cuid())
- eventType String
- userId String?
- acquisitionSessionId String?
- customerOrderId String?
- metadata Json @default("{}")
- createdAt DateTime @default(now())
- @@index([eventType, createdAt])
- @@index([userId, createdAt])
+  id                   String   @id @default(cuid())
+  eventType            String
+  userId               String?
+  acquisitionSessionId String?
+  customerOrderId      String?
+  metadata             Json     @default("{}")
+  createdAt            DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
 }
+
 model ProgramOffer {
- id String @id @default(cuid())
- key String @unique
- name String
- description String?
- active Boolean @default(true)
- courseDeliveryType CourseDeliveryType @default(SKOOL)
- externalGroupRef String?
- commerceProductId String?
- includedSoftwareProductKey String?
- includedSetupPriority SetupPriority @default(STANDARD)
- metadata Json @default("{}")
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- @@index([active])
+  id                         String             @id @default(cuid())
+  key                        String             @unique
+  name                       String
+  description                String?
+  active                     Boolean            @default(true)
+  courseDeliveryType         CourseDeliveryType @default(SKOOL)
+  externalGroupRef           String?
+  commerceProductId          String?
+  includedSoftwareProductKey String?
+  includedSetupPriority      SetupPriority      @default(STANDARD)
+  metadata                   Json               @default("{}")
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+
+  @@index([active])
 }
+
 model ProgramEnrollment {
- id String @id @default(cuid())
- userId String
- programOfferId String
- status ProgramEnrollmentStatus @default(PENDING)
- source String @default("MANUAL")
- externalProvider String?
- externalMembershipId String?
- enrolledAt DateTime @default(now())
- activatedAt DateTime?
- canceledAt DateTime?
- metadata Json @default("{}")
- @@unique([userId, programOfferId])
- @@index([userId, status])
+  id                   String                  @id @default(cuid())
+  userId               String
+  programOfferId       String
+  status               ProgramEnrollmentStatus @default(PENDING)
+  source               String                  @default("MANUAL")
+  externalProvider     String?
+  externalMembershipId String?
+  enrolledAt           DateTime                @default(now())
+  activatedAt          DateTime?
+  canceledAt           DateTime?
+  metadata             Json                    @default("{}")
+
+  @@unique([userId, programOfferId])
+  @@index([userId, status])
 }
+
 model CustomerOrder {
- id String @id @default(cuid())
- userId String
- workspaceId String?
- programEnrollmentId String?
- acquisitionSessionId String?
- affiliateAttributionId String?
- status CustomerOrderStatus @default(DRAFT)
- paymentStatus CustomerPaymentStatus @default(UNPAID)
- paymentMethod String @default("MANUAL")
- paymentVerifiedAt DateTime?
- paymentVerifiedById String?
- stripeCustomerId String?
- stripeCheckoutSessionId String? @unique
- stripePaymentIntentId String? @unique
- stripeSubscriptionId String?
- refundedAmountCents Int @default(0)
- disputedAt DateTime?
- setupPriority SetupPriority @default(STANDARD)
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- items CustomerOrderItem[]
- infrastructureOrder InfrastructureOrder?
- @@index([userId, status])
- @@index([setupPriority, createdAt])
- @@index([stripeCustomerId])
- @@index([stripeSubscriptionId])
+  id                         String                @id @default(cuid())
+  userId                     String
+  workspaceId                String?
+  programEnrollmentId        String?
+  acquisitionSessionId       String?
+  affiliateAttributionId     String?
+  status                     CustomerOrderStatus   @default(DRAFT)
+  paymentStatus              CustomerPaymentStatus @default(UNPAID)
+  paymentMethod              String                @default("MANUAL")
+  paymentVerifiedAt          DateTime?
+  paymentVerifiedById        String?
+  stripeCustomerId           String?
+  stripeCheckoutSessionId    String?               @unique
+  stripePaymentIntentId      String?               @unique
+  stripeSubscriptionId       String?
+  refundedAmountCents        Int                   @default(0)
+  disputedAt                 DateTime?
+  setupPriority              SetupPriority         @default(STANDARD)
+  commercialCatalogVersionId String?
+  acceptedCommercialTerms    Json?
+  acceptedCouponSnapshot     Json?
+  commercialTermsAcceptedAt  DateTime?
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+  items                      CustomerOrderItem[]
+  infrastructureOrder        InfrastructureOrder?
+
+  @@index([userId, status])
+  @@index([setupPriority, createdAt])
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+}
+
+enum CouponRedemptionStatus {
+  APPLIED
+  RESERVED
+  REDEEMED
+  RELEASED
+  REVERSED
+  EXPIRED
+}
+
+model CommercialCoupon {
+  id                            String             @id @default(cuid())
+  code                          String
+  normalizedCode                String             @unique
+  displayName                   String
+  description                   String?
+  active                        Boolean            @default(false)
+  validFrom                     DateTime?
+  expiresAt                     DateTime?
+  percentageOff                 Int
+  recurringDiscountMonths       Int?
+  trialDays                     Int?
+  minimumOrderAmountCents       Int                @default(0)
+  maximumTotalRedemptions       Int?
+  maximumRedemptionsPerCustomer Int?
+  stripeCouponId                String?
+  stripePromotionCodeId         String?
+  version                       Int                @default(1)
+  eligiblePackageKeys           String[]
+  eligibleProductKeys           String[]
+  eligibleChargeTypes           String[]
+  metadata                      Json               @default("{}")
+  createdAt                     DateTime           @default(now())
+  updatedAt                     DateTime           @updatedAt
+  retiredAt                     DateTime?
+  redemptions                   CouponRedemption[]
+
+  @@index([active, validFrom, expiresAt])
+  @@index([retiredAt])
+}
+
+model CouponRedemption {
+  id                     String                 @id @default(cuid())
+  couponId               String
+  acquisitionSessionId   String
+  customerAccountId      String?
+  orderId                String?
+  normalizedCodeSnapshot String
+  couponVersion          Int
+  status                 CouponRedemptionStatus @default(APPLIED)
+  appliedAt              DateTime               @default(now())
+  reservedAt             DateTime?
+  redeemedAt             DateTime?
+  releasedAt             DateTime?
+  reversedAt             DateTime?
+  expiresAt              DateTime?
+  idempotencyKey         String                 @unique
+  calculationSnapshot    Json
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  coupon                 CommercialCoupon       @relation(fields: [couponId], references: [id], onDelete: Restrict)
+
+  @@index([couponId, status])
+  @@index([acquisitionSessionId, status])
+  @@index([customerAccountId, status])
+  @@index([orderId])
 }
 
 enum StripeWebhookProcessingStatus {
- RECEIVED
- PROCESSING
- PROCESSED
- FAILED
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
 }
+
 enum StripePaymentProviderStatus {
- SUCCEEDED
- FAILED
- REFUNDED
- DISPUTED
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  DISPUTED
 }
+
 model StripeCustomerLink {
- id String @id @default(cuid())
- userId String @unique
- stripeCustomerId String @unique
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- @@index([stripeCustomerId])
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  stripeCustomerId String   @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([stripeCustomerId])
 }
+
 model StripeWebhookEvent {
- id String @id @default(cuid())
- stripeEventId String @unique
- eventType String
- status StripeWebhookProcessingStatus @default(RECEIVED)
- customerOrderId String?
- retryCount Int @default(0)
- safeError String?
- receivedAt DateTime @default(now())
- processedAt DateTime?
- @@index([status, receivedAt])
- @@index([customerOrderId])
+  id              String                        @id @default(cuid())
+  stripeEventId   String                        @unique
+  eventType       String
+  status          StripeWebhookProcessingStatus @default(RECEIVED)
+  customerOrderId String?
+  retryCount      Int                           @default(0)
+  safeError       String?
+  receivedAt      DateTime                      @default(now())
+  processedAt     DateTime?
+
+  @@index([status, receivedAt])
+  @@index([customerOrderId])
 }
+
 model StripePaymentRecord {
- id String @id @default(cuid())
- customerOrderId String
- stripePaymentIntentId String? @unique
- stripeChargeId String? @unique
- stripeInvoiceId String? @unique
- stripeSubscriptionId String?
- amountCents Int?
- currency String? @default("usd")
- status StripePaymentProviderStatus
- paidAt DateTime?
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- @@index([customerOrderId])
- @@index([stripeSubscriptionId])
+  id                    String                      @id @default(cuid())
+  customerOrderId       String
+  stripePaymentIntentId String?                     @unique
+  stripeChargeId        String?                     @unique
+  stripeInvoiceId       String?                     @unique
+  stripeSubscriptionId  String?
+  amountCents           Int?
+  currency              String?                     @default("usd")
+  status                StripePaymentProviderStatus
+  paidAt                DateTime?
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+
+  @@index([customerOrderId])
+  @@index([stripeSubscriptionId])
 }
+
 model StripeRefundRecord {
- id String @id @default(cuid())
- stripeRefundId String @unique
- customerOrderId String?
- stripePaymentIntentId String?
- amountCents Int
- status String
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- @@index([customerOrderId])
+  id                    String   @id @default(cuid())
+  stripeRefundId        String   @unique
+  customerOrderId       String?
+  stripePaymentIntentId String?
+  amountCents           Int
+  status                String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([customerOrderId])
 }
+
 model StripeDisputeRecord {
- id String @id @default(cuid())
- stripeDisputeId String @unique
- customerOrderId String?
- stripePaymentIntentId String?
- amountCents Int?
- status String
- reason String?
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- @@index([customerOrderId])
+  id                    String   @id @default(cuid())
+  stripeDisputeId       String   @unique
+  customerOrderId       String?
+  stripePaymentIntentId String?
+  amountCents           Int?
+  status                String
+  reason                String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([customerOrderId])
 }
+
 model CustomerOrderItem {
- id String @id @default(cuid())
- orderId String
- commerceProductId String?
- itemType String
- quantity Int @default(1)
- fulfillmentStatus String @default("PENDING")
- metadata Json @default("{}")
- order CustomerOrder @relation(fields:[orderId], references:[id], onDelete:Cascade)
- @@index([orderId])
+  id                String        @id @default(cuid())
+  orderId           String
+  commerceProductId String?
+  itemType          String
+  quantity          Int           @default(1)
+  fulfillmentStatus String        @default("PENDING")
+  metadata          Json          @default("{}")
+  order             CustomerOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
 }
+
 model InfrastructureOrder {
- id String @id @default(cuid())
- customerOrderId String @unique
- workspaceId String?
- selectedProductKey String
- priority SetupPriority @default(STANDARD)
- status InfrastructureOrderStatus @default(PENDING)
- currentStage String @default("Infrastructure package selected")
- assignedOperatorId String?
- blockedReason String?
- customerActionRequired Boolean @default(false)
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- order CustomerOrder @relation(fields:[customerOrderId], references:[id], onDelete:Cascade)
- tasks CustomerSetupTask[]
- operatorTasks OperatorSetupTask[]
- @@index([priority, status, createdAt])
+  id                     String                    @id @default(cuid())
+  customerOrderId        String                    @unique
+  workspaceId            String?
+  selectedProductKey     String
+  priority               SetupPriority             @default(STANDARD)
+  status                 InfrastructureOrderStatus @default(PENDING)
+  currentStage           String                    @default("Infrastructure package selected")
+  assignedOperatorId     String?
+  blockedReason          String?
+  customerActionRequired Boolean                   @default(false)
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  order                  CustomerOrder             @relation(fields: [customerOrderId], references: [id], onDelete: Cascade)
+  tasks                  CustomerSetupTask[]
+  operatorTasks          OperatorSetupTask[]
+
+  @@index([priority, status, createdAt])
 }
+
 model CustomerSetupTask {
- id String @id @default(cuid())
- infrastructureOrderId String
- workspaceId String?
- taskType String
- title String
- status SetupTaskStatus @default(PENDING)
- required Boolean @default(true)
- dueAt DateTime?
- completedAt DateTime?
- order InfrastructureOrder @relation(fields:[infrastructureOrderId], references:[id], onDelete:Cascade)
- @@index([infrastructureOrderId, status])
+  id                    String              @id @default(cuid())
+  infrastructureOrderId String
+  workspaceId           String?
+  taskType              String
+  title                 String
+  status                SetupTaskStatus     @default(PENDING)
+  required              Boolean             @default(true)
+  dueAt                 DateTime?
+  completedAt           DateTime?
+  order                 InfrastructureOrder @relation(fields: [infrastructureOrderId], references: [id], onDelete: Cascade)
+
+  @@index([infrastructureOrderId, status])
 }
+
 model OperatorSetupTask {
- id String @id @default(cuid())
- infrastructureOrderId String
- assignedOperatorId String?
- taskType String
- title String
- notes String?
- status SetupTaskStatus @default(PENDING)
- priority SetupPriority @default(STANDARD)
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- order InfrastructureOrder @relation(fields:[infrastructureOrderId], references:[id], onDelete:Cascade)
- @@index([infrastructureOrderId, status])
+  id                    String              @id @default(cuid())
+  infrastructureOrderId String
+  assignedOperatorId    String?
+  taskType              String
+  title                 String
+  notes                 String?
+  status                SetupTaskStatus     @default(PENDING)
+  priority              SetupPriority       @default(STANDARD)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  order                 InfrastructureOrder @relation(fields: [infrastructureOrderId], references: [id], onDelete: Cascade)
+
+  @@index([infrastructureOrderId, status])
 }
+
 model CustomerNotificationIntent {
- id String @id @default(cuid())
- userId String
- customerOrderId String?
- recipient String
- templateKey String
- status NotificationIntentStatus @default(PENDING)
- providerMessageId String?
- sentAt DateTime?
- metadata Json @default("{}")
- createdAt DateTime @default(now())
- @@index([userId, status])
+  id                String                   @id @default(cuid())
+  userId            String
+  customerOrderId   String?
+  recipient         String
+  templateKey       String
+  status            NotificationIntentStatus @default(PENDING)
+  providerMessageId String?
+  sentAt            DateTime?
+  metadata          Json                     @default("{}")
+  createdAt         DateTime                 @default(now())
+
+  @@index([userId, status])
 }
 
 model InfrastructureOrderStageEvent {
- id String @id @default(cuid())
- infrastructureOrderId String
- previousStage String?
- newStage String
- eventType String
- actorType String
- actorId String?
- safeMessage String?
- createdAt DateTime @default(now())
- @@index([infrastructureOrderId, createdAt])
+  id                    String   @id @default(cuid())
+  infrastructureOrderId String
+  previousStage         String?
+  newStage              String
+  eventType             String
+  actorType             String
+  actorId               String?
+  safeMessage           String?
+  createdAt             DateTime @default(now())
+
+  @@index([infrastructureOrderId, createdAt])
+}
+
+// Commercial infrastructure control plane. These records extend the existing
+// commerce, mailbox, domain, job, and audit systems instead of replacing them.
+model CommercialCatalogVersion {
+  id              String    @id @default(cuid())
+  productKey      String
+  version         Int
+  effectiveAt     DateTime
+  retiredAt       DateTime?
+  status          String    @default("DRAFT")
+  terms           Json
+  costAssumptions Json      @default("{}")
+  createdById     String?
+  createdAt       DateTime  @default(now())
+
+  @@unique([productKey, version])
+  @@index([productKey, effectiveAt])
+}
+
+model SendingCapacityReservation {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  managedMailboxId  String
+  managedDomainId   String
+  idempotencyKey    String    @unique
+  usageDate         DateTime
+  trafficType       String
+  status            String    @default("RESERVED")
+  isSimulated       Boolean   @default(false)
+  outboundMessageId String?
+  providerMessageId String?
+  safeFailureCode   String?
+  reservedAt        DateTime  @default(now())
+  committedAt       DateTime?
+  releasedAt        DateTime?
+
+  @@index([workspaceId, usageDate, status])
+  @@index([managedMailboxId, usageDate, status])
+  @@index([managedDomainId, usageDate, status])
+}
+
+model WarmupOverride {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  targetType    String
+  targetId      String
+  scope         String
+  reason        String
+  previousState String
+  overrideState String
+  createdById   String
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([workspaceId, targetId, expiresAt])
+}
+
+model WarmupPolicy {
+  id                  String   @id @default(cuid())
+  key                 String   @unique
+  name                String
+  version             Int      @default(1)
+  active              Boolean  @default(true)
+  stages              Json
+  thresholds          Json
+  minimumDays         Int      @default(21)
+  minimumDelivered    Int      @default(150)
+  healthyDaysRequired Int      @default(7)
+  promotionScore      Int      @default(90)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([active])
+}
+
+model MailboxWarmupProfile {
+  id                     String    @id @default(cuid())
+  workspaceId            String
+  managedMailboxId       String    @unique
+  managedDomainId        String
+  warmupPolicyId         String
+  lifecycleState         String    @default("WARMUP_PENDING")
+  startedAt              DateTime?
+  currentStage           Int       @default(0)
+  currentDailyLimit      Int       @default(0)
+  consecutiveHealthyDays Int       @default(0)
+  deliveredSample        Int       @default(0)
+  nextEvaluationAt       DateTime?
+  lastDecision           String?
+  isSimulated            Boolean   @default(false)
+  simulationSource       String?
+  scenarioIdentifier     String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([workspaceId, lifecycleState])
+  @@index([managedDomainId, lifecycleState])
+}
+
+model MailboxHealthSnapshot {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  managedMailboxId   String
+  windowStart        DateTime
+  windowEnd          DateTime
+  sent               Int      @default(0)
+  delivered          Int      @default(0)
+  hardBounces        Int      @default(0)
+  complaints         Int      @default(0)
+  throttled          Int      @default(0)
+  deliveryRate       Decimal  @default(0) @db.Decimal(8, 6)
+  bounceRate         Decimal  @default(0) @db.Decimal(8, 6)
+  complaintRate      Decimal  @default(0) @db.Decimal(8, 6)
+  score              Int
+  components         Json
+  isSimulated        Boolean  @default(false)
+  simulationSource   String?
+  scenarioIdentifier String?
+  createdAt          DateTime @default(now())
+
+  @@unique([managedMailboxId, windowStart, windowEnd, isSimulated])
+  @@index([workspaceId, managedMailboxId, windowEnd])
+}
+
+model WarmupDecision {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  managedMailboxId   String
+  managedDomainId    String
+  evaluationDate     DateTime
+  action             String
+  priorState         String
+  nextState          String
+  priorLimit         Int
+  nextLimit          Int
+  score              Int
+  hardGates          Json
+  reasons            Json
+  evidence           Json
+  evaluatorVersion   String
+  isSimulated        Boolean  @default(false)
+  simulationSource   String?
+  scenarioIdentifier String?
+  createdAt          DateTime @default(now())
+
+  @@unique([managedMailboxId, evaluationDate, isSimulated])
+  @@index([workspaceId, evaluationDate])
+  @@index([managedDomainId, evaluationDate])
+}
+
+model SendingCapacityLedger {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  managedMailboxId String
+  managedDomainId  String
+  usageDate        DateTime
+  trafficType      String
+  reservedCount    Int      @default(0)
+  committedCount   Int      @default(0)
+  isSimulated      Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([managedMailboxId, usageDate, trafficType, isSimulated])
+  @@index([workspaceId, usageDate])
+  @@index([managedDomainId, usageDate])
+}
+
+model WorkspaceAICredential {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  provider          String
+  encryptedSecret   String
+  maskedKey         String
+  status            String    @default("UNTESTED")
+  enabled           Boolean   @default(false)
+  allowedModels     Json      @default("[]")
+  defaultModel      String?
+  featureDefaults   Json      @default("{}")
+  projectDefaults   Json      @default("{}")
+  clientPermissions Json      @default("{}")
+  monthlyAlertMinor Int?
+  createdById       String
+  rotatedById       String?
+  lastTestedAt      DateTime?
+  lastSucceededAt   DateTime?
+  lastSafeFailure   String?
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([workspaceId, provider])
+  @@index([workspaceId, enabled])
+}
+
+model AIProviderUsage {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  credentialId       String?
+  provider           String
+  model              String
+  feature            String
+  projectId          String?
+  clientId           String?
+  inputTokens        Int?
+  outputTokens       Int?
+  estimatedCostMinor Int?
+  currency           String   @default("USD")
+  providerRequestId  String?
+  status             String
+  failureType        String?
+  subscriberPaid     Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, provider, model])
+}
+
+model ProviderCostEntry {
+  id                String   @id @default(cuid())
+  workspaceId       String?
+  provider          String
+  costType          String
+  amountMinor       Int
+  currency          String   @default("USD")
+  incurredAt        DateTime
+  providerReference String?
+  adjustmentType    String?
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now())
+
+  @@index([workspaceId, incurredAt])
+  @@index([provider, providerReference])
 }

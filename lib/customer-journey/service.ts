@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db/prisma";
 import { InfrastructureOrderStatus, Prisma, SetupPriority } from "@prisma/client";
 import { trackFunnelEvent } from "./funnel";
 import { loadValidatedDraft } from "./acquisition-draft";
+import { acceptCommercialTerms } from "@/lib/commercial/service";
+import { reserveCouponForOrder } from "@/lib/commercial/coupons";
+import { ensureAffiliateMembershipForActiveSubscriber, lockAffiliateAttribution } from "@/lib/affiliates/service";
 
 export const priorityRank: Record<SetupPriority, number> = { EXPEDITED: 0, PRIORITY: 1, STANDARD: 2, MANUAL_HOLD: 3 };
 export const requiredSetupTasks = [
@@ -39,7 +42,7 @@ export async function createInfrastructureOrder(input: { userId: string; product
 }
 
 export async function selectSetupPriority(userId: string, priority: SetupPriority) {
-  if (!["STANDARD", "PRIORITY", "EXPEDITED"].includes(priority)) throw new Error("The selected setup priority is not available.");
+  if (!["STANDARD", "PRIORITY"].includes(priority)) throw new Error("The selected setup priority is not available.");
   return prisma.$transaction(async tx => {
     const infrastructure = await tx.infrastructureOrder.findFirstOrThrow({ where: { order: { userId } }, orderBy: { createdAt: "desc" } });
     await tx.customerOrderItem.deleteMany({ where: { orderId: infrastructure.customerOrderId, itemType: "SETUP_PRIORITY" } });
@@ -86,6 +89,9 @@ export async function finalizeAcquisitionOrder(userId: string, anonymousId: stri
       { orderId: order.id, commerceProductId: selected.infrastructure.id, itemType: "SENDING_PACKAGE", metadata: { productKey: selected.infrastructure.key } },
       { orderId: order.id, commerceProductId: selected.setup.id, itemType: "SETUP_PRIORITY", metadata: { productKey: selected.setup.key, priority: selected.draft.setupPriority! } },
     ] });
+    await acceptCommercialTerms({ orderId: order.id, productId: selected.infrastructure.id }, tx);
+    await reserveCouponForOrder({ acquisitionSessionId: acquisition.id, orderId: order.id, customerAccountId: userId }, tx);
+    await lockAffiliateAttribution({ acquisitionSessionId: acquisition.id, orderId: order.id, customerUserId: userId }, tx);
     await tx.infrastructureOrder.upsert({ where: { customerOrderId: order.id }, update: { selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority! }, create: { customerOrderId: order.id, selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority!, status: "WAITING_ON_CUSTOMER", currentStage: "Required setup information", customerActionRequired: true, tasks: { create: requiredSetupTasks.map(([taskType, title]) => ({ taskType, title })) }, operatorTasks: { create: { taskType: "DOMAIN_REVIEW", title: "Review domain and provider readiness", priority: selected.draft.setupPriority! } } } });
     return order;
   });
@@ -132,6 +138,8 @@ export async function fulfillCustomerOrder(orderId:string) {
     const corePlan = await prisma.saasPlan.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" } });
     const subscription = await prisma.saasSubscription.findFirst({ where: { userId: user.id, workspaceId: workspace.id, status: { in: ["ACTIVE", "TRIALING"] } } })
       ?? await prisma.saasSubscription.create({ data: { userId: user.id, workspaceId: workspace.id, planKey: corePlan?.key ?? "QUANTUM_REACH_CORE", status: "ACTIVE", affiliateAttributionId: order.affiliateAttributionId } });
+    if (order.paymentMethod !== "COMPLIMENTARY") await ensureAffiliateMembershipForActiveSubscriber({ userId: user.id, email: user.email, displayName: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email, subscriptionId: subscription.id, correlationId: eventKey });
+    if (order.acceptedCommercialTerms) await prisma.saasSubscription.update({ where: { id: subscription.id }, data: { customerOrderId: order.id, commercialCatalogVersionId: order.commercialCatalogVersionId, acceptedCommercialTerms: order.acceptedCommercialTerms } });
     await prisma.customerOrder.update({ where: { id: orderId }, data: { workspaceId: workspace.id, status: "PARTIALLY_FULFILLED" } });
     if (order.programEnrollmentId) await prisma.programEnrollment.update({ where: { id: order.programEnrollmentId }, data: { status: "ACTIVE", activatedAt: new Date() } });
     for (const key of ["QUANTUM_REACH_CORE", ...order.items.map(item => getProductKey(item.metadata)).filter((key): key is string => Boolean(key))]) {
