@@ -11,6 +11,7 @@ export function validateAffiliateCode(code: string) {
 
 const affiliateCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const automaticEnrollmentAttempts = 5;
+const transientEnrollmentMessage = /write conflict|deadlock|could not serialize access|serialization failure/i;
 
 /** Generates an opaque, non-derived, customer-readable code using rejection sampling. */
 export function generateAffiliateCode() {
@@ -38,47 +39,72 @@ function automaticAuditMetadata(input: SubscriberAffiliateLifecycleInput, trigge
   return { scope: "PLATFORM", actorType: "SYSTEM", trigger, correlationId: input.correlationId, subscriberUserId: input.userId, subscriptionId: input.subscriptionId };
 }
 
-function retryableEnrollmentError(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2034"].includes(error.code);
+function metaTargetIncludes(meta: unknown, needle: string) {
+  if (!meta || typeof meta !== "object") return false;
+  const target = (meta as { target?: unknown }).target;
+  if (typeof target === "string") return target === needle || target.includes(needle);
+  if (Array.isArray(target)) return target.some((part) => String(part) === needle || String(part).includes(needle));
+  return false;
+}
+
+/** True for Prisma serialization conflicts and recognized automatic-enrollment collisions only. */
+export function isTransientAffiliateEnrollmentError(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2034") return true;
+    if (error.code === "P2002") return metaTargetIncludes(error.meta, "normalizedCode");
+    return false;
+  }
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return transientEnrollmentMessage.test(error.message);
+  }
+  return false;
+}
+
+/** Bounded retry for automatic enrollment under Neon/PostgreSQL write conflicts. */
+export async function withAffiliateEnrollmentRetry<T>(operation: () => Promise<T>) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= automaticEnrollmentAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < automaticEnrollmentAttempts && isTransientAffiliateEnrollmentError(error)) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 25));
+        continue;
+      }
+      if (isTransientAffiliateEnrollmentError(error)) throw new Error("AFFILIATE_AUTOMATIC_ENROLLMENT_FAILED");
+      throw error;
+    }
+  }
+  if (isTransientAffiliateEnrollmentError(lastError)) throw new Error("AFFILIATE_AUTOMATIC_ENROLLMENT_FAILED");
+  throw lastError instanceof Error ? lastError : new Error("AFFILIATE_AUTOMATIC_ENROLLMENT_FAILED");
 }
 
 /** Idempotent authority for automatic enrollment on paid subscriber access activation. */
 export async function ensureAffiliateMembershipForActiveSubscriber(input: SubscriberAffiliateLifecycleInput) {
-  for (let attempt = 1; attempt <= automaticEnrollmentAttempts; attempt += 1) {
-    try {
-      return await prisma.$transaction(async tx => {
-        let participant = await tx.affiliateParticipant.findFirst({ where: { OR: [{ userId: input.userId }, { email: input.email.trim().toLowerCase() }] } });
-        let participantCreated = false;
-        if (participant?.userId && participant.userId !== input.userId) throw new Error("AFFILIATE_PARTICIPANT_IDENTITY_CONFLICT");
-        if (!participant) {
-          participant = await tx.affiliateParticipant.create({ data: { userId: input.userId, email: input.email.trim().toLowerCase(), displayName: input.displayName.trim() } });
-          participantCreated = true;
-        } else if (!participant.userId) {
-          participant = await tx.affiliateParticipant.update({ where: { id: participant.id }, data: { userId: input.userId, displayName: input.displayName.trim() } });
-        }
-        const existing = await tx.affiliateMembershipPeriod.findFirst({ where: { participantId: participant.id, status: { in: ["ACTIVE", "SUSPENDED"] } }, include: { code: true } });
-        if (existing?.code) return { participant, membership: existing, code: existing.code, created: false };
-
-        const previous = await tx.affiliateMembershipPeriod.findFirst({ where: { participantId: participant.id, status: "ENDED" }, orderBy: { endedAt: "desc" } });
-        const membership = await tx.affiliateMembershipPeriod.create({ data: { participantId: participant.id } });
-        const codeValue = generateAffiliateCode();
-        const code = await tx.affiliateMembershipCode.create({ data: { membershipPeriodId: membership.id, code: codeValue, normalizedCode: codeValue } });
-        const base = { ...automaticAuditMetadata(input, "SUBSCRIPTION_ACTIVATED"), participantId: participant.id, membershipPeriodId: membership.id, codeId: code.id, isResubscription: Boolean(previous), previous: previous ? { membershipPeriodId: previous.id, status: previous.status, endedAt: previous.endedAt } : null };
-        if (participantCreated) await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_PARTICIPANT_AUTOMATICALLY_CREATED", entityType: "AffiliateParticipant", entityId: participant.id, metadata: { ...base, next: { userId: participant.userId, email: participant.email } } } });
-        await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_MEMBERSHIP_AUTOMATICALLY_STARTED", entityType: "AffiliateMembershipPeriod", entityId: membership.id, metadata: { ...base, next: { status: membership.status, startedAt: membership.startedAt } } } });
-        await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_CODE_AUTOMATICALLY_GENERATED", entityType: "AffiliateMembershipCode", entityId: code.id, metadata: { ...base, next: { status: code.status, normalizedCode: code.normalizedCode } } } });
-        return { participant, membership: { ...membership, code }, code, created: true };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    } catch (error) {
-      if (attempt < automaticEnrollmentAttempts && retryableEnrollmentError(error)) {
-        await new Promise(resolve => setTimeout(resolve, attempt * 25));
-        continue;
-      }
-      if (retryableEnrollmentError(error)) throw new Error("AFFILIATE_AUTOMATIC_ENROLLMENT_FAILED");
-      throw error;
+  return withAffiliateEnrollmentRetry(async () => prisma.$transaction(async (tx) => {
+    let participant = await tx.affiliateParticipant.findFirst({ where: { OR: [{ userId: input.userId }, { email: input.email.trim().toLowerCase() }] } });
+    let participantCreated = false;
+    if (participant?.userId && participant.userId !== input.userId) throw new Error("AFFILIATE_PARTICIPANT_IDENTITY_CONFLICT");
+    if (!participant) {
+      participant = await tx.affiliateParticipant.create({ data: { userId: input.userId, email: input.email.trim().toLowerCase(), displayName: input.displayName.trim() } });
+      participantCreated = true;
+    } else if (!participant.userId) {
+      participant = await tx.affiliateParticipant.update({ where: { id: participant.id }, data: { userId: input.userId, displayName: input.displayName.trim() } });
     }
-  }
-  throw new Error("AFFILIATE_AUTOMATIC_ENROLLMENT_FAILED");
+    const existing = await tx.affiliateMembershipPeriod.findFirst({ where: { participantId: participant.id, status: { in: ["ACTIVE", "SUSPENDED"] } }, include: { code: true } });
+    if (existing?.code) return { participant, membership: existing, code: existing.code, created: false };
+
+    const previous = await tx.affiliateMembershipPeriod.findFirst({ where: { participantId: participant.id, status: "ENDED" }, orderBy: { endedAt: "desc" } });
+    const membership = await tx.affiliateMembershipPeriod.create({ data: { participantId: participant.id } });
+    const codeValue = generateAffiliateCode();
+    const code = await tx.affiliateMembershipCode.create({ data: { membershipPeriodId: membership.id, code: codeValue, normalizedCode: codeValue } });
+    const base = { ...automaticAuditMetadata(input, "SUBSCRIPTION_ACTIVATED"), participantId: participant.id, membershipPeriodId: membership.id, codeId: code.id, isResubscription: Boolean(previous), previous: previous ? { membershipPeriodId: previous.id, status: previous.status, endedAt: previous.endedAt } : null };
+    if (participantCreated) await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_PARTICIPANT_AUTOMATICALLY_CREATED", entityType: "AffiliateParticipant", entityId: participant.id, metadata: { ...base, next: { userId: participant.userId, email: participant.email } } } });
+    await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_MEMBERSHIP_AUTOMATICALLY_STARTED", entityType: "AffiliateMembershipPeriod", entityId: membership.id, metadata: { ...base, next: { status: membership.status, startedAt: membership.startedAt } } } });
+    await tx.auditLog.create({ data: { workspaceId: null, action: "AFFILIATE_CODE_AUTOMATICALLY_GENERATED", entityType: "AffiliateMembershipCode", entityId: code.id, metadata: { ...base, next: { status: code.status, normalizedCode: code.normalizedCode } } } });
+    return { participant, membership: { ...membership, code }, code, created: true };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
 }
 
 /** Idempotently ends access only after the application has declared subscriber access ended. */
