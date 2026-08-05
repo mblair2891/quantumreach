@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
-import { slugify } from "@/lib/utils";
 import { getBetterAuthSession } from "@/lib/auth/session";
+import { createWorkspaceWithUniqueSlug } from "@/lib/workspaces/slug";
 export { can, rolePermissions, type WorkspaceRole } from "@/lib/auth/permissions";
 
 function splitName(name?: string | null) {
@@ -92,16 +92,12 @@ export async function createWorkspaceForCurrentUser(name: string) {
   const existingMembership = await getActiveWorkspaceMembershipForUser(user.id);
   if (existingMembership) return existingMembership.workspace;
 
-  const slugBase = slugify(name);
-  const workspace = await prisma.workspace.create({
-    data: {
-      name,
-      slug: `${slugBase}-${Date.now().toString(36)}`,
-      ownerId: user.id,
-      members: { create: { userId: user.id, roleKey: "WORKSPACE_OWNER" } },
-    },
+  return createWorkspaceWithUniqueSlug({
+    name,
+    slugBase: name,
+    ownerId: user.id,
+    members: { create: { userId: user.id, roleKey: "WORKSPACE_OWNER" } },
   });
-  return workspace;
 }
 
 export async function requireWorkspaceAdmin(workspaceId?: string) {

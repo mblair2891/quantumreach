@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { slugify } from "@/lib/utils";
+import { createWorkspaceWithUniqueSlug } from "@/lib/workspaces/slug";
 
 const activeStatuses = ["ACTIVE", "TRIALING"] as const;
 
@@ -47,9 +47,11 @@ export async function getWorkspaceBootstrapDiagnostic(userId: string) {
 export async function bootstrapOperatorWorkspace(userId: string, name: string) {
   const membership = await prisma.workspaceMember.findFirst({ where: { userId, status: "ACTIVE" }, include: { workspace: true } });
   if (membership) return membership.workspace;
-  const base = slugify(name) || "operator-workspace";
   return prisma.$transaction(async (tx) => {
-    const workspace = await tx.workspace.create({ data: { name, slug: `${base}-${Date.now().toString(36)}`, ownerId: userId } });
+    const workspace = await createWorkspaceWithUniqueSlug(
+      { name, slugBase: name || "operator-workspace", ownerId: userId },
+      tx as unknown as Parameters<typeof createWorkspaceWithUniqueSlug>[1],
+    );
     await tx.workspaceMember.create({ data: { workspaceId: workspace.id, userId, roleKey: "WORKSPACE_OWNER" } });
     await tx.saasWorkspaceProfile.create({ data: { workspaceId: workspace.id, workspaceType: "INTERNAL" } });
     return workspace;

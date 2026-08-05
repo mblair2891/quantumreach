@@ -5,6 +5,7 @@ import { loadValidatedDraft } from "./acquisition-draft";
 import { acceptCommercialTerms } from "@/lib/commercial/service";
 import { reserveCouponForOrder } from "@/lib/commercial/coupons";
 import { ensureAffiliateMembershipForActiveSubscriber, lockAffiliateAttribution } from "@/lib/affiliates/service";
+import { createWorkspaceWithUniqueSlug } from "@/lib/workspaces/slug";
 
 export const priorityRank: Record<SetupPriority, number> = { EXPEDITED: 0, PRIORITY: 1, STANDARD: 2, MANUAL_HOLD: 3 };
 export const requiredSetupTasks = [
@@ -247,9 +248,28 @@ export async function fulfillCustomerOrder(orderId:string) {
     const progress = profile?.onboardingProgress && typeof profile.onboardingProgress === "object" && !Array.isArray(profile.onboardingProgress) ? profile.onboardingProgress as Prisma.JsonObject : {};
     const join = progress.joinProfile && typeof progress.joinProfile === "object" && !Array.isArray(progress.joinProfile) ? progress.joinProfile as Prisma.JsonObject : {};
     const businessName = typeof join.businessName === "string" ? join.businessName : `${user.firstName ?? "Subscriber"} Workspace`;
-    const workspace = order.workspaceId
-      ? await prisma.workspace.findUniqueOrThrow({ where: { id: order.workspaceId } })
-      : await prisma.workspace.create({ data: { name: businessName, slug: `subscriber-${user.id.slice(-12).toLowerCase()}`, ownerId: user.id, settings: { timezone: join.timezone ?? "UTC", onboardingComplete: false } } });
+    // Prefer order linkage, then any active owned workspace (idempotent retries after partial fulfillment).
+    const linkedOrOwned =
+      (order.workspaceId
+        ? await prisma.workspace.findUnique({ where: { id: order.workspaceId } })
+        : null) ??
+      (await prisma.workspace.findFirst({
+        where: {
+          ownerId: user.id,
+          status: "ACTIVE",
+          members: { some: { userId: user.id, status: "ACTIVE" } },
+        },
+        orderBy: { createdAt: "asc" },
+      }));
+    // Full user id in base slug; allocateUniqueWorkspaceSlug + P2002 retry handle leftovers from prior tests.
+    const workspace =
+      linkedOrOwned ??
+      (await createWorkspaceWithUniqueSlug({
+        name: businessName,
+        slugBase: `subscriber-${user.id.toLowerCase()}`,
+        ownerId: user.id,
+        settings: { timezone: join.timezone ?? "UTC", onboardingComplete: false },
+      }));
     await prisma.workspaceMember.upsert({ where: { workspaceId_userId: { workspaceId: workspace.id, userId: user.id } }, update: { roleKey: "WORKSPACE_OWNER", status: "ACTIVE" }, create: { workspaceId: workspace.id, userId: user.id, roleKey: "WORKSPACE_OWNER" } });
     await prisma.saasWorkspaceProfile.upsert({ where: { workspaceId: workspace.id }, update: {}, create: { workspaceId: workspace.id, workspaceType: "DIRECT_CUSTOMER", referralAttributionId: order.affiliateAttributionId } });
     await prisma.workspaceBranding.upsert({ where: { workspaceId: workspace.id }, update: {}, create: { workspaceId: workspace.id, brandName: businessName } });

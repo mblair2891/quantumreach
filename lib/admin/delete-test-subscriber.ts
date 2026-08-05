@@ -1,10 +1,13 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { isOperatorEmail } from "@/lib/admin/operator";
+import { freedWorkspaceSlug } from "@/lib/workspaces/slug";
 
 /**
  * Safely remove a test subscriber identity and owned workspace scaffolding.
  * Blocks deletion of operator allowlist emails. Best-effort cascade for private-beta retesting.
+ * Hard-deletes owned workspaces when possible; otherwise archives and frees the unique slug
+ * so the same business name / email can be re-tested without slug collisions.
  */
 export async function deleteTestSubscriberByEmail(email: string, actorEmail: string) {
   const normalized = email.trim().toLowerCase();
@@ -27,13 +30,15 @@ export async function deleteTestSubscriberByEmail(email: string, actorEmail: str
     where: { userId: profile.id },
     include: { workspace: true },
   });
-  const ownedWorkspaceIds = [
-    ...new Set(
-      memberships
-        .filter((m) => m.roleKey === "WORKSPACE_OWNER" || m.workspace.ownerId === profile.id)
-        .map((m) => m.workspaceId),
-    ),
-  ];
+  const ownedViaMembership = memberships
+    .filter((m) => m.roleKey === "WORKSPACE_OWNER" || m.workspace.ownerId === profile.id)
+    .map((m) => m.workspaceId);
+  // Also catch orphan owner rows (membership already removed in a prior partial wipe).
+  const ownedDirect = await prisma.workspace.findMany({
+    where: { ownerId: profile.id },
+    select: { id: true },
+  });
+  const ownedWorkspaceIds = [...new Set([...ownedViaMembership, ...ownedDirect.map((w) => w.id)])];
 
   // Detach orders from user before profile delete; keep order history with purchaserEmail.
   await prisma.customerOrder.updateMany({
@@ -90,7 +95,7 @@ async function deleteAuthUser(authUserId: string) {
 }
 
 async function deleteOwnedWorkspaceScaffold(workspaceId: string, ownerUserId: string) {
-  // Only delete if this user is the sole owner path for private-beta test workspaces.
+  // Only hard-delete/archive if this user is the sole member path for private-beta test workspaces.
   const otherMembers = await prisma.workspaceMember.count({
     where: { workspaceId, userId: { not: ownerUserId } },
   });
@@ -105,12 +110,21 @@ async function deleteOwnedWorkspaceScaffold(workspaceId: string, ownerUserId: st
   await prisma.workspaceBranding.deleteMany({ where: { workspaceId } });
   await prisma.saasWorkspaceProfile.deleteMany({ where: { workspaceId } });
   await prisma.infrastructureOrder.updateMany({ where: { workspaceId }, data: { workspaceId: null } });
+  await prisma.customerOrder.updateMany({ where: { workspaceId }, data: { workspaceId: null } });
   await prisma.workspaceMember.deleteMany({ where: { workspaceId } });
-  await prisma.workspace.delete({ where: { id: workspaceId } }).catch(async () => {
-    // Workspace may have CRM data; archive instead of hard-failing the subscriber wipe.
+
+  try {
+    await prisma.workspace.delete({ where: { id: workspaceId } });
+  } catch {
+    // Workspace may have CRM/history FKs; archive and free the unique slug so retests can reuse names.
     await prisma.workspace.update({
       where: { id: workspaceId },
-      data: { status: "ARCHIVED", name: `[deleted-test] ${workspaceId.slice(-6)}`, ownerId: null },
+      data: {
+        status: "ARCHIVED",
+        name: `[deleted-test] ${workspaceId.slice(-6)}`,
+        slug: freedWorkspaceSlug(workspaceId),
+        ownerId: null,
+      },
     });
-  });
+  }
 }

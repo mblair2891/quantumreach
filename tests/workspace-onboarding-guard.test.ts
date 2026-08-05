@@ -12,7 +12,7 @@ const prisma = {
     create: vi.fn(),
   },
   workspaceMember: { findFirst: vi.fn(), findMany: vi.fn() },
-  workspace: { create: vi.fn() },
+  workspace: { create: vi.fn(), findUnique: vi.fn() },
 };
 
 vi.mock("@/lib/auth/session", () => ({ getBetterAuthSession }));
@@ -76,8 +76,9 @@ describe("workspace onboarding guard", () => {
 
   it("creates the first workspace and owner membership after onboarding validation", async () => {
     const { createWorkspaceForCurrentUser } = await import("@/lib/auth/rbac");
-    const workspace = { id: "workspace_2", name: "First Workspace", status: "ACTIVE" };
+    const workspace = { id: "workspace_2", name: "First Workspace", status: "ACTIVE", slug: "first-workspace" };
     prisma.workspaceMember.findFirst.mockResolvedValue(null);
+    prisma.workspace.findUnique.mockResolvedValue(null);
     prisma.workspace.create.mockResolvedValue(workspace);
 
     await expect(createWorkspaceForCurrentUser("First Workspace")).resolves.toEqual(workspace);
@@ -86,6 +87,7 @@ describe("workspace onboarding guard", () => {
       data: expect.objectContaining({
         name: "First Workspace",
         ownerId: "user_1",
+        slug: expect.any(String),
         members: { create: { userId: "user_1", roleKey: "WORKSPACE_OWNER" } },
       }),
     });
