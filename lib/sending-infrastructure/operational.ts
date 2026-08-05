@@ -45,8 +45,18 @@ export async function bootstrapCommerceCatalog(db: Db = prisma) {
     const plan = DEFAULT_COMMERCIAL_PLANS.find((candidate) => candidate.key === product.key);
     const metadata = plan ? { recurringPriceCents: plan.monthlyCents, setupFeeCents: plan.setupCents, slug: plan.slug, description: plan.description, whoItsFor: plan.targetCustomer, onboarding: plan.onboarding, support: plan.support, recommended: plan.recommended, version: plan.version, effectiveAt: plan.effectiveAt, cogsRangeCents: plan.cogsRangeCents } : undefined;
     const existing = await db.commerceProduct.findUnique({ where: { key: product.key }, select: { metadata: true } });
-    const mergedMetadata = mergeCatalogMetadata(metadata ?? {}, existing?.metadata);
-    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata }, create: { key: product.key, name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata } });
+    // Defaults win for core price fields so a half-seeded row cannot leave the public funnel without prices.
+    const existingMetadata = metadataRecord(existing?.metadata);
+    const mergedMetadata = plan
+      ? {
+          ...existingMetadata,
+          ...metadata,
+          recurringPriceCents: plan.monthlyCents,
+          setupFeeCents: plan.setupCents,
+          recommended: plan.recommended,
+        }
+      : mergeCatalogMetadata(metadata ?? {}, existing?.metadata);
+    const saved = await db.commerceProduct.upsert({ where: { key: product.key }, update: { name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata as Prisma.InputJsonObject }, create: { key: product.key, name: product.name, description: plan?.description, category: product.category as any, active: product.active, recurring: product.recurring, sortOrder: product.sortOrder, metadata: mergedMetadata as Prisma.InputJsonObject } });
     for (const [entitlementKey, value] of Object.entries(product.entitlements)) await upsertProductEntitlement(saved.id, entitlementKey as EntitlementKey, value as any, db);
   }
   for (const addon of DEFAULT_ADDONS) {
@@ -55,6 +65,32 @@ export async function bootstrapCommerceCatalog(db: Db = prisma) {
     await db.commerceProduct.upsert({ where: { key: addon.key }, update: { name: addon.name, active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata }, create: { key: addon.key, name: addon.name, category: addon.key.includes("MAILBOX") ? "SENDER_ADDON" : addon.key.includes("SEND") ? "SEND_CAPACITY_ADDON" : "DOMAIN_ADDON", active: true, recurring: addon.recurring, billingInterval: addon.interval as any, metadata, sortOrder: 100 } });
   }
   await upsertSetupProducts(db);
+}
+
+const acquisitionPackageKeys = ["LAUNCH_SENDER_PACKAGE", "GROWTH_SENDER_PACKAGE", "SCALE_SENDER_PACKAGE"] as const;
+const acquisitionSetupKeys = ["STANDARD_SETUP", "PRIORITY_SETUP"] as const;
+
+function metadataHasPackagePricing(metadata: unknown) {
+  const record = metadataRecord(metadata);
+  return typeof record.recurringPriceCents === "number" && Number.isInteger(record.recurringPriceCents) && record.recurringPriceCents >= 0
+    && typeof record.setupFeeCents === "number" && Number.isInteger(record.setupFeeCents) && record.setupFeeCents >= 0;
+}
+
+/** Ensure public acquisition catalog rows exist with usable prices (idempotent). */
+export async function ensureAcquisitionCatalogReady(db: Db = prisma) {
+  const [packages, setup, core] = await Promise.all([
+    db.commerceProduct.findMany({ where: { key: { in: [...acquisitionPackageKeys] }, active: true } }),
+    db.commerceProduct.findMany({ where: { key: { in: [...acquisitionSetupKeys] }, category: "SETUP_FEE", active: true } }),
+    db.commerceProduct.findFirst({ where: { category: "SOFTWARE_CORE", active: true }, select: { id: true } }),
+  ]);
+  const packagesReady = acquisitionPackageKeys.every((key) => {
+    const product = packages.find((row) => row.key === key);
+    return Boolean(product?.recurring && metadataHasPackagePricing(product.metadata));
+  });
+  const setupReady = acquisitionSetupKeys.every((key) => setup.some((row) => row.key === key));
+  if (packagesReady && setupReady && core) return { repaired: false as const };
+  await bootstrapCommerceCatalog(db);
+  return { repaired: true as const };
 }
 
 export async function upsertProductEntitlement(productId: string, entitlementKey: EntitlementKey, value: number | boolean | string, db: Db = prisma) {

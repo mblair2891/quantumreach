@@ -30,11 +30,16 @@ export function readDraft(metadata: Prisma.JsonValue): DraftSelection {
 
 export function catalogPrice(product: Pick<CommerceProduct, "recurring" | "metadata">): CatalogPrice {
   const metadata = record(product.metadata);
+  const hasRecurringPrice = typeof metadata.recurringPriceCents === "number" && Number.isInteger(metadata.recurringPriceCents) && metadata.recurringPriceCents >= 0;
+  // Prefer explicit package recurring pricing; fall back to the product.recurring flag.
+  const treatAsRecurring = product.recurring || hasRecurringPrice;
   const recurring = cents(metadata.recurringPriceCents ?? metadata.priceCents ?? metadata.unitAmountCents);
-  const oneTime = cents(metadata.setupFeeCents ?? metadata.oneTimePriceCents ?? (!product.recurring ? metadata.priceCents : undefined));
-  const keys = product.recurring ? ["recurringPriceCents", "priceCents", "unitAmountCents"] : ["setupFeeCents", "oneTimePriceCents", "priceCents"];
-  const configured = keys.some(key => typeof metadata[key] === "number" && Number.isInteger(metadata[key]) && Number(metadata[key]) >= 0);
-  return { recurringCents: product.recurring ? recurring : 0, oneTimeCents: oneTime, configured };
+  const oneTime = cents(metadata.setupFeeCents ?? metadata.oneTimePriceCents ?? (!treatAsRecurring ? metadata.priceCents : undefined));
+  const keys = treatAsRecurring
+    ? ["recurringPriceCents", "priceCents", "unitAmountCents"]
+    : ["setupFeeCents", "oneTimePriceCents", "priceCents"];
+  const configured = keys.some((key) => typeof metadata[key] === "number" && Number.isInteger(metadata[key]) && Number(metadata[key]) >= 0);
+  return { recurringCents: treatAsRecurring ? recurring : 0, oneTimeCents: oneTime, configured };
 }
 
 function cents(value: unknown) { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0; }
