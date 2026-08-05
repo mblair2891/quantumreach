@@ -1,0 +1,31 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE, normalizeCheckoutTimezone } from "@/lib/customer-journey/timezones";
+
+const source = (path: string) => readFileSync(path, "utf8");
+
+describe("pay-first checkout form", () => {
+  it("exposes a timezone dropdown with common IANA zones", () => {
+    expect(COMMON_TIMEZONES.length).toBeGreaterThanOrEqual(10);
+    expect(COMMON_TIMEZONES.some((zone) => zone.value === DEFAULT_CHECKOUT_TIMEZONE)).toBe(true);
+    expect(normalizeCheckoutTimezone("America/Los_Angeles")).toBe("America/Los_Angeles");
+    expect(normalizeCheckoutTimezone("not-a-zone")).toBe(DEFAULT_CHECKOUT_TIMEZONE);
+  });
+
+  it("uses a timezone select and omits business type and intended use", () => {
+    const page = source("app/setup/confirmation/page.tsx");
+    const actions = source("app/setup/confirmation/actions.ts");
+    const service = source("lib/customer-journey/service.ts");
+    expect(page).toContain('name="timezone"');
+    expect(page).toContain("COMMON_TIMEZONES");
+    expect(page).toContain("<select");
+    expect(page).not.toContain('name="businessType"');
+    expect(page).not.toContain('name="intendedUse"');
+    expect(page).not.toContain("Business type");
+    expect(page).not.toContain("Intended use");
+    expect(actions).not.toContain("businessType");
+    expect(actions).not.toContain("intendedUse");
+    expect(service).toContain("GuestPurchaserInput");
+    expect(service).toContain("normalizeCheckoutTimezone");
+  });
+});

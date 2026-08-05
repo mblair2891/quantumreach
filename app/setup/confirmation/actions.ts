@@ -56,10 +56,8 @@ export async function submitGuestCheckoutAction(form: FormData) {
       firstName: String(form.get("firstName") ?? ""),
       lastName: String(form.get("lastName") ?? ""),
       businessName: String(form.get("businessName") ?? ""),
-      businessType: String(form.get("businessType") ?? ""),
       timezone: String(form.get("timezone") ?? "America/New_York"),
       country: String(form.get("country") ?? "US"),
-      intendedUse: String(form.get("intendedUse") ?? ""),
     });
     cookies().set("qr_acquisition", resume, {
       httpOnly: true,

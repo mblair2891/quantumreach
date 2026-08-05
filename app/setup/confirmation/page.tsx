@@ -16,6 +16,7 @@ import { FunnelShell } from "@/components/funnel/shell";
 import { SimulatedPaymentButton } from "@/components/funnel/simulated-payment-button";
 import { isSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 import { ACCOUNT_SETUP_TOKEN_TTL_HOURS } from "@/lib/auth/constants";
+import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE } from "@/lib/customer-journey/timezones";
 
 export default async function Confirmation({
   searchParams,
@@ -267,19 +268,22 @@ export default async function Confirmation({
             <Field name="businessName" label="Business name" />
             <Field name="firstName" label="First name" defaultValue={signedInUser?.firstName ?? ""} />
             <Field name="lastName" label="Last name" defaultValue={signedInUser?.lastName ?? ""} />
-            <Field name="businessType" label="Business type or service" />
-            <Field name="timezone" label="Timezone" defaultValue="America/New_York" />
-            <Field name="country" label="Country code" defaultValue="US" maxLength={2} />
-            <label className="sm:col-span-2 text-sm font-medium text-slate-700">
-              Intended use
-              <textarea
-                name="intendedUse"
+            <label className="text-sm font-medium text-slate-700">
+              Timezone
+              <select
+                name="timezone"
                 required
-                minLength={10}
-                maxLength={1000}
-                className="mt-1 min-h-24 w-full rounded-xl border px-3 py-2"
-              />
+                defaultValue={DEFAULT_CHECKOUT_TIMEZONE}
+                className="mt-1 w-full rounded-xl border px-3 py-2 bg-white text-slate-950"
+              >
+                {COMMON_TIMEZONES.map((zone) => (
+                  <option key={zone.value} value={zone.value}>
+                    {zone.label}
+                  </option>
+                ))}
+              </select>
             </label>
+            <Field name="country" label="Country code" defaultValue="US" maxLength={2} />
             <label className="flex gap-3 text-sm sm:col-span-2">
               <input type="checkbox" name="agreementAccepted" required value="on" />
               <span>I agree to the terms and confirm this order information is accurate.</span>

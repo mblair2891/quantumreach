@@ -74,16 +74,21 @@ export type GuestPurchaserInput = {
   firstName: string;
   lastName: string;
   businessName: string;
-  businessType: string;
   timezone: string;
   country: string;
-  intendedUse: string;
 };
 
 /** Pay-first: convert anonymous draft into unpaid order without a UserProfile. */
 export async function createGuestAcquisitionOrder(anonymousId: string, purchaser: GuestPurchaserInput) {
   const email = purchaser.email.trim().toLowerCase();
   if (!email || !email.includes("@")) throw new Error("A valid email is required.");
+  const firstName = purchaser.firstName.trim();
+  const lastName = purchaser.lastName.trim();
+  const businessName = purchaser.businessName.trim();
+  if (!firstName || !lastName || !businessName) throw new Error("Name and business name are required.");
+  const { normalizeCheckoutTimezone } = await import("./timezones");
+  const timezone = normalizeCheckoutTimezone(purchaser.timezone);
+  const country = (purchaser.country.trim().toUpperCase() || "US").slice(0, 2);
   const selected = await loadValidatedDraft(anonymousId);
   const offer = await bootstrapProgramOffer();
   const result = await prisma.$transaction(async (tx) => {
@@ -102,13 +107,13 @@ export async function createGuestAcquisitionOrder(anonymousId: string, purchaser
         data: {
           userId: null,
           purchaserEmail: email,
-          purchaserFirstName: purchaser.firstName.trim(),
-          purchaserLastName: purchaser.lastName.trim(),
-          businessName: purchaser.businessName.trim(),
-          businessType: purchaser.businessType.trim(),
-          timezone: purchaser.timezone.trim(),
-          country: purchaser.country.trim().toUpperCase(),
-          intendedUse: purchaser.intendedUse.trim(),
+          purchaserFirstName: firstName,
+          purchaserLastName: lastName,
+          businessName,
+          businessType: null,
+          timezone,
+          country,
+          intendedUse: null,
           acquisitionSessionId: acquisition.id,
           affiliateAttributionId: acquisition.affiliateAttributionId,
           setupPriority: selected.draft.setupPriority!,
@@ -121,13 +126,13 @@ export async function createGuestAcquisitionOrder(anonymousId: string, purchaser
       where: { id: order.id },
       data: {
         purchaserEmail: email,
-        purchaserFirstName: purchaser.firstName.trim(),
-        purchaserLastName: purchaser.lastName.trim(),
-        businessName: purchaser.businessName.trim(),
-        businessType: purchaser.businessType.trim(),
-        timezone: purchaser.timezone.trim(),
-        country: purchaser.country.trim().toUpperCase(),
-        intendedUse: purchaser.intendedUse.trim(),
+        purchaserFirstName: firstName,
+        purchaserLastName: lastName,
+        businessName,
+        businessType: null,
+        timezone,
+        country,
+        intendedUse: null,
         setupPriority: selected.draft.setupPriority!,
         paymentStatus: "UNPAID",
         paymentMethod: "MANUAL",
