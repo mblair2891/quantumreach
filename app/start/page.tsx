@@ -22,15 +22,20 @@ async function selectPlan(formData: FormData) {
 }
 export default async function StartPage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   await ensureAcquisitionCatalogReady();
-  let existing = null;
+  // Only show signed-in messaging when a real Better Auth session is present.
+  // Logged-out visitors must always see a clean guest funnel.
+  let existing: Awaited<ReturnType<typeof getOptionalUserProfile>> = null;
   try {
     existing = await getOptionalUserProfile();
   } catch {
     existing = null;
   }
-  const activeSubscription = existing
-    ? await prisma.saasSubscription.findFirst({ where: { userId: existing.id, status: { in: ["ACTIVE", "TRIALING"] }, workspaceId: { not: null } } })
-    : null;
+  const activeSubscription =
+    existing != null
+      ? await prisma.saasSubscription.findFirst({
+          where: { userId: existing.id, status: { in: ["ACTIVE", "TRIALING"] }, workspaceId: { not: null } },
+        })
+      : null;
   const products = await prisma.commerceProduct.findMany({
     where: { category: "SENDING_PACKAGE", active: true, key: { in: ["LAUNCH_SENDER_PACKAGE", "GROWTH_SENDER_PACKAGE", "SCALE_SENDER_PACKAGE"] } },
     include: { entitlements: true },
@@ -41,15 +46,33 @@ export default async function StartPage({ searchParams }: { searchParams: Record
       <AcquisitionCapture params={searchParams} />
       <main className="mx-auto max-w-7xl px-5 py-12 sm:px-8 sm:py-16">
         <FunnelProgress current={1} />
-        {activeSubscription && (
-          <p className="mb-7 rounded-xl bg-indigo-50 p-4 text-center text-indigo-900">
-            This account already has an active workspace.{" "}
-            <a className="font-semibold underline" href="/dashboard">
-              Open your dashboard
-            </a>
-            .
-          </p>
-        )}
+        {existing && activeSubscription ? (
+          <div className="mb-7 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-center text-indigo-950">
+            <p>
+              You are signed in as <strong>{existing.email}</strong> and already have an active workspace.
+            </p>
+            <p className="mt-2 flex flex-wrap items-center justify-center gap-4 text-sm font-semibold">
+              <a className="underline" href="/dashboard">
+                Open your dashboard
+              </a>
+              <a className="underline" href="/sign-out?next=/start">
+                Sign out for a clean guest checkout
+              </a>
+            </p>
+          </div>
+        ) : existing ? (
+          <div className="mb-7 rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-slate-800">
+            <p>
+              Signed in as <strong>{existing.email}</strong>. Guest checkout still works below with any purchaser email.
+            </p>
+            <p className="mt-2 text-sm">
+              <a className="font-semibold underline" href="/sign-out?next=/start">
+                Sign out
+              </a>{" "}
+              for a fully anonymous session.
+            </p>
+          </div>
+        ) : null}
         <header className="text-center">
           <p className="funnel-eyebrow">Step 1 · Complete platform package</p>
           <h1 className="funnel-title mt-3 text-4xl font-semibold sm:text-5xl">Choose your client-growth operating system.</h1>
@@ -89,8 +112,8 @@ export default async function StartPage({ searchParams }: { searchParams: Record
                 <p className="mt-6 text-xs leading-5 text-slate-500">
                   Sending capacity becomes available gradually as managed domains and mailboxes complete Quantum Reach’s health-based warm-up process. Capacity depends on health, provider limits, recipient quality, and compliance.
                 </p>
-                <button disabled={Boolean(activeSubscription)} className="funnel-primary mt-auto pt-6 disabled:opacity-50">
-                  {activeSubscription ? "Already subscribed" : `Choose ${product.name}`}
+                <button className="funnel-primary mt-auto pt-6">
+                  Choose {product.name}
                 </button>
               </form>
             );

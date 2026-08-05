@@ -11,17 +11,12 @@ export function AccountMenu({ email }: { email?: string | null }) {
   async function handleSignOut() {
     setPending(true);
     try {
-      await signOut({
-        fetchOptions: {
-          onSuccess: () => {
-            window.location.href = "/sign-in";
-          },
-        },
-      });
-      window.location.href = "/sign-in";
+      await signOut();
     } catch {
-      setPending(false);
+      // Fall through to hard navigation that clears cookies server-side.
     }
+    // Prefer server route so session cookies are cleared even if client signOut is partial.
+    window.location.href = "/sign-out?next=/start";
   }
 
   return (
