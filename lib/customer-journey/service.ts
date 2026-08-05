@@ -69,6 +69,121 @@ export async function bootstrapProgramOffer() { return prisma.programOffer.upser
 export async function isOrderFinanciallyCleared(order: { paymentStatus: string; paymentMethod: string }) { return order.paymentStatus === "PAID" && ["MANUAL", "COMPLIMENTARY", "STRIPE", "SIMULATED_TEST"].includes(order.paymentMethod); }
 export async function createProgramOrder(userId: string, acquisitionSessionId?: string | null) { const offer=await bootstrapProgramOffer(); const result=await prisma.$transaction(async tx=>{ const acquisition=acquisitionSessionId?await tx.acquisitionSession.findUnique({where:{id:acquisitionSessionId}}):await tx.acquisitionSession.findFirst({where:{userId},orderBy:{clickedAt:"desc"}}); const enrollment=await tx.programEnrollment.upsert({where:{userId_programOfferId:{userId,programOfferId:offer.id}},update:{},create:{userId,programOfferId:offer.id,status:"PENDING",source:"MANUAL",externalProvider:"SKOOL"}}); const existing=await tx.customerOrder.findFirst({where:{userId,programEnrollmentId:enrollment.id,status:{in:["DRAFT","CHECKOUT_PENDING"]}}}); const order=existing??await tx.customerOrder.create({data:{userId,programEnrollmentId:enrollment.id,acquisitionSessionId:acquisition?.id,affiliateAttributionId:acquisition?.affiliateAttributionId,status:"CHECKOUT_PENDING",paymentStatus:"UNPAID",paymentMethod:"MANUAL",items:{create:{itemType:"PROGRAM",metadata:{programOfferKey:offer.key}}}}}); await tx.customerNotificationIntent.create({data:{userId,customerOrderId:order.id,recipient:"pending-auth-email",templateKey:"INFRASTRUCTURE_SELECTION_REQUIRED",metadata:{path:"/setup/infrastructure"}}}); return {enrollment,order}; }); await trackFunnelEvent("PROGRAM_ORDER_CREATED",{userId,acquisitionSessionId:acquisitionSessionId??undefined,customerOrderId:result.order.id}); return result; }
 
+export type GuestPurchaserInput = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  businessName: string;
+  businessType: string;
+  timezone: string;
+  country: string;
+  intendedUse: string;
+};
+
+/** Pay-first: convert anonymous draft into unpaid order without a UserProfile. */
+export async function createGuestAcquisitionOrder(anonymousId: string, purchaser: GuestPurchaserInput) {
+  const email = purchaser.email.trim().toLowerCase();
+  if (!email || !email.includes("@")) throw new Error("A valid email is required.");
+  const selected = await loadValidatedDraft(anonymousId);
+  const offer = await bootstrapProgramOffer();
+  const result = await prisma.$transaction(async (tx) => {
+    const acquisition = selected.session;
+    const existing = await tx.customerOrder.findFirst({
+      where: {
+        acquisitionSessionId: acquisition.id,
+        purchaserEmail: email,
+        status: { in: ["DRAFT", "CHECKOUT_PENDING"] },
+        userId: null,
+      },
+    });
+    const order =
+      existing ??
+      (await tx.customerOrder.create({
+        data: {
+          userId: null,
+          purchaserEmail: email,
+          purchaserFirstName: purchaser.firstName.trim(),
+          purchaserLastName: purchaser.lastName.trim(),
+          businessName: purchaser.businessName.trim(),
+          businessType: purchaser.businessType.trim(),
+          timezone: purchaser.timezone.trim(),
+          country: purchaser.country.trim().toUpperCase(),
+          intendedUse: purchaser.intendedUse.trim(),
+          acquisitionSessionId: acquisition.id,
+          affiliateAttributionId: acquisition.affiliateAttributionId,
+          setupPriority: selected.draft.setupPriority!,
+          status: "CHECKOUT_PENDING",
+          paymentStatus: "UNPAID",
+          paymentMethod: "MANUAL",
+        },
+      }));
+    await tx.customerOrder.update({
+      where: { id: order.id },
+      data: {
+        purchaserEmail: email,
+        purchaserFirstName: purchaser.firstName.trim(),
+        purchaserLastName: purchaser.lastName.trim(),
+        businessName: purchaser.businessName.trim(),
+        businessType: purchaser.businessType.trim(),
+        timezone: purchaser.timezone.trim(),
+        country: purchaser.country.trim().toUpperCase(),
+        intendedUse: purchaser.intendedUse.trim(),
+        setupPriority: selected.draft.setupPriority!,
+        paymentStatus: "UNPAID",
+        paymentMethod: "MANUAL",
+      },
+    });
+    await tx.customerOrderItem.deleteMany({
+      where: { orderId: order.id, itemType: { in: ["PROGRAM", "SOFTWARE_CORE", "SENDING_PACKAGE", "SETUP_PRIORITY"] } },
+    });
+    await tx.customerOrderItem.createMany({
+      data: [
+        { orderId: order.id, itemType: "PROGRAM", metadata: { programOfferKey: offer.key } },
+        { orderId: order.id, commerceProductId: selected.core.id, itemType: "SOFTWARE_CORE", metadata: { productKey: selected.core.key } },
+        { orderId: order.id, commerceProductId: selected.infrastructure.id, itemType: "SENDING_PACKAGE", metadata: { productKey: selected.infrastructure.key } },
+        {
+          orderId: order.id,
+          commerceProductId: selected.setup.id,
+          itemType: "SETUP_PRIORITY",
+          metadata: { productKey: selected.setup.key, priority: selected.draft.setupPriority! },
+        },
+      ],
+    });
+    await acceptCommercialTerms({ orderId: order.id, productId: selected.infrastructure.id }, tx);
+    await reserveCouponForOrder(
+      { acquisitionSessionId: acquisition.id, orderId: order.id, customerAccountId: `guest:${email}` },
+      tx,
+    );
+    await tx.infrastructureOrder.upsert({
+      where: { customerOrderId: order.id },
+      update: { selectedProductKey: selected.infrastructure.key, priority: selected.draft.setupPriority! },
+      create: {
+        customerOrderId: order.id,
+        selectedProductKey: selected.infrastructure.key,
+        priority: selected.draft.setupPriority!,
+        status: "WAITING_ON_CUSTOMER",
+        currentStage: "Required setup information",
+        customerActionRequired: true,
+        tasks: { create: requiredSetupTasks.map(([taskType, title]) => ({ taskType, title })) },
+        operatorTasks: {
+          create: {
+            taskType: "DOMAIN_REVIEW",
+            title: "Review domain and provider readiness",
+            priority: selected.draft.setupPriority!,
+          },
+        },
+      },
+    });
+    return order;
+  });
+  await trackFunnelEvent("PROGRAM_ORDER_CREATED", {
+    acquisitionSessionId: selected.session.id,
+    customerOrderId: result.id,
+    metadata: { payFirst: true, purchaserEmail: email },
+  });
+  return result;
+}
+
 /** Converts a safe anonymous draft into one canonical, still-unpaid authenticated order. */
 export async function finalizeAcquisitionOrder(userId: string, anonymousId: string) {
   const activeSubscription = await prisma.saasSubscription.findFirst({ where: { userId, status: { in: ["ACTIVE", "TRIALING"] }, workspaceId: { not: null } } });
@@ -120,6 +235,7 @@ function getProductKey(metadata: Prisma.JsonValue): string | undefined {
 export async function fulfillCustomerOrder(orderId:string) {
   const order = await prisma.customerOrder.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
   if (!(await isOrderFinanciallyCleared(order))) throw new Error("Order is not financially cleared.");
+  if (!order.userId) throw new Error("Order is not linked to a user account yet. Complete account setup first.");
   const user = await prisma.userProfile.findUniqueOrThrow({ where: { id: order.userId } });
   const eventKey = `customer-order:${orderId}:fulfillment`;
   await prisma.subscriberProvisioningEvent.upsert({ where: { idempotencyKey: eventKey }, create: { idempotencyKey: eventKey, userId: user.id, eventType: "CUSTOMER_ORDER_FULFILLMENT", status: "RUNNING" }, update: { status: "RUNNING", retryCount: { increment: 1 }, safeMessage: null } });

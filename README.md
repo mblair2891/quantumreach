@@ -14,7 +14,7 @@ Quantum Reach is an enterprise-grade, multi-tenant SaaS foundation for CRM-led d
 
 - Next.js App Router, TypeScript, Tailwind CSS, shadcn-style UI primitives
 - Prisma + PostgreSQL/Neon (`DATABASE_URL`, `DIRECT_DATABASE_URL`)
-- Clerk authentication with internal workspace RBAC
+- Better Auth (email/password + username) with internal workspace RBAC
 - OpenAI provider abstraction with structured JSON output handling
 - Cloudflare R2 private storage abstraction
 - Trigger.dev-ready job abstraction
@@ -55,9 +55,9 @@ npm run prisma:seed
 npm run dev
 ```
 
-## Clerk setup notes
+## Auth setup notes
 
-Create a Clerk application, set the publishable and secret keys, and configure sign-in/sign-up URLs from `.env.example`. Clerk protects `/onboarding` and `/dashboard(.*)` through `middleware.ts`. Application permissions still use internal `WorkspaceMember.roleKey` and service-layer checks.
+Set `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` from `.env.example`. Public self-service sign-up is disabled unless `BETTER_AUTH_PUBLIC_SIGNUP_ENABLED=true`. Seed an operator with `npm run seed:operator` (email must be in `ADMIN_EMAILS`). Middleware protects `/dashboard`, `/onboarding`, `/platform`, and `/portal`. Application permissions still use internal `WorkspaceMember.roleKey` and service-layer checks. Acquisition is pay-first: checkout collects purchaser email, then a 48-hour setup link creates the account.
 
 ## Neon and Prisma notes
 
@@ -101,7 +101,7 @@ npm run build
 ## Security posture
 
 - No secrets are committed; `.env.example` uses placeholders only.
-- Dashboard and onboarding routes are protected by Clerk middleware.
+- Dashboard, onboarding, platform, and portal routes are protected by Better Auth session middleware.
 - Workspace-scoped service helpers enforce membership before queries/mutations.
 - Business records include `workspaceId` and archive/status fields where appropriate.
 - AI outputs are auditable and require human review before finalization.

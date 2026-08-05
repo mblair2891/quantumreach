@@ -74,9 +74,10 @@ describe("setup-priority catalog bootstrap", () => {
     expect(action).toContain("setupProductKeys[priority]");
     expect(action).toContain("saveDraftSelection({ setupPriority: priority })");
     expect(action).toContain('redirect("/setup/confirmation")');
-    expect(confirmation).toContain('label="Setup priority" value={selection.setup.name}');
-    expect(confirmation).toContain('label="Priority surcharge"');
-    expect(confirmation).toContain("Nothing has been charged and nothing has been provisioned");
+    expect(confirmation).toContain('label="Setup priority"');
+    expect(confirmation).toContain("selection.setup.name");
+    expect(confirmation).toContain("Pay first");
+    expect(confirmation).toContain("submitGuestCheckoutAction");
   });
 
   it("keeps initialization for an empty catalog and exposes synchronization for a populated catalog", () => {

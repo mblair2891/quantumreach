@@ -1,30 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const clerkAuth = vi.fn();
-const clerkCurrentUser = vi.fn();
-const redirect = vi.fn((path: string) => { throw new Error(`NEXT_REDIRECT:${path}`); });
+const getBetterAuthSession = vi.fn();
+const redirect = vi.fn((path: string) => {
+  throw new Error(`NEXT_REDIRECT:${path}`);
+});
 
 const prisma = {
-  userProfile: { upsert: vi.fn() },
+  userProfile: {
+    findUnique: vi.fn(),
+    update: vi.fn(),
+    create: vi.fn(),
+  },
   workspaceMember: { findFirst: vi.fn(), findMany: vi.fn() },
-  workspace: { create: vi.fn() }
+  workspace: { create: vi.fn() },
 };
 
-vi.mock("@clerk/nextjs/server", () => ({ auth: clerkAuth, currentUser: clerkCurrentUser }));
+vi.mock("@/lib/auth/session", () => ({ getBetterAuthSession }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("@/lib/db/prisma", () => ({ prisma }));
+
+const authUser = { id: "auth_user_1", email: "owner@example.com", name: "Work Space", image: "https://example.com/avatar.png" };
+const profile = { id: "user_1", authUserId: "auth_user_1", email: "owner@example.com", firstName: "Work", lastName: "Space" };
 
 describe("workspace onboarding guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clerkAuth.mockResolvedValue({ userId: "clerk_user_1" });
-    clerkCurrentUser.mockResolvedValue({
-      emailAddresses: [{ emailAddress: "owner@example.com" }],
-      firstName: "Work",
-      lastName: "Space",
-      imageUrl: "https://example.com/avatar.png"
+    getBetterAuthSession.mockResolvedValue({ session: { id: "sess_1" }, user: authUser });
+    prisma.userProfile.findUnique.mockImplementation(async ({ where }: { where: Record<string, string> }) => {
+      if (where.authUserId === "auth_user_1" || where.email === "owner@example.com") return profile;
+      return null;
     });
-    prisma.userProfile.upsert.mockResolvedValue({ id: "user_1", clerkUserId: "clerk_user_1", email: "owner@example.com" });
+    prisma.userProfile.update.mockResolvedValue(profile);
+    prisma.userProfile.create.mockResolvedValue(profile);
   });
 
   it("redirects signed-in users without an active workspace membership to onboarding", async () => {
@@ -33,11 +40,13 @@ describe("workspace onboarding guard", () => {
 
     await expect(requireWorkspaceAccess()).rejects.toThrow("NEXT_REDIRECT:/onboarding");
 
-    expect(prisma.workspaceMember.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: "user_1", workspaceId: undefined, status: "ACTIVE", workspace: { status: "ACTIVE" } },
-      include: { workspace: true },
-      orderBy: { createdAt: "asc" }
-    }));
+    expect(prisma.workspaceMember.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "user_1", workspaceId: undefined, status: "ACTIVE", workspace: { status: "ACTIVE" } },
+        include: { workspace: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    );
   });
 
   it("allows signed-in users with an active workspace membership through the guard", async () => {
@@ -46,7 +55,11 @@ describe("workspace onboarding guard", () => {
     const membership = { id: "member_1", userId: "user_1", workspaceId: "workspace_1", workspace };
     prisma.workspaceMember.findFirst.mockResolvedValue(membership);
 
-    await expect(requireWorkspaceAccess("workspace_1")).resolves.toEqual({ user: { id: "user_1", clerkUserId: "clerk_user_1", email: "owner@example.com" }, membership, workspace });
+    await expect(requireWorkspaceAccess("workspace_1")).resolves.toEqual({
+      user: profile,
+      membership,
+      workspace,
+    });
 
     expect(redirect).not.toHaveBeenCalled();
   });
@@ -69,11 +82,13 @@ describe("workspace onboarding guard", () => {
 
     await expect(createWorkspaceForCurrentUser("First Workspace")).resolves.toEqual(workspace);
 
-    expect(prisma.workspace.create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      name: "First Workspace",
-      ownerId: "user_1",
-      members: { create: { userId: "user_1", roleKey: "WORKSPACE_OWNER" } }
-    }) });
+    expect(prisma.workspace.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: "First Workspace",
+        ownerId: "user_1",
+        members: { create: { userId: "user_1", roleKey: "WORKSPACE_OWNER" } },
+      }),
+    });
   });
 
   it("applies the onboarding guard before rendering the dashboard shell", async () => {

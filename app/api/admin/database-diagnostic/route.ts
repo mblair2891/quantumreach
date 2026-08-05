@@ -1,12 +1,11 @@
-import { currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { getSafeDatabaseDiagnostic } from "@/lib/admin/database-diagnostic";
 import { isOperatorEmail } from "@/lib/admin/operator";
+import { getOptionalUserProfile } from "@/lib/auth/rbac";
 
 export async function GET() {
-  const user = await currentUser();
-  const email = user?.emailAddresses[0]?.emailAddress;
-  if (!isOperatorEmail(email)) {
+  const user = await getOptionalUserProfile();
+  if (!isOperatorEmail(user?.email)) {
     return NextResponse.json({ error: "Operator access is required." }, { status: 403 });
   }
 

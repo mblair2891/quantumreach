@@ -16,13 +16,14 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
+    "seed:operator": "tsx scripts/seed-operator.ts",
     "test:db": "node scripts/test-db.mjs",
     "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.31.0",
     "@prisma/client": "^5.22.0",
     "@sentry/nextjs": "^8.55.0",
+    "better-auth": "^1.6.26",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
@@ -30,6 +31,7 @@
     "openai": "^4.77.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "server-only": "^0.0.1",
     "stripe": "17.7.0",
     "tailwind-merge": "^2.5.5",
     "zod": "^3.24.1"

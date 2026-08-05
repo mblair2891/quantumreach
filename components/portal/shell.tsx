@@ -1,5 +1,44 @@
 import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
-import { hasClerkPublishableKey } from "@/lib/auth/clerk-build";
+import { AccountMenu } from "@/components/auth/account-menu";
 import { clientPortalNavigation } from "@/lib/saas/navigation";
-export function ClientPortalShell({children}:{children:React.ReactNode}){return <div className="flex min-h-screen bg-indigo-50"><aside className="hidden w-72 border-r bg-white p-5 lg:block"><Link href="/portal" className="mb-6 block text-xl font-semibold">Client Portal</Link><nav className="space-y-5">{clientPortalNavigation.map((s)=><section key={s.heading}><h2 className="mb-2 text-xs font-bold tracking-widest text-slate-400">{s.heading}</h2>{s.items.map(({label,href,icon:Icon})=><Link key={href} href={href} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50"><Icon className="h-4 w-4"/>{label}</Link>)}</section>)}</nav></aside><div className="flex flex-1 flex-col"><header className="flex h-16 items-center justify-between border-b bg-white px-6"><div><p className="text-sm text-slate-500">Scoped client workspace</p><p className="font-medium">Projects, meetings, documents, and onboarding</p></div>{hasClerkPublishableKey?<UserButton/>:<Link href="/sign-in" className="text-sm">Sign in</Link>}</header><main className="flex-1 p-6">{children}</main></div></div>}
+import { getOptionalUserProfile } from "@/lib/auth/rbac";
+
+export async function ClientPortalShell({ children }: { children: React.ReactNode }) {
+  const user = await getOptionalUserProfile();
+  return (
+    <div className="flex min-h-screen bg-indigo-50">
+      <aside className="hidden w-72 border-r bg-white p-5 lg:block">
+        <Link href="/portal" className="mb-6 block text-xl font-semibold">
+          Client Portal
+        </Link>
+        <nav className="space-y-5">
+          {clientPortalNavigation.map((s) => (
+            <section key={s.heading}>
+              <h2 className="mb-2 text-xs font-bold tracking-widest text-slate-400">{s.heading}</h2>
+              {s.items.map(({ label, href, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50"
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </Link>
+              ))}
+            </section>
+          ))}
+        </nav>
+      </aside>
+      <div className="flex flex-1 flex-col">
+        <header className="flex h-16 items-center justify-between border-b bg-white px-6">
+          <div>
+            <p className="text-sm text-slate-500">Scoped client workspace</p>
+            <p className="font-medium">Projects, meetings, documents, and onboarding</p>
+          </div>
+          <AccountMenu email={user?.email} />
+        </header>
+        <main className="flex-1 p-6">{children}</main>
+      </div>
+    </div>
+  );
+}

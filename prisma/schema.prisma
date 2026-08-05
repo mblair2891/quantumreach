@@ -381,7 +381,10 @@ enum MeetingRecordingSegmentStatus {
 
 model UserProfile {
   id           String            @id @default(cuid())
-  clerkUserId  String            @unique
+  /// Legacy Clerk subject (nullable after Better Auth cutover; retained for historical fixtures).
+  clerkUserId  String?           @unique
+  /// Better Auth user.id — primary runtime identity link.
+  authUserId   String?           @unique
   email        String            @unique
   firstName    String?
   lastName     String?
@@ -3903,7 +3906,17 @@ model ProgramEnrollment {
 
 model CustomerOrder {
   id                         String                @id @default(cuid())
-  userId                     String
+  /// Null until the purchaser completes account setup (pay-first flow).
+  userId                     String?
+  /// Pre-auth purchaser email collected at checkout (pay-first).
+  purchaserEmail             String?
+  purchaserFirstName         String?
+  purchaserLastName          String?
+  businessName               String?
+  businessType               String?
+  timezone                   String?
+  country                    String?
+  intendedUse                String?
   workspaceId                String?
   programEnrollmentId        String?
   acquisitionSessionId       String?
@@ -3929,11 +3942,28 @@ model CustomerOrder {
   items                      CustomerOrderItem[]
   infrastructureOrder        InfrastructureOrder?
   simulatedPayment           SimulatedPaymentRecord?
+  accountSetupTokens         AccountSetupToken[]
 
   @@index([userId, status])
+  @@index([purchaserEmail, status])
   @@index([setupPriority, createdAt])
   @@index([stripeCustomerId])
   @@index([stripeSubscriptionId])
+}
+
+/// One-time post-payment account setup invite (48h TTL). Token hash only — never store raw token.
+model AccountSetupToken {
+  id              String    @id @default(cuid())
+  customerOrderId String
+  email           String
+  tokenHash       String    @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdAt       DateTime  @default(now())
+  order           CustomerOrder @relation(fields: [customerOrderId], references: [id], onDelete: Cascade)
+
+  @@index([customerOrderId])
+  @@index([email, expiresAt])
 }
 
 model SimulatedPaymentRecord {
@@ -4436,4 +4466,73 @@ model ProviderCostEntry {
 
   @@index([workspaceId, incurredAt])
   @@index([provider, providerReference])
+}
+
+// Better Auth core tables (Prisma adapter). Mapped to snake-case table names.
+// App domain identity remains UserProfile; auth.user is separate until cutover links them.
+model User {
+  id              String    @id
+  name            String
+  email           String
+  emailVerified   Boolean   @default(false)
+  image           String?
+  /// Better Auth username plugin (normalized login handle).
+  username        String?
+  displayUsername String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sessions        Session[]
+  accounts        Account[]
+
+  @@unique([email])
+  @@unique([username])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
 }

@@ -16,7 +16,22 @@ describe("public acquisition flow", () => {
   it("maps only supported customer setup priorities", () => expect(setupProductKeys).toEqual({ STANDARD: "STANDARD_SETUP", PRIORITY: "PRIORITY_SETUP" }));
   it("shows active core catalog products before authentication", () => { const text = source("app/start/page.tsx"); expect(text).toContain('category: "SENDING_PACKAGE", active: true'); expect(text).not.toContain("/sign-up"); });
   it("persists infrastructure and priority before review", () => { expect(source("app/setup/infrastructure/actions.ts")).toContain("infrastructureProductId"); expect(source("app/setup/priority/actions.ts")).toContain("setupPriority"); });
-  it("offers Clerk only on the review route and preserves resume", () => { const text = source("app/setup/confirmation/page.tsx"); expect(text).toContain("Create account and continue"); expect(text).toContain("/join?resume="); expect(text).toContain("Sign in and continue"); });
-  it("creates the canonical order only from the authenticated join action", () => { expect(source("app/join/page.tsx")).toContain("finalizeAcquisitionOrder(user.id, resume)"); expect(source("lib/customer-journey/service.ts")).toContain("This acquisition belongs to another account"); });
-  it("keeps the submitted order unpaid and does not provision a workspace", () => { const text = source("lib/customer-journey/service.ts"); const block = text.slice(text.indexOf("export async function finalizeAcquisitionOrder"), text.indexOf("export async function deriveInfrastructureOrderState")); expect(block).toContain('paymentStatus: "UNPAID"'); expect(block).not.toContain("workspace.create"); });
+  it("offers pay-first checkout without forcing pre-payment account creation", () => {
+    const text = source("app/setup/confirmation/page.tsx");
+    expect(text).toContain("submitGuestCheckoutAction");
+    expect(text).toContain("Pay first");
+    expect(text).not.toContain("Create account and continue");
+    expect(text).toContain("Sign in");
+  });
+  it("creates guest orders without a user id and authenticated finalize still exists", () => {
+    expect(source("lib/customer-journey/service.ts")).toContain("createGuestAcquisitionOrder");
+    expect(source("lib/customer-journey/service.ts")).toContain("userId: null");
+    expect(source("app/join/page.tsx")).toContain("finalizeAcquisitionOrder(user.id, resume)");
+  });
+  it("keeps submitted guest and auth orders unpaid without provisioning a workspace", () => {
+    const text = source("lib/customer-journey/service.ts");
+    const guest = text.slice(text.indexOf("export async function createGuestAcquisitionOrder"), text.indexOf("export async function finalizeAcquisitionOrder"));
+    expect(guest).toContain('paymentStatus: "UNPAID"');
+    expect(guest).not.toContain("workspace.create");
+  });
 });

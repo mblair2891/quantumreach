@@ -4,7 +4,7 @@ Quantum Reach is initialized as a modular monolith designed to evolve toward ser
 
 ## Boundaries
 
-- `lib/auth`: Clerk identity linkage, internal workspace membership, and RBAC helpers.
+- `lib/auth`: Better Auth sessions, UserProfile linkage (`authUserId`), internal workspace membership, and RBAC helpers.
 - `lib/workspaces`: onboarding, workspace selection, and member-scoped workspace lookup.
 - `lib/crm`: native accounts, contacts, leads, opportunities, pipelines, tasks, notes, activities, reminders, and CRM-safe mutation services.
 - `lib/diagnostics`: diagnostic sessions, transcript/context records, and CRM-linked discovery workflows.

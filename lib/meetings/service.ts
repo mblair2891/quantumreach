@@ -1,13 +1,12 @@
 import "server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { auth } from "@clerk/nextjs/server";
 import type { MeetingEventType, MeetingParticipantRole, MeetingProvider } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { audit } from "@/lib/audit/service";
 import { prisma } from "@/lib/db/prisma";
 import { toPrismaJson } from "@/lib/db/json";
-import { requireWorkspaceAccess } from "@/lib/auth/rbac";
+import { getOptionalUserProfile, requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { buildMeetingInvitationUrl, maxInvitationExpiry, signMeetingInvitationCredential, verifyMeetingInvitationCredential } from "@/lib/meetings/invitations";
 import { preparePlannedRecordingConsent } from "@/lib/meetings/recordings";
 import { encryptSecret, decryptSecret } from "@/lib/security/encryption";
@@ -356,23 +355,20 @@ export async function authorizeMeetingJoin(input: JoinAuthorizationInput) {
   if (!meeting) throw new Error("Meeting not found.");
   if (meeting.status === "ENDED" || meeting.status === "CANCELED") throw new Error("This meeting is no longer joinable.");
 
-  const { userId: clerkUserId } = await auth();
-  if (clerkUserId) {
-    const user = await prisma.userProfile.findUnique({ where: { clerkUserId } });
-    if (user) {
-      const membership = await prisma.workspaceMember.findFirst({ where: { workspaceId: meeting.workspaceId, userId: user.id, status: "ACTIVE", workspace: { status: "ACTIVE" } } });
-      if (membership) {
-        const existing = await prisma.meetingParticipant.findFirst({ where: { meetingId: meeting.id, userId: user.id } });
-        const role: MeetingParticipantRole = meeting.hostId === user.id ? "HOST" : existing?.role === "CO_HOST" ? "CO_HOST" : "PARTICIPANT";
-        const displayName = safeDisplayName(input.displayName, [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email);
-        const identity = participantIdentity(meeting.id, `user:${user.id}`);
-        const participant = await prisma.meetingParticipant.upsert({
-          where: { meetingId_identity: { meetingId: meeting.id, identity } },
-          update: { displayName, role, userId: user.id },
-          create: { workspaceId: meeting.workspaceId, meetingId: meeting.id, userId: user.id, identity, displayName, role }
-        });
-        return { meeting, participant, actorId: user.id };
-      }
+  const user = await getOptionalUserProfile();
+  if (user) {
+    const membership = await prisma.workspaceMember.findFirst({ where: { workspaceId: meeting.workspaceId, userId: user.id, status: "ACTIVE", workspace: { status: "ACTIVE" } } });
+    if (membership) {
+      const existing = await prisma.meetingParticipant.findFirst({ where: { meetingId: meeting.id, userId: user.id } });
+      const role: MeetingParticipantRole = meeting.hostId === user.id ? "HOST" : existing?.role === "CO_HOST" ? "CO_HOST" : "PARTICIPANT";
+      const displayName = safeDisplayName(input.displayName, [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email);
+      const identity = participantIdentity(meeting.id, `user:${user.id}`);
+      const participant = await prisma.meetingParticipant.upsert({
+        where: { meetingId_identity: { meetingId: meeting.id, identity } },
+        update: { displayName, role, userId: user.id },
+        create: { workspaceId: meeting.workspaceId, meetingId: meeting.id, userId: user.id, identity, displayName, role }
+      });
+      return { meeting, participant, actorId: user.id };
     }
   }
 

@@ -1,6 +1,6 @@
-import { currentUser } from "@clerk/nextjs/server";
 import { Globe2, ShieldCheck, type LucideIcon } from "lucide-react";
 import { isOperatorEmail } from "@/lib/admin/operator";
+import { getOptionalUserProfile } from "@/lib/auth/rbac";
 
 export type DashboardNavItem = readonly [string, string, LucideIcon];
 
@@ -17,7 +17,7 @@ export const domainInventoryNavItem: DashboardNavItem = [
 ];
 
 export async function getAuthorizedDomainNavItems(): Promise<DashboardNavItem[]> {
-  const clerkUser = await currentUser();
-  const email = clerkUser?.emailAddresses[0]?.emailAddress;
+  const user = await getOptionalUserProfile();
+  const email = user?.email;
   return isOperatorEmail(email) ? [domainInventoryNavItem] : [];
 }

@@ -1,21 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getSafeDatabaseDiagnostic } from "@/lib/admin/database-diagnostic";
 
-const currentUser = vi.fn();
+vi.mock("@/lib/auth/rbac", () => ({
+  getOptionalUserProfile: vi.fn(),
+  requireUserProfile: vi.fn(),
+}));
 
-vi.mock("@clerk/nextjs/server", () => ({ currentUser }));
+import { getOptionalUserProfile } from "@/lib/auth/rbac";
+
+const mockGetOptionalUserProfile = getOptionalUserProfile as unknown as ReturnType<typeof vi.fn>;
 
 describe("database provider diagnostic", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.resetModules();
-    currentUser.mockReset();
+    mockGetOptionalUserProfile.mockReset();
     process.env = { ...originalEnv, ADMIN_EMAILS: "ops@example.com" };
   });
 
   it("rejects unauthorized users before returning database metadata", async () => {
-    currentUser.mockResolvedValue({ emailAddresses: [{ emailAddress: "viewer@example.com" }] });
+    mockGetOptionalUserProfile.mockResolvedValue({ email: "viewer@example.com" });
     const { GET } = await import("@/app/api/admin/database-diagnostic/route");
 
     const response = await GET();
@@ -63,7 +68,7 @@ describe("database provider diagnostic", () => {
   });
 
   it("returns a safe route error when DATABASE_URL parsing fails", async () => {
-    currentUser.mockResolvedValue({ emailAddresses: [{ emailAddress: "ops@example.com" }] });
+    mockGetOptionalUserProfile.mockResolvedValue({ email: "ops@example.com" });
     process.env.DATABASE_URL = "not a postgres url with spaces";
     const { GET } = await import("@/app/api/admin/database-diagnostic/route");
 

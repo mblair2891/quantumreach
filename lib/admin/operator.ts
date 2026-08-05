@@ -1,4 +1,3 @@
-import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { requireUserProfile } from "@/lib/auth/rbac";
 
@@ -18,8 +17,6 @@ export async function requireOperatorAccess() {
   // Platform operators must be able to repair/bootstrap their first workspace.
   // Requiring workspace access here made that recovery path impossible.
   const user = await requireUserProfile();
-  const clerkUser = await currentUser();
-  const email = clerkUser?.emailAddresses[0]?.emailAddress ?? user.email;
-  if (!isOperatorEmail(email)) redirect("/dashboard");
-  return { user, operatorEmail: email };
+  if (!isOperatorEmail(user.email)) redirect("/dashboard");
+  return { user, operatorEmail: user.email };
 }
