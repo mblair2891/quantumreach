@@ -12,20 +12,25 @@ describe("pay-first checkout form", () => {
     expect(normalizeCheckoutTimezone("not-a-zone")).toBe(DEFAULT_CHECKOUT_TIMEZONE);
   });
 
-  it("uses a timezone select and omits business type and intended use", () => {
+  it("uses a timezone select and omits business name, business type, and intended use", () => {
     const page = source("app/setup/confirmation/page.tsx");
     const actions = source("app/setup/confirmation/actions.ts");
     const service = source("lib/customer-journey/service.ts");
     expect(page).toContain('name="timezone"');
     expect(page).toContain("COMMON_TIMEZONES");
     expect(page).toContain("<select");
+    expect(page).not.toContain('name="businessName"');
     expect(page).not.toContain('name="businessType"');
     expect(page).not.toContain('name="intendedUse"');
+    expect(page).not.toContain("Business name");
     expect(page).not.toContain("Business type");
     expect(page).not.toContain("Intended use");
+    expect(actions).not.toContain("businessName");
     expect(actions).not.toContain("businessType");
     expect(actions).not.toContain("intendedUse");
+    expect(actions).toContain("isRedirectError");
     expect(service).toContain("GuestPurchaserInput");
     expect(service).toContain("normalizeCheckoutTimezone");
+    expect(service).toContain("businessName: null");
   });
 });

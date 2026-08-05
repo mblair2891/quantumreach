@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { isRedirectError } from "next/dist/client/components/redirect";
 import { applyCoupon, removeAppliedCoupon } from "@/lib/commercial/coupons";
 import { buildAcquisitionChargeSummary } from "@/lib/commercial/charge-lines";
 import { catalogPrice, loadValidatedDraft } from "@/lib/customer-journey/acquisition-draft";
@@ -34,6 +35,7 @@ export async function applyCouponAction(form: FormData) {
     });
     revalidatePath("/setup/confirmation");
   } catch (error) {
+    if (isRedirectError(error)) throw error;
     redirect(`/setup/confirmation?couponMessage=${encodeURIComponent(message(error))}`);
   }
 }
@@ -46,19 +48,21 @@ export async function removeCouponAction() {
 
 /** Pay-first: create unpaid guest order and show payment step. */
 export async function submitGuestCheckoutAction(form: FormData) {
+  let orderId = "";
+  let resume = "";
   try {
     if (String(form.get("agreementAccepted") ?? "") !== "on") {
       throw new Error("You must accept the terms to continue.");
     }
-    const resume = String(form.get("resume") ?? "");
+    resume = String(form.get("resume") ?? "");
     const order = await createGuestAcquisitionOrder(resume, {
       email: String(form.get("email") ?? ""),
       firstName: String(form.get("firstName") ?? ""),
       lastName: String(form.get("lastName") ?? ""),
-      businessName: String(form.get("businessName") ?? ""),
       timezone: String(form.get("timezone") ?? "America/New_York"),
       country: String(form.get("country") ?? "US"),
     });
+    orderId = order.id;
     cookies().set("qr_acquisition", resume, {
       httpOnly: true,
       sameSite: "lax",
@@ -66,31 +70,37 @@ export async function submitGuestCheckoutAction(form: FormData) {
       path: "/",
       maxAge: 60 * 60 * 24 * 60,
     });
-    redirect(`/setup/confirmation?submitted=1&orderId=${encodeURIComponent(order.id)}`);
   } catch (error) {
+    if (isRedirectError(error)) throw error;
     redirect(
       `/setup/confirmation?checkoutError=${encodeURIComponent(error instanceof Error ? error.message : "Could not submit order.")}`,
     );
   }
+  // redirect() throws NEXT_REDIRECT — must stay outside catch so it is not treated as failure.
+  redirect(`/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}`);
 }
 
 export async function simulateSuccessfulPaymentAction(form: FormData) {
   assertSimulatedPaymentEnvironment();
   const orderId = String(form.get("orderId") ?? "");
   const user = await getOptionalUserProfile();
+  let setupToken: string | null = null;
   try {
     const result = await simulateSuccessfulPayment({
       orderId,
       actorUserId: user?.id ?? null,
     });
     if (result.requiresAccountSetup && result.setup) {
-      // Pass raw token only via redirect query for Preview/local deep link (email deferred).
-      redirect(
-        `/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}&testPayment=completed&setupToken=${encodeURIComponent(result.setup.rawToken)}`,
-      );
+      setupToken = result.setup.rawToken;
     }
-  } catch {
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
     redirect(`/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}&testPayment=failed`);
+  }
+  if (setupToken) {
+    redirect(
+      `/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}&testPayment=completed&setupToken=${encodeURIComponent(setupToken)}`,
+    );
   }
   redirect("/setup/status?testPayment=completed");
 }

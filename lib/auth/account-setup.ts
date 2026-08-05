@@ -173,7 +173,7 @@ export async function completeAccountSetup(input: CompleteAccountSetupInput) {
         joinProfile: {
           firstName,
           lastName,
-          businessName: record.order.businessName ?? `${firstName} Workspace`,
+          businessName: record.order.businessName ?? `${firstName} ${lastName}`.trim(),
           businessType: record.order.businessType ?? "Business",
           timezone: record.order.timezone ?? "America/New_York",
           country: record.order.country ?? "US",
@@ -188,7 +188,7 @@ export async function completeAccountSetup(input: CompleteAccountSetupInput) {
         joinProfile: {
           firstName,
           lastName,
-          businessName: record.order.businessName ?? `${firstName} Workspace`,
+          businessName: record.order.businessName ?? `${firstName} ${lastName}`.trim(),
           businessType: record.order.businessType ?? "Business",
           timezone: record.order.timezone ?? "America/New_York",
           country: record.order.country ?? "US",

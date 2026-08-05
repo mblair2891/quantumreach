@@ -73,7 +73,6 @@ export type GuestPurchaserInput = {
   email: string;
   firstName: string;
   lastName: string;
-  businessName: string;
   timezone: string;
   country: string;
 };
@@ -84,8 +83,7 @@ export async function createGuestAcquisitionOrder(anonymousId: string, purchaser
   if (!email || !email.includes("@")) throw new Error("A valid email is required.");
   const firstName = purchaser.firstName.trim();
   const lastName = purchaser.lastName.trim();
-  const businessName = purchaser.businessName.trim();
-  if (!firstName || !lastName || !businessName) throw new Error("Name and business name are required.");
+  if (!firstName || !lastName) throw new Error("First and last name are required.");
   const { normalizeCheckoutTimezone } = await import("./timezones");
   const timezone = normalizeCheckoutTimezone(purchaser.timezone);
   const country = (purchaser.country.trim().toUpperCase() || "US").slice(0, 2);
@@ -109,7 +107,7 @@ export async function createGuestAcquisitionOrder(anonymousId: string, purchaser
           purchaserEmail: email,
           purchaserFirstName: firstName,
           purchaserLastName: lastName,
-          businessName,
+          businessName: null,
           businessType: null,
           timezone,
           country,
@@ -128,7 +126,7 @@ export async function createGuestAcquisitionOrder(anonymousId: string, purchaser
         purchaserEmail: email,
         purchaserFirstName: firstName,
         purchaserLastName: lastName,
-        businessName,
+        businessName: null,
         businessType: null,
         timezone,
         country,
