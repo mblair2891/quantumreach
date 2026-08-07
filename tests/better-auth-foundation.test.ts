@@ -23,6 +23,18 @@ describe("Better Auth foundation and identity cutover", () => {
     expect(config).not.toContain("@clerk");
   });
 
+  it("supports dynamic Vercel Preview hosts without disabling origin checks", () => {
+    const config = source("lib/auth/better-auth.ts");
+    expect(config).toContain("allowedHosts");
+    expect(config).toContain('"*.vercel.app"');
+    expect(config).toContain("https://*.vercel.app");
+    expect(config).toContain("trustedOrigins");
+    expect(config).toContain("fallback");
+    // Still uses allowlist model — not an open CORS disable
+    expect(config).not.toContain("disableOriginCheck");
+    expect(config).not.toContain('trustedOrigins: ["*"]');
+  });
+
   it("exposes the catch-all auth API route handler", () => {
     const route = source("app/api/auth/[...all]/route.ts");
     expect(route).toContain("toNextJsHandler");
