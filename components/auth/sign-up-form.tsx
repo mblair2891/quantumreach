@@ -4,6 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signUp } from "@/lib/auth/client";
 
+/** Light, high-contrast fields — sign-up stays readable even when the OS theme is dark. */
+const fieldClassName =
+  "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-950 [color-scheme:light] placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:border-slate-300 dark:bg-white dark:text-slate-950 dark:placeholder:text-slate-500";
+
 export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +49,8 @@ export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
           name="name"
           required
           autoComplete="name"
-          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+          placeholder="Your full name"
+          className={fieldClassName}
         />
       </label>
       <label className="block text-sm font-medium text-slate-700">
@@ -55,7 +60,8 @@ export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
           type="email"
           required
           autoComplete="email"
-          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+          placeholder="you@company.com"
+          className={fieldClassName}
         />
       </label>
       <label className="block text-sm font-medium text-slate-700">
@@ -66,7 +72,8 @@ export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
           required
           minLength={8}
           autoComplete="new-password"
-          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+          placeholder="At least 8 characters"
+          className={fieldClassName}
         />
       </label>
       <button
