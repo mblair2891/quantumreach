@@ -57,7 +57,7 @@ npm run dev
 
 ## Auth setup notes
 
-Set `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` from `.env.example`. Public self-service sign-up is disabled unless `BETTER_AUTH_PUBLIC_SIGNUP_ENABLED=true`. Seed an operator with `npm run seed:operator` (email must be in `ADMIN_EMAILS`). Middleware protects `/dashboard`, `/onboarding`, `/platform`, and `/portal`. Application permissions still use internal `WorkspaceMember.roleKey` and service-layer checks. Acquisition is pay-first: checkout collects purchaser email, then a 48-hour setup link creates the account.
+Set `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` from `.env.example`. Public self-service sign-up is disabled unless `BETTER_AUTH_PUBLIC_SIGNUP_ENABLED=true`. On **Vercel Preview** (and local dev), create the first platform operator in the browser at `/setup/operator` (email must be in `ADMIN_EMAILS`; see `docs/operator-bootstrap-preview.md`). CLI seeding remains available via `npm run seed:operator`. Middleware protects `/dashboard`, `/onboarding`, `/platform`, and `/portal`. Application permissions still use internal `WorkspaceMember.roleKey` and service-layer checks. Acquisition is pay-first: checkout collects purchaser email, then a 48-hour setup link creates the account.
 
 ## Neon and Prisma notes
 

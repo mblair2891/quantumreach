@@ -1,5 +1,8 @@
 /**
- * Create or link a Better Auth operator account + UserProfile.
+ * Create or link a Better Auth operator account + UserProfile (CLI).
+ *
+ * Preferred on Vercel Preview: browser bootstrap at /setup/operator
+ * (see docs/operator-bootstrap-preview.md). Keep this script for local/ops use.
  *
  * Usage:
  *   OPERATOR_EMAIL=you@example.com OPERATOR_PASSWORD='...' npm run seed:operator
