@@ -232,7 +232,7 @@ export async function bootstrapOperator(
     });
   });
 
-  let profile = existingProfile
+  const profile = existingProfile
     ? await db.userProfile.update({
         where: { id: existingProfile.id },
         data: {
