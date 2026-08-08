@@ -1,2 +1,38 @@
 const steps = ["Package", "Capacity", "Setup", "Review", "Checkout", "Activate"];
-export function FunnelProgress({ current }: { current: number }) { return <ol aria-label="Enrollment progress" className="mx-auto mb-10 flex max-w-3xl items-start justify-between gap-1 overflow-hidden text-center text-[10px] font-bold uppercase tracking-[.12em] text-slate-400 sm:text-xs">{steps.map((step, index) => { const complete = index + 1 <= current; return <li key={step} className={`relative flex min-w-0 flex-1 flex-col items-center gap-2 ${complete ? "text-indigo-700" : ""}`}><span className={`relative z-10 grid h-7 w-7 place-items-center rounded-full border text-xs ${complete ? "border-indigo-600 bg-indigo-600 text-white shadow-md shadow-indigo-200" : "border-slate-200 bg-white"}`}>{index + 1}</span>{index < steps.length - 1 && <span aria-hidden className={`absolute left-[calc(50%+16px)] top-3 h-px w-[calc(100%-32px)] ${index + 1 < current ? "bg-indigo-500" : "bg-slate-200"}`}/>}<span className="truncate">{step}</span></li>})}</ol>; }
+export function FunnelProgress({ current }: { current: number }) {
+  return (
+    <ol
+      aria-label="Enrollment progress"
+      className="mx-auto mb-10 flex max-w-3xl items-start justify-between gap-1 overflow-hidden text-center text-[10px] font-bold uppercase tracking-[.12em] text-slate-600 sm:text-xs"
+    >
+      {steps.map((step, index) => {
+        const complete = index + 1 <= current;
+        return (
+          <li
+            key={step}
+            className={`relative flex min-w-0 flex-1 flex-col items-center gap-2 ${complete ? "text-indigo-700" : ""}`}
+          >
+            <span
+              className={`relative z-10 grid h-7 w-7 place-items-center rounded-full border text-xs ${
+                complete
+                  ? "border-indigo-600 bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                  : "border-slate-300 bg-white text-slate-700"
+              }`}
+            >
+              {index + 1}
+            </span>
+            {index < steps.length - 1 && (
+              <span
+                aria-hidden
+                className={`absolute left-[calc(50%+16px)] top-3 h-px w-[calc(100%-32px)] ${
+                  index + 1 < current ? "bg-indigo-500" : "bg-slate-300"
+                }`}
+              />
+            )}
+            <span className="truncate">{step}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}

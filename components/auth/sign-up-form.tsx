@@ -4,10 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signUp } from "@/lib/auth/client";
 
-/** Light, high-contrast fields — sign-up stays readable even when the OS theme is dark. */
-const fieldClassName =
-  "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-950 [color-scheme:light] placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:border-slate-300 dark:bg-white dark:text-slate-950 dark:placeholder:text-slate-500";
-
 export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -43,17 +39,17 @@ export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
           {error}
         </p>
       ) : null}
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Full name
         <input
           name="name"
           required
           autoComplete="name"
           placeholder="Your full name"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Email
         <input
           name="email"
@@ -61,10 +57,10 @@ export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
           required
           autoComplete="email"
           placeholder="you@company.com"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Password
         <input
           name="password"
@@ -73,7 +69,7 @@ export function SignUpForm({ nextPath = "/app" }: { nextPath?: string }) {
           minLength={8}
           autoComplete="new-password"
           placeholder="At least 8 characters"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
       <button

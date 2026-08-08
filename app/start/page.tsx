@@ -91,12 +91,12 @@ export default async function StartPage({ searchParams }: { searchParams: Record
                 <input type="hidden" name="productId" value={product.id} />
                 {recommended && <p className="text-xs font-bold uppercase tracking-widest text-indigo-600">Recommended</p>}
                 <h2 className="mt-2 text-3xl font-semibold text-slate-950">{product.name}</h2>
-                <p className="mt-3 min-h-12 text-slate-600">{product.description ?? String(m.description ?? "A complete acquisition and delivery operating system.")}</p>
+                <p className="mt-3 min-h-12 text-slate-700">{product.description ?? String(m.description ?? "A complete acquisition and delivery operating system.")}</p>
                 <p className="mt-5 text-3xl font-semibold text-slate-950">
                   {price.configured ? money(price.recurringCents) : "Configured quote"}
-                  <span className="text-sm font-normal text-slate-500"> / month</span>
+                  <span className="text-sm font-normal text-slate-600"> / month</span>
                 </p>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-slate-700">
                   {price.configured ? `${money(price.oneTimeCents)} one-time setup` : "Setup confirmed before clearance"}
                 </p>
                 <ul className="mt-6 space-y-2 text-sm text-slate-800">
@@ -109,7 +109,7 @@ export default async function StartPage({ searchParams }: { searchParams: Record
                   <li>✓ {String(m.onboarding ?? "Configured")} onboarding</li>
                   <li>✓ {String(m.support ?? "Configured")} support</li>
                 </ul>
-                <p className="mt-6 text-xs leading-5 text-slate-500">
+                <p className="mt-6 text-xs leading-5 text-slate-600">
                   Sending capacity becomes available gradually as managed domains and mailboxes complete Quantum Reach’s health-based warm-up process. Capacity depends on health, provider limits, recipient quality, and compliance.
                 </p>
                 <button className="funnel-primary mt-auto pt-6">
@@ -124,7 +124,7 @@ export default async function StartPage({ searchParams }: { searchParams: Record
             No active subscriber package is available.
           </p>
         )}
-        <p className="mt-7 text-center text-sm text-slate-500">No payment, domain purchase, mailbox creation, or provider action occurs at this step.</p>
+        <p className="mt-7 text-center text-sm text-slate-600">No payment, domain purchase, mailbox creation, or provider action occurs at this step.</p>
       </main>
     </FunnelShell>
   );

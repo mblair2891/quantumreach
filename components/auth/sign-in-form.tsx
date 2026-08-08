@@ -5,10 +5,6 @@ import { useRouter } from "next/navigation";
 import { signIn } from "@/lib/auth/client";
 import { normalizeSignInIdentifier } from "@/lib/auth/identifier";
 
-/** Light, high-contrast fields — sign-in stays readable even when the OS theme is dark. */
-const fieldClassName =
-  "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-950 [color-scheme:light] placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:border-slate-300 dark:bg-white dark:text-slate-950 dark:placeholder:text-slate-500";
-
 export function SignInForm({ nextPath = "/app" }: { nextPath?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +57,7 @@ export function SignInForm({ nextPath = "/app" }: { nextPath?: string }) {
           {error}
         </p>
       ) : null}
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Email or username
         <input
           name="identifier"
@@ -72,10 +68,10 @@ export function SignInForm({ nextPath = "/app" }: { nextPath?: string }) {
           autoCorrect="off"
           spellCheck={false}
           placeholder="you@company.com or username"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Password
         <input
           name="password"
@@ -84,7 +80,7 @@ export function SignInForm({ nextPath = "/app" }: { nextPath?: string }) {
           minLength={8}
           autoComplete="current-password"
           placeholder="Your password"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
       <button

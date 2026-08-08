@@ -14,8 +14,8 @@ export default async function AccountSetupPage({
     return (
       <FunnelShell>
         <main className="mx-auto max-w-lg px-5 py-16">
-          <h1 className="text-3xl font-semibold">Setup link required</h1>
-          <p className="mt-3 text-slate-600">Open the secure link from your order confirmation or email.</p>
+          <h1 className="text-3xl font-semibold text-slate-950">Setup link required</h1>
+          <p className="mt-3 text-slate-700">Open the secure link from your order confirmation or email.</p>
           <Link className="funnel-primary mt-8 inline-flex" href="/sign-in">
             Sign in
           </Link>
@@ -36,8 +36,8 @@ export default async function AccountSetupPage({
     return (
       <FunnelShell>
         <main className="mx-auto max-w-lg px-5 py-16">
-          <h1 className="text-3xl font-semibold">Cannot open setup</h1>
-          <p className="mt-3 text-slate-600">{copy[resolved.reason] ?? "This setup link cannot be used."}</p>
+          <h1 className="text-3xl font-semibold text-slate-950">Cannot open setup</h1>
+          <p className="mt-3 text-slate-700">{copy[resolved.reason] ?? "This setup link cannot be used."}</p>
           <Link className="funnel-primary mt-8 inline-flex" href="/sign-in">
             Go to sign in
           </Link>
@@ -52,8 +52,8 @@ export default async function AccountSetupPage({
       <main className="mx-auto max-w-lg px-5 py-16">
         <p className="funnel-eyebrow">Account setup</p>
         <h1 className="funnel-title mt-3 text-3xl font-semibold">Create your password</h1>
-        <p className="mt-3 text-slate-600">
-          Complete setup for <strong>{resolved.record.email}</strong>
+        <p className="mt-3 text-slate-700">
+          Complete setup for <strong className="text-slate-950">{resolved.record.email}</strong>
           {order.businessName ? (
             <>
               {" "}

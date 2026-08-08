@@ -6,9 +6,6 @@ import {
   type BootstrapOperatorActionState,
 } from "@/app/setup/operator/actions";
 
-const fieldClassName =
-  "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-950 [color-scheme:light] placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:border-slate-300 dark:bg-white dark:text-slate-950 dark:placeholder:text-slate-500";
-
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
@@ -40,7 +37,7 @@ export function OperatorBootstrapForm({
         </p>
       ) : null}
 
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Email
         <input
           name="email"
@@ -51,11 +48,11 @@ export function OperatorBootstrapForm({
           autoCorrect="off"
           spellCheck={false}
           placeholder="you@company.com"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
 
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Username
         <input
           name="username"
@@ -66,14 +63,14 @@ export function OperatorBootstrapForm({
           autoCorrect="off"
           spellCheck={false}
           placeholder="operator_handle"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
-        <span className="mt-1 block text-xs font-normal text-slate-500">
+        <span className="mt-1 block text-xs font-normal text-slate-600">
           3–32 characters: letters, numbers, underscores. Used for username sign-in.
         </span>
       </label>
 
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Password
         <input
           name="password"
@@ -82,11 +79,11 @@ export function OperatorBootstrapForm({
           minLength={8}
           autoComplete="new-password"
           placeholder="At least 8 characters"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
 
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Confirm password
         <input
           name="confirmPassword"
@@ -95,12 +92,12 @@ export function OperatorBootstrapForm({
           minLength={8}
           autoComplete="new-password"
           placeholder="Re-enter password"
-          className={fieldClassName}
+          className="qr-field mt-1"
         />
       </label>
 
       {requiresBootstrapSecret ? (
-        <label className="block text-sm font-medium text-slate-700">
+        <label className="block text-sm font-medium text-slate-800">
           Bootstrap secret
           <input
             name="bootstrapSecret"
@@ -108,9 +105,9 @@ export function OperatorBootstrapForm({
             required
             autoComplete="off"
             placeholder="BOOTSTRAP_SECRET from environment"
-            className={fieldClassName}
+            className="qr-field mt-1"
           />
-          <span className="mt-1 block text-xs font-normal text-slate-500">
+          <span className="mt-1 block text-xs font-normal text-slate-600">
             Required because an operator account already exists.
           </span>
         </label>

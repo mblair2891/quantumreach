@@ -21,7 +21,7 @@ export function AccountMenu({ email }: { email?: string | null }) {
 
   return (
     <div className="flex items-center gap-3">
-      <span className="hidden max-w-[14rem] truncate text-sm text-slate-600 dark:text-slate-300 sm:inline" title={display}>
+      <span className="hidden max-w-[14rem] truncate text-sm text-slate-700 dark:text-slate-200 sm:inline" title={display}>
         {display}
       </span>
       <button

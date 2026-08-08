@@ -100,8 +100,8 @@ export default async function Confirmation({
             <h1 className="funnel-title mt-3 text-4xl font-semibold">
               {paid ? "Set up your Quantum Reach account." : "Review and pay when ready."}
             </h1>
-            <p className="mt-4 text-slate-600">
-              Order <span className="font-mono text-sm">{order.id}</span> is{" "}
+            <p className="mt-4 text-slate-700">
+              Order <span className="font-mono text-sm text-slate-800">{order.id}</span> is{" "}
               <strong>{order.paymentStatus.toLowerCase()}</strong>
               {order.purchaserEmail ? (
                 <>
@@ -173,7 +173,7 @@ export default async function Confirmation({
         <FunnelProgress current={4} />
         <p className="text-center funnel-eyebrow">Step 4 · Review & checkout</p>
         <h1 className="text-center funnel-title mt-3 text-4xl font-semibold">Review your Quantum Reach order.</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-center text-slate-600">
+        <p className="mx-auto mt-4 max-w-2xl text-center text-slate-700">
           Pay first, then create your password from a secure setup link. Nothing is provisioned until payment is
           verified and your account is created.
         </p>
@@ -184,17 +184,17 @@ export default async function Confirmation({
           </p>
         ) : null}
 
-        <section className="mt-10 rounded-2xl border bg-white p-6">
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-semibold">{plan.name} package</h2>
-              <p className="mt-2 text-slate-600">Quantum Reach software included</p>
+              <h2 className="text-2xl font-semibold text-slate-950">{plan.name} package</h2>
+              <p className="mt-2 text-slate-700">Quantum Reach software included</p>
             </div>
             <Link className="text-sm font-semibold text-indigo-700 underline" href="/start">
               Edit package
             </Link>
           </div>
-          <ul className="mt-5 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <ul className="mt-5 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
             <li>{plan.domains.toLocaleString()} managed domains</li>
             <li>{plan.mailboxes.toLocaleString()} mailboxes</li>
             <li>{plan.contacts.toLocaleString()} contacts</li>
@@ -206,15 +206,15 @@ export default async function Confirmation({
           </ul>
         </section>
 
-        <section className="mt-6 rounded-2xl border bg-white p-6">
-          <h2 className="font-semibold">Coupon</h2>
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="font-semibold text-slate-950">Coupon</h2>
           {applied ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="font-semibold">
+                <p className="font-semibold text-slate-950">
                   {applied.coupon.displayName} · {applied.normalizedCodeSnapshot}
                 </p>
-                <p className="text-sm text-emerald-700">
+                <p className="text-sm font-medium text-emerald-800">
                   You save {money(couponCalculation?.totalCouponSavingsCents ?? 0)} today.
                 </p>
               </div>
@@ -224,9 +224,15 @@ export default async function Confirmation({
             </div>
           ) : null}
           <form action={applyCouponAction} className="mt-4 flex flex-wrap gap-3">
-            <input name="code" required aria-label="Coupon code" placeholder="Coupon code" className="rounded-lg border px-3 py-2" />
+            <input
+              name="code"
+              required
+              aria-label="Coupon code"
+              placeholder="Coupon code"
+              className="qr-field-sm min-w-[12rem] flex-1"
+            />
             <input type="hidden" name="replace" value={applied ? "true" : "false"} />
-            <button className="rounded-lg bg-slate-950 px-4 py-2 text-white">
+            <button className="rounded-lg bg-slate-950 px-4 py-2 font-medium text-white">
               {applied ? "Replace coupon" : "Apply coupon"}
             </button>
           </form>
@@ -237,7 +243,7 @@ export default async function Confirmation({
           ) : null}
         </section>
 
-        <div className="mt-6 overflow-hidden rounded-2xl border bg-white">
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <Row label="Monthly package fee" value={money(plan.monthlyCents)} />
           <Row label="One-time implementation fee" value={money(plan.setupCents)} />
           <Row label="Setup priority" value={selection.setup.name} edit="/setup/priority" />
@@ -245,19 +251,19 @@ export default async function Confirmation({
             label={selection.setup.key === "STANDARD_SETUP" ? "Standard" : "Head of the line"}
             value={setupPrice.oneTimeCents === 0 ? "Included" : money(setupPrice.oneTimeCents)}
           />
-          <Row label="Today’s total" value={money(charges.todayTotalCents)} />
+          <Row label="Today’s total" value={money(charges.todayTotalCents)} emphasize />
           <Row label="Recurring monthly fee" value={`${money(charges.recurringMonthlyCents)}/month`} />
           <Row label="Financial state" value="Unpaid · pay before account setup" />
         </div>
 
-        <section className="mt-8 rounded-2xl border bg-white p-6">
-          <h2 className="text-xl font-semibold">Purchaser details</h2>
-          <p className="mt-2 text-sm text-slate-600">
+        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-slate-950">Purchaser details</h2>
+          <p className="mt-2 text-sm text-slate-700">
             We use this email for your order and account setup link. You will create a password after payment — no
             account is required before checkout.
           </p>
           {signedInUser ? (
-            <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
               Signed in as <strong>{signedInUser.email}</strong>. Guest checkout still uses the form below for this
               pay-first path, or continue as a new purchaser email.
             </p>
@@ -267,13 +273,13 @@ export default async function Confirmation({
             <Field name="email" label="Email" type="email" defaultValue={signedInUser?.email ?? ""} />
             <Field name="firstName" label="First name" defaultValue={signedInUser?.firstName ?? ""} />
             <Field name="lastName" label="Last name" defaultValue={signedInUser?.lastName ?? ""} />
-            <label className="text-sm font-medium text-slate-700">
+            <label className="text-sm font-medium text-slate-800">
               Timezone
               <select
                 name="timezone"
                 required
                 defaultValue={DEFAULT_CHECKOUT_TIMEZONE}
-                className="mt-1 w-full rounded-xl border px-3 py-2 bg-white text-slate-950"
+                className="qr-field mt-1"
               >
                 {COMMON_TIMEZONES.map((zone) => (
                   <option key={zone.value} value={zone.value}>
@@ -283,17 +289,17 @@ export default async function Confirmation({
               </select>
             </label>
             <Field name="country" label="Country code" defaultValue="US" maxLength={2} />
-            <label className="flex gap-3 text-sm sm:col-span-2">
-              <input type="checkbox" name="agreementAccepted" required value="on" />
+            <label className="flex gap-3 text-sm text-slate-800 sm:col-span-2">
+              <input type="checkbox" name="agreementAccepted" required value="on" className="mt-0.5" />
               <span>I agree to the terms and confirm this order information is accurate.</span>
             </label>
-            <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-900 sm:col-span-2">
+            <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 sm:col-span-2">
               Submitting creates an unpaid order. After test or live payment you will set a password via a secure link.
               No domains, mailboxes, or live sends are provisioned at this step.
             </p>
             <button className="funnel-primary w-full sm:col-span-2">Continue to payment</button>
           </form>
-          <p className="mt-4 text-center text-sm text-slate-500">
+          <p className="mt-4 text-center text-sm text-slate-600">
             Already have an account?{" "}
             <Link className="font-semibold text-indigo-700 underline" href="/sign-in">
               Sign in
@@ -305,14 +311,24 @@ export default async function Confirmation({
   );
 }
 
-function Row({ label, value, edit }: { label: string; value: string; edit?: string }) {
+function Row({
+  label,
+  value,
+  edit,
+  emphasize,
+}: {
+  label: string;
+  value: string;
+  edit?: string;
+  emphasize?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between gap-5 border-b px-5 py-4 last:border-0">
-      <span className="text-slate-600">{label}</span>
-      <span className="text-right font-semibold">
+    <div className="flex items-center justify-between gap-5 border-b border-slate-200 px-5 py-4 last:border-0">
+      <span className={emphasize ? "font-medium text-slate-800" : "text-slate-700"}>{label}</span>
+      <span className={`text-right font-semibold text-slate-950 ${emphasize ? "text-lg" : ""}`}>
         {value}
         {edit ? (
-          <Link className="ml-3 text-sm text-indigo-700 underline" href={edit}>
+          <Link className="ml-3 text-sm font-semibold text-indigo-700 underline" href={edit}>
             Edit
           </Link>
         ) : null}
@@ -335,7 +351,7 @@ function Field({
   maxLength?: number;
 }) {
   return (
-    <label className="text-sm font-medium text-slate-700">
+    <label className="text-sm font-medium text-slate-800">
       {label}
       <input
         name={name}
@@ -343,7 +359,7 @@ function Field({
         required
         maxLength={maxLength}
         defaultValue={defaultValue}
-        className="mt-1 w-full rounded-xl border px-3 py-2"
+        className="qr-field mt-1"
       />
     </label>
   );

@@ -48,38 +48,40 @@ export function AccountSetupForm({
           {error}
         </p>
       ) : null}
-      <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
         Account email: <strong>{email}</strong>
       </p>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         First name
         <input
           name="firstName"
           required
           defaultValue={defaultFirstName}
-          className="mt-1 w-full rounded-xl border px-3 py-2.5"
+          autoComplete="given-name"
+          className="qr-field mt-1"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Last name
         <input
           name="lastName"
           required
           defaultValue={defaultLastName}
-          className="mt-1 w-full rounded-xl border px-3 py-2.5"
+          autoComplete="family-name"
+          className="qr-field mt-1"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
-        Username <span className="font-normal text-slate-500">(optional)</span>
+      <label className="block text-sm font-medium text-slate-800">
+        Username <span className="font-normal text-slate-600">(optional)</span>
         <input
           name="username"
           pattern="[a-zA-Z0-9_]{3,32}"
           autoComplete="username"
-          className="mt-1 w-full rounded-xl border px-3 py-2.5"
+          className="qr-field mt-1"
           placeholder="optional_login_handle"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Password
         <input
           name="password"
@@ -87,10 +89,11 @@ export function AccountSetupForm({
           required
           minLength={8}
           autoComplete="new-password"
-          className="mt-1 w-full rounded-xl border px-3 py-2.5"
+          placeholder="At least 8 characters"
+          className="qr-field mt-1"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-slate-800">
         Confirm password
         <input
           name="confirmPassword"
@@ -98,7 +101,8 @@ export function AccountSetupForm({
           required
           minLength={8}
           autoComplete="new-password"
-          className="mt-1 w-full rounded-xl border px-3 py-2.5"
+          placeholder="Re-enter password"
+          className="qr-field mt-1"
         />
       </label>
       <button

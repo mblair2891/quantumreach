@@ -17,13 +17,13 @@ export default async function OperatorBootstrapPage() {
   const gate = await getOperatorBootstrapGate();
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+    <main className="qr-light-surface flex min-h-screen items-center justify-center bg-slate-50 px-4 text-slate-950">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-700">Preview only</p>
         <h1 className="mt-2 text-2xl font-semibold text-slate-950">Create platform operator</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-slate-700">
           Browser bootstrap for the first operator account on Preview or local development. The email
-          must already appear in <code className="rounded bg-slate-100 px-1">ADMIN_EMAILS</code>.
+          must already appear in <code className="rounded bg-slate-100 px-1 text-slate-900">ADMIN_EMAILS</code>.
           This is not public self-service sign-up.
         </p>
 
@@ -54,7 +54,7 @@ export default async function OperatorBootstrapPage() {
             <div className="mt-6">
               <OperatorBootstrapForm requiresBootstrapSecret={gate.requiresBootstrapSecret} />
             </div>
-            <p className="mt-6 text-center text-sm text-slate-500">
+            <p className="mt-6 text-center text-sm text-slate-600">
               Already have an account?{" "}
               <Link className="font-semibold text-indigo-700 underline" href="/sign-in">
                 Sign in

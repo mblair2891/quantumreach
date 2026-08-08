@@ -40,7 +40,7 @@ export default async function PriorityPage() {
                 >
                   <input type="hidden" name="priority" value={priority} />
                   <h2 className="text-2xl font-semibold text-slate-950">{product.name}</h2>
-                  <p className="mt-3 text-slate-600">{product.description ?? "Setup review and queue handling."}</p>
+                  <p className="mt-3 text-slate-700">{product.description ?? "Setup review and queue handling."}</p>
                   <p className="mt-6 font-semibold text-slate-950">
                     {price.configured
                       ? price.oneTimeCents === 0
