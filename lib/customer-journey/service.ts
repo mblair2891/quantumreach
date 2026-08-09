@@ -4,7 +4,11 @@ import { trackFunnelEvent } from "./funnel";
 import { loadValidatedDraft } from "./acquisition-draft";
 import { acceptCommercialTerms } from "@/lib/commercial/service";
 import { reserveCouponForOrder } from "@/lib/commercial/coupons";
-import { ensureAffiliateMembershipForActiveSubscriber, lockAffiliateAttribution } from "@/lib/affiliates/service";
+import {
+  ensureAffiliateMembershipForActiveSubscriber,
+  lockAffiliateAttribution,
+  tryCaptureReferralCodeForCheckout,
+} from "@/lib/affiliates/service";
 import { createWorkspaceWithUniqueSlug } from "@/lib/workspaces/slug";
 
 export const priorityRank: Record<SetupPriority, number> = { EXPEDITED: 0, PRIORITY: 1, STANDARD: 2, MANUAL_HOLD: 3 };
@@ -76,6 +80,8 @@ export type GuestPurchaserInput = {
   lastName: string;
   timezone: string;
   country: string;
+  /** Optional affiliate referral code (from /r/{code} prefill or manual entry). Coupons are separate. */
+  referralCode?: string | null;
 };
 
 /** Pay-first: convert anonymous draft into unpaid order without a UserProfile. */
@@ -89,9 +95,15 @@ export async function createGuestAcquisitionOrder(anonymousId: string, purchaser
   const timezone = normalizeCheckoutTimezone(purchaser.timezone);
   const country = (purchaser.country.trim().toUpperCase() || "US").slice(0, 2);
   const selected = await loadValidatedDraft(anonymousId);
+  // Manual or prefilled referral: capture if valid; never fail checkout on invalid codes.
+  await tryCaptureReferralCodeForCheckout({
+    code: purchaser.referralCode,
+    acquisitionSessionId: selected.session.id,
+    source: "checkout_form",
+  });
+  const acquisition = await prisma.acquisitionSession.findUniqueOrThrow({ where: { id: selected.session.id } });
   const offer = await bootstrapProgramOffer();
   const result = await prisma.$transaction(async (tx) => {
-    const acquisition = selected.session;
     const existing = await tx.customerOrder.findFirst({
       where: {
         acquisitionSessionId: acquisition.id,
@@ -135,6 +147,7 @@ export async function createGuestAcquisitionOrder(anonymousId: string, purchaser
         setupPriority: selected.draft.setupPriority!,
         paymentStatus: "UNPAID",
         paymentMethod: "MANUAL",
+        affiliateAttributionId: acquisition.affiliateAttributionId,
       },
     });
     await tx.customerOrderItem.deleteMany({

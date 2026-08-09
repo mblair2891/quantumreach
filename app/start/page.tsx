@@ -46,6 +46,22 @@ export default async function StartPage({ searchParams }: { searchParams: Record
       <AcquisitionCapture params={searchParams} />
       <main className="mx-auto max-w-7xl px-5 py-12 sm:px-8 sm:py-16">
         <FunnelProgress current={1} />
+        {searchParams.referral === "captured" ? (
+          <p
+            role="status"
+            className="mb-7 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-medium text-emerald-950"
+          >
+            Referral saved. Continue choosing your package — your code will be applied at checkout.
+          </p>
+        ) : null}
+        {searchParams.referral === "invalid" ? (
+          <p
+            role="alert"
+            className="mb-7 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-sm font-medium text-amber-950"
+          >
+            That referral link is not valid or is no longer active. You can still continue without a referral.
+          </p>
+        ) : null}
         {existing && activeSubscription ? (
           <div className="mb-7 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-center text-indigo-950">
             <p>

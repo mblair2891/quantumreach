@@ -187,6 +187,7 @@ export async function resolveAffiliateCode(raw:string) {
 export async function captureAffiliateAttribution(input:{code:string;acquisitionSessionId:string;sourceMetadata?:Prisma.InputJsonObject}) {
   return prisma.$transaction(async tx=>{
     const normalizedCode=normalizeAffiliateCode(input.code);
+    if(!normalizedCode)return null;
     const code=await tx.affiliateMembershipCode.findUnique({where:{normalizedCode},include:{membershipPeriod:true}});
     if(!code||code.status!=="ACTIVE"||code.membershipPeriod.status!=="ACTIVE"||code.membershipPeriod.endedAt)return null;
     const current=await tx.affiliateReferralAttribution.findFirst({where:{acquisitionSessionId:input.acquisitionSessionId,status:{in:["CAPTURED","LOCKED"]}}});
@@ -197,6 +198,42 @@ export async function captureAffiliateAttribution(input:{code:string;acquisition
     await tx.acquisitionSession.update({where:{id:input.acquisitionSessionId},data:{affiliateAttributionId:attribution.id}});
     return attribution;
   },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
+}
+
+/**
+ * Returns the customer-facing code for a session's current CAPTURED/LOCKED attribution.
+ * Used to prefill checkout; does not create or change attribution.
+ */
+export async function getCapturedReferralCodeForSession(acquisitionSessionId: string) {
+  const attribution = await prisma.affiliateReferralAttribution.findFirst({
+    where: { acquisitionSessionId, status: { in: ["CAPTURED", "LOCKED"] } },
+    include: { affiliateCode: true },
+    orderBy: { capturedAt: "desc" },
+  });
+  return attribution?.affiliateCode?.code ?? null;
+}
+
+/**
+ * Apply a referral code from checkout without blocking the order.
+ * Empty input leaves existing session attribution alone.
+ * Invalid/retired codes are ignored (return null) so checkout can continue.
+ */
+export async function tryCaptureReferralCodeForCheckout(input: {
+  code: string | null | undefined;
+  acquisitionSessionId: string;
+  source?: string;
+}) {
+  const raw = (input.code ?? "").trim();
+  if (!raw) return null;
+  try {
+    return await captureAffiliateAttribution({
+      code: raw,
+      acquisitionSessionId: input.acquisitionSessionId,
+      sourceMetadata: { entryPath: input.source ?? "checkout_form" },
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function lockAffiliateAttribution(input:{acquisitionSessionId:string;orderId:string;customerUserId:string;workspaceId?:string},tx:Prisma.TransactionClient) {

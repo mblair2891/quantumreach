@@ -33,4 +33,22 @@ describe("pay-first checkout form", () => {
     expect(service).toContain("normalizeCheckoutTimezone");
     expect(service).toContain("businessName: null");
   });
+
+  it("supports optional referral code prefill and checkout capture separate from coupons", () => {
+    const page = source("app/setup/confirmation/page.tsx");
+    const actions = source("app/setup/confirmation/actions.ts");
+    const service = source("lib/customer-journey/service.ts");
+    const affiliates = source("lib/affiliates/service.ts");
+    expect(page).toContain('name="referralCode"');
+    expect(page).toContain("getCapturedReferralCodeForSession");
+    expect(page).toContain("prefilledReferralCode");
+    expect(actions).toContain("referralCode");
+    expect(service).toContain("tryCaptureReferralCodeForCheckout");
+    expect(service).toContain("referralCode");
+    expect(affiliates).toContain("tryCaptureReferralCodeForCheckout");
+    // Coupons remain a separate form/action path.
+    expect(page).toContain("applyCouponAction");
+    expect(actions).toContain("applyCoupon");
+    expect(service).not.toMatch(/applyCoupon.*referralCode|referralCode.*applyCoupon/);
+  });
 });

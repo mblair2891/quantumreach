@@ -17,6 +17,7 @@ import { SimulatedPaymentButton } from "@/components/funnel/simulated-payment-bu
 import { isSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 import { ACCOUNT_SETUP_TOKEN_TTL_HOURS } from "@/lib/auth/constants";
 import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE } from "@/lib/customer-journey/timezones";
+import { getCapturedReferralCodeForSession } from "@/lib/affiliates/service";
 
 export default async function Confirmation({
   searchParams,
@@ -62,6 +63,8 @@ export default async function Confirmation({
   const signedInUser = await getOptionalUserProfile();
   const resume = selection.session.anonymousId ?? selection.session.id;
   const plan = charges.plan;
+  // Prefill from /r/{code} capture on this acquisition session (coupons are separate).
+  const prefilledReferralCode = (await getCapturedReferralCodeForSession(selection.session.id)) ?? "";
 
   // Post-submit: payment / setup invite state
   if (searchParams.submitted === "1") {
@@ -289,6 +292,25 @@ export default async function Confirmation({
               </select>
             </label>
             <Field name="country" label="Country code" defaultValue="US" maxLength={2} />
+            <label className="text-sm font-medium text-slate-800 sm:col-span-2">
+              Referral code <span className="font-normal text-slate-600">(optional)</span>
+              <input
+                name="referralCode"
+                type="text"
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                maxLength={64}
+                defaultValue={prefilledReferralCode}
+                placeholder="QR-XXXXXXXX"
+                className="qr-field mt-1"
+              />
+              <span className="mt-1 block text-xs font-normal text-slate-600">
+                {prefilledReferralCode
+                  ? "Prefilled from your referral link. You can change or clear it. Invalid codes are ignored and do not block checkout."
+                  : "If someone referred you, paste their code here. Invalid codes are ignored and do not block checkout. Coupon codes are entered separately above."}
+              </span>
+            </label>
             <label className="flex gap-3 text-sm text-slate-800 sm:col-span-2">
               <input type="checkbox" name="agreementAccepted" required value="on" className="mt-0.5" />
               <span>I agree to the terms and confirm this order information is accurate.</span>

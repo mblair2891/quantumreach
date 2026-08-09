@@ -61,6 +61,8 @@ export async function submitGuestCheckoutAction(form: FormData) {
       lastName: String(form.get("lastName") ?? ""),
       timezone: String(form.get("timezone") ?? "America/New_York"),
       country: String(form.get("country") ?? "US"),
+      // Affiliate referral only — coupons use a separate form/action.
+      referralCode: String(form.get("referralCode") ?? ""),
     });
     orderId = order.id;
     cookies().set("qr_acquisition", resume, {
