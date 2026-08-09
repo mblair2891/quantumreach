@@ -10,15 +10,29 @@ export type AffiliateProgramConfigValues = {
   notes: string | null;
 };
 
+/**
+ * Safe default hold when platform config is missing or holdDays is unset.
+ * Expected paid-out date = activation date + DEFAULT_HOLD_DAYS (or configured holdDays).
+ */
+export const DEFAULT_HOLD_DAYS = 14;
+
 export const DEFAULT_AFFILIATE_PROGRAM_CONFIG: AffiliateProgramConfigValues = {
   id: "default",
   enabled: true,
   firstPaymentRateBps: 2000,
   recurringRateBps: 1000,
   setupFeesCommissionable: false,
-  holdDays: 14,
+  holdDays: DEFAULT_HOLD_DAYS,
   notes: null,
 };
+
+/** Resolve hold days with safe default (never negative). */
+export function resolveHoldDays(holdDays?: number | null): number {
+  if (typeof holdDays === "number" && Number.isFinite(holdDays) && holdDays >= 0) {
+    return Math.min(365, Math.floor(holdDays));
+  }
+  return DEFAULT_HOLD_DAYS;
+}
 
 function clampBps(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -43,7 +57,7 @@ export async function getAffiliateProgramConfig(): Promise<AffiliateProgramConfi
     firstPaymentRateBps: row.firstPaymentRateBps,
     recurringRateBps: row.recurringRateBps,
     setupFeesCommissionable: row.setupFeesCommissionable,
-    holdDays: row.holdDays,
+    holdDays: resolveHoldDays(row.holdDays),
     notes: row.notes,
   };
 }

@@ -3292,8 +3292,10 @@ model AffiliateReferralAttribution {
   /// Partner dashboard: visible after paid (non-complimentary) activation.
   partnerVisible              Boolean                            @default(false)
   commissionable              Boolean                            @default(false)
-  /// PENDING (hold window), ACTIVE (earned label), CANCELED, VOID
+  /// Legacy partner label: PENDING | ACTIVE | CANCELED | VOID (prefer ledgerStatus for money).
   partnerStatus               String?
+  /// Internal balance ledger: PENDING (hold) | AVAILABLE (owed) | PAID (manual payout recorded).
+  ledgerStatus                String?
   expectedFeeCents            Int?
   firstPaymentGrossCents      Int?
   rateBpsSnapshot             Int?
@@ -3302,6 +3304,11 @@ model AffiliateReferralAttribution {
   /// Safe identity for the referring partner (never internal ids).
   referredDisplayLabel        String?
   feeCalculatedAt             DateTime?
+  /// activation date + holdDays (platform settings; default 14 when unset).
+  expectedPaidOutAt           DateTime?
+  paidOutAt                   DateTime?
+  paidOutById                 String?
+  paidOutNote                 String?
   createdAt                   DateTime                           @default(now())
   updatedAt                   DateTime                           @updatedAt
 
@@ -3314,6 +3321,8 @@ model AffiliateReferralAttribution {
   @@index([workspaceId, status])
   @@index([affiliateMembershipPeriodId, capturedAt])
   @@index([partnerVisible, affiliateMembershipPeriodId, capturedAt])
+  @@index([ledgerStatus, expectedPaidOutAt])
+  @@index([commissionable, ledgerStatus])
 }
 
 /// Singleton platform defaults for affiliate expected-fee display and enablement.
@@ -3325,7 +3334,7 @@ model AffiliateProgramConfig {
   /// Basis points shown for recurring expectation (display/planning; first payment is primary v1 fee).
   recurringRateBps        Int      @default(1000)
   setupFeesCommissionable Boolean  @default(false)
-  /// Days after activation before partner status labels as ACTIVE (earned) vs PENDING (hold).
+  /// Days after activation before balance moves PENDING → AVAILABLE. Default 14 when missing.
   holdDays                Int      @default(14)
   notes                   String?
   createdAt               DateTime @default(now())

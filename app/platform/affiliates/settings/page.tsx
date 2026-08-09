@@ -99,7 +99,7 @@ export default async function AffiliateProgramSettingsPage({
         </label>
 
         <label className="block text-sm font-medium text-slate-100">
-          Hold days (Pending → Active label)
+          Hold days (Pending → Available balance)
           <input
             name="holdDays"
             type="number"
@@ -110,7 +110,8 @@ export default async function AffiliateProgramSettingsPage({
             className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-slate-50"
           />
           <span className="mt-1 block text-xs font-normal text-slate-300">
-            0 = label as Active (expected) immediately. Does not pay out funds.
+            Expected paid-out date = activation + hold days. Default is 14 when missing. After the date, balance is
+            Available for manual payout recording (not automatic bank transfer). 0 = available immediately.
           </span>
         </label>
 

@@ -2,6 +2,7 @@ import { requireUserProfile } from "@/lib/auth/rbac";
 import { CopyValueButton } from "@/components/dashboard/copy-value-button";
 import { getPartnerReferralDashboard } from "@/lib/affiliates/partner-referrals";
 import { moneyCents } from "@/lib/affiliates/expected-fee";
+import { DEFAULT_HOLD_DAYS } from "@/lib/affiliates/program-config";
 
 export default async function PartnerReferralsPage() {
   const user = await requireUserProfile();
@@ -12,8 +13,8 @@ export default async function PartnerReferralsPage() {
       <header>
         <h1 className="text-3xl font-semibold text-slate-950 dark:text-slate-50">Your referrals</h1>
         <p className="mt-2 max-w-3xl text-slate-600 dark:text-slate-300">
-          Share your referral link, track referred signups, and see expected referral fees. Payouts and tax forms are
-          not included in this private-beta view.
+          Share your referral link, track referred signups, and see internal expected balances. Bank transfers are not
+          automated in private beta — available amounts are paid manually by Quantum Reach operators.
         </p>
       </header>
 
@@ -24,12 +25,16 @@ export default async function PartnerReferralsPage() {
           </p>
           <p className="text-sm text-slate-700 dark:text-slate-200">
             <strong>Fee rule:</strong> {dashboard.rateLabel}
-            {dashboard.holdDays > 0
-              ? ` · Fees show as Pending for ${dashboard.holdDays} day(s), then Active (expected).`
-              : " · Fees are labeled Active (expected) immediately."}
+            {" · "}
+            Hold period: <strong>{dashboard.holdDays} day(s)</strong>
+            {dashboard.holdDays === DEFAULT_HOLD_DAYS ? " (platform default when unset is 14 days)" : ""}. Expected
+            paid-out date = activation date + hold days.
           </p>
           {!dashboard.programEnabled ? (
-            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+            <p
+              role="status"
+              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+            >
               The affiliate program is currently disabled by the platform operator. Existing history remains visible.
             </p>
           ) : null}
@@ -70,35 +75,43 @@ export default async function PartnerReferralsPage() {
           className="max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
         >
           No active referral code is available. Affiliate membership is created automatically when paid subscriber access
-          is activated (simulated test payment, Stripe, or operator manual paid clearance). Complimentary grants do not
-          create affiliate membership.
+          is activated. Complimentary grants do not create affiliate membership.
         </p>
       )}
 
-      <section className="grid max-w-3xl gap-4 sm:grid-cols-2">
+      <section className="grid max-w-4xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-950">
           <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Referred signups</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">{dashboard.referredCount}</p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-950">
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Expected fees (pending + active)</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
-            {dashboard.expectedFeesTotalLabel}
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950">
+          <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Pending balance</p>
+          <p className="mt-2 text-3xl font-semibold text-amber-950 dark:text-amber-50">{dashboard.pendingTotalLabel}</p>
+        </div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950">
+          <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">Available balance</p>
+          <p className="mt-2 text-3xl font-semibold text-emerald-950 dark:text-emerald-50">
+            {dashboard.availableTotalLabel}
           </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-950">
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Paid (recorded)</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">{dashboard.paidTotalLabel}</p>
         </div>
       </section>
 
-      <section className="max-w-4xl overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
+      <section className="max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">Referral activity</h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Expected fees are planning figures from platform affiliate settings. They are not paid out from this page.
+            Expected paid-out date is activation + {dashboard.holdDays} hold day(s). Status moves Pending → Available
+            after that date; Paid means an operator recorded a manual payout (no automatic bank transfer).
           </p>
         </div>
         {dashboard.rows.length === 0 ? (
           <p className="p-5 text-sm text-slate-600 dark:text-slate-300">
-            No referred activations yet. Share your link — paid and simulated-paid activations with a valid referral
-            appear here. Complimentary activations are not commissionable.
+            No referred activations yet. Paid and simulated-paid activations with a valid referral appear here.
+            Complimentary activations are not commissionable.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -110,6 +123,7 @@ export default async function PartnerReferralsPage() {
                   <th className="px-4 py-3 font-semibold">Package</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
                   <th className="px-4 py-3 font-semibold">Expected fee</th>
+                  <th className="px-4 py-3 font-semibold">Expected paid out</th>
                 </tr>
               </thead>
               <tbody>
@@ -123,19 +137,20 @@ export default async function PartnerReferralsPage() {
                     <td className="px-4 py-3">
                       <span
                         className={
-                          row.status === "ACTIVE"
+                          row.status === "AVAILABLE"
                             ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
                             : row.status === "PENDING"
                               ? "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100"
-                              : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                              : "rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-800 dark:bg-slate-700 dark:text-slate-100"
                         }
                       >
-                        {row.status === "ACTIVE" ? "Active (expected)" : row.status === "PENDING" ? "Pending" : row.status}
+                        {row.statusLabel}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-950 dark:text-slate-50">
                       {moneyCents(row.expectedFeeCents)}
                     </td>
+                    <td className="px-4 py-3 text-slate-800 dark:text-slate-100">{row.expectedPaidOutLabel}</td>
                   </tr>
                 ))}
               </tbody>

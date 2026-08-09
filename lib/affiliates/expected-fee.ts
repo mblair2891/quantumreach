@@ -148,19 +148,66 @@ export function calculateExpectedReferralFee(
   };
 }
 
+export type LedgerBalanceStatus = "PENDING" | "AVAILABLE" | "PAID";
+
+/** activation/referral date + hold days → expected paid-out date. */
+export function computeExpectedPaidOutAt(activationDate: Date, holdDays: number): Date {
+  const days = Number.isFinite(holdDays) && holdDays >= 0 ? Math.floor(holdDays) : 14;
+  const result = new Date(activationDate.getTime());
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+/**
+ * Internal balance status for commissionable referrals.
+ * PAID is sticky (manual payout). Otherwise PENDING until expectedPaidOutAt, then AVAILABLE.
+ */
+export function resolveLedgerStatus(input: {
+  ledgerStatus?: string | null;
+  partnerStatus?: string | null;
+  feeCalculatedAt?: Date | null;
+  expectedPaidOutAt?: Date | null;
+  paidOutAt?: Date | null;
+  holdDays: number;
+  now?: Date;
+}): LedgerBalanceStatus {
+  const now = input.now ?? new Date();
+  if (input.paidOutAt || input.ledgerStatus === "PAID" || input.partnerStatus === "PAID") return "PAID";
+  if (input.ledgerStatus === "AVAILABLE" || input.partnerStatus === "ACTIVE") {
+    // Still respect paid-out date if set in the future (config change edge case).
+    if (input.expectedPaidOutAt && input.expectedPaidOutAt.getTime() > now.getTime()) return "PENDING";
+    return "AVAILABLE";
+  }
+  const paidOutAt =
+    input.expectedPaidOutAt ??
+    (input.feeCalculatedAt ? computeExpectedPaidOutAt(input.feeCalculatedAt, input.holdDays) : null);
+  if (!paidOutAt) return "PENDING";
+  if (paidOutAt.getTime() <= now.getTime()) return "AVAILABLE";
+  return "PENDING";
+}
+
+/** @deprecated Prefer resolveLedgerStatus for money; maps AVAILABLE→ACTIVE for older UI labels. */
 export function resolvePartnerStatusLabel(
   partnerStatus: string | null | undefined,
   feeCalculatedAt: Date | null | undefined,
   holdDays: number,
   now = new Date(),
-): "PENDING" | "ACTIVE" | "CANCELED" | "VOID" | "CAPTURED" {
-  if (partnerStatus === "CANCELED" || partnerStatus === "VOID") return partnerStatus;
-  if (partnerStatus === "ACTIVE") return "ACTIVE";
-  if (!feeCalculatedAt) return partnerStatus === "PENDING" ? "PENDING" : "CAPTURED";
-  if (holdDays <= 0) return "ACTIVE";
-  const elapsedMs = now.getTime() - feeCalculatedAt.getTime();
-  if (elapsedMs >= holdDays * 24 * 60 * 60 * 1000) return "ACTIVE";
+): "PENDING" | "ACTIVE" | "CANCELED" | "VOID" | "CAPTURED" | "PAID" {
+  if (partnerStatus === "CANCELED" || partnerStatus === "VOID" || partnerStatus === "PAID") return partnerStatus;
+  const ledger = resolveLedgerStatus({
+    partnerStatus,
+    feeCalculatedAt,
+    holdDays,
+    now,
+  });
+  if (ledger === "PAID") return "PAID";
+  if (ledger === "AVAILABLE") return "ACTIVE";
+  if (!feeCalculatedAt && partnerStatus !== "PENDING") return "CAPTURED";
   return "PENDING";
+}
+
+export function formatDateOnly(date: Date) {
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 export function safeReferredDisplayLabel(input: {
