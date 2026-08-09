@@ -1,8 +1,11 @@
 import type { Prisma } from "@prisma/client";
 import type { AffiliateProgramConfigValues } from "@/lib/affiliates/program-config";
 
-const object = (value: Prisma.JsonValue | null | undefined): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+/** Narrow unknown/JSON values to plain objects for safe field access. */
+const object = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 
 function intCents(value: unknown): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -12,7 +15,7 @@ function stringVal(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function productKeyFromMetadata(metadata: Prisma.JsonValue): string | null {
+function productKeyFromMetadata(metadata: Prisma.JsonValue | null | undefined): string | null {
   const key = object(metadata).productKey;
   return typeof key === "string" ? key : null;
 }

@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import {
   calculateExpectedReferralFee,
@@ -122,7 +123,7 @@ export async function recordPartnerReferralOnActivation(orderId: string) {
         ...(typeof attribution.sourceMetadata === "object" &&
         attribution.sourceMetadata &&
         !Array.isArray(attribution.sourceMetadata)
-          ? (attribution.sourceMetadata as Record<string, unknown>)
+          ? (attribution.sourceMetadata as Record<string, string | number | boolean | null>)
           : {}),
         expectedFee: {
           rateBps: fee.rateBps,
@@ -133,7 +134,7 @@ export async function recordPartnerReferralOnActivation(orderId: string) {
           expectedRecurringFeeCents: fee.expectedRecurringFeeCents,
           paymentMethod: order.paymentMethod,
         },
-      },
+      } as Prisma.InputJsonValue,
     },
   });
 }
