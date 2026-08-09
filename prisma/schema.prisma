@@ -3289,6 +3289,19 @@ model AffiliateReferralAttribution {
   invalidatedAt               DateTime?
   invalidationReason          String?
   sourceMetadata              Json                               @default("{}")
+  /// Partner dashboard: visible after paid (non-complimentary) activation.
+  partnerVisible              Boolean                            @default(false)
+  commissionable              Boolean                            @default(false)
+  /// PENDING (hold window), ACTIVE (earned label), CANCELED, VOID
+  partnerStatus               String?
+  expectedFeeCents            Int?
+  firstPaymentGrossCents      Int?
+  rateBpsSnapshot             Int?
+  packageKey                  String?
+  packageName                 String?
+  /// Safe identity for the referring partner (never internal ids).
+  referredDisplayLabel        String?
+  feeCalculatedAt             DateTime?
   createdAt                   DateTime                           @default(now())
   updatedAt                   DateTime                           @updatedAt
 
@@ -3300,6 +3313,23 @@ model AffiliateReferralAttribution {
   @@index([customerUserId, status])
   @@index([workspaceId, status])
   @@index([affiliateMembershipPeriodId, capturedAt])
+  @@index([partnerVisible, affiliateMembershipPeriodId, capturedAt])
+}
+
+/// Singleton platform defaults for affiliate expected-fee display and enablement.
+model AffiliateProgramConfig {
+  id                      String   @id @default("default")
+  enabled                 Boolean  @default(true)
+  /// Basis points of commissionable first payment (10000 = 100%).
+  firstPaymentRateBps     Int      @default(2000)
+  /// Basis points shown for recurring expectation (display/planning; first payment is primary v1 fee).
+  recurringRateBps        Int      @default(1000)
+  setupFeesCommissionable Boolean  @default(false)
+  /// Days after activation before partner status labels as ACTIVE (earned) vs PENDING (hold).
+  holdDays                Int      @default(14)
+  notes                   String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }
 
 model AffiliateClick {

@@ -1,42 +1,38 @@
-import { prisma } from "@/lib/db/prisma";
 import { requireUserProfile } from "@/lib/auth/rbac";
 import { CopyValueButton } from "@/components/dashboard/copy-value-button";
-
-/** Permanent public production domain for shareable referral links. */
-const REFERRAL_PUBLIC_ORIGIN = "https://www.quantumreach.app";
+import { getPartnerReferralDashboard } from "@/lib/affiliates/partner-referrals";
+import { moneyCents } from "@/lib/affiliates/expected-fee";
 
 export default async function PartnerReferralsPage() {
   const user = await requireUserProfile();
-  const participant = await prisma.affiliateParticipant.findUnique({
-    where: { userId: user.id },
-    include: {
-      memberships: {
-        where: { status: { in: ["ACTIVE", "SUSPENDED"] } },
-        include: { code: true },
-        take: 1,
-        orderBy: { startedAt: "desc" },
-      },
-    },
-  });
-  const membership = participant?.memberships[0];
-  const available = membership?.status === "ACTIVE" && membership.code?.status === "ACTIVE";
-  const code = available ? membership!.code!.code : "";
-  const referralLink = available ? `${REFERRAL_PUBLIC_ORIGIN}/r/${code}` : "";
+  const dashboard = await getPartnerReferralDashboard(user.id);
 
   return (
     <main className="space-y-6">
       <header>
-        <h1 className="text-3xl font-semibold text-slate-950 dark:text-slate-50">Your referral code</h1>
-        <p className="mt-2 text-slate-600 dark:text-slate-300">
-          Share your Quantum Reach referral link. Affiliate membership is included automatically with active paid
-          subscriber access.
+        <h1 className="text-3xl font-semibold text-slate-950 dark:text-slate-50">Your referrals</h1>
+        <p className="mt-2 max-w-3xl text-slate-600 dark:text-slate-300">
+          Share your referral link, track referred signups, and see expected referral fees. Payouts and tax forms are
+          not included in this private-beta view.
         </p>
       </header>
-      {available ? (
-        <section className="max-w-2xl space-y-4 rounded-xl border border-slate-300 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
+
+      {dashboard.code && dashboard.referralLink ? (
+        <section className="max-w-3xl space-y-4 rounded-xl border border-slate-300 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
           <p className="text-slate-800 dark:text-slate-100">
-            <strong>Membership status:</strong> {membership!.status}
+            <strong>Membership status:</strong> {dashboard.membershipStatus ?? "—"}
           </p>
+          <p className="text-sm text-slate-700 dark:text-slate-200">
+            <strong>Fee rule:</strong> {dashboard.rateLabel}
+            {dashboard.holdDays > 0
+              ? ` · Fees show as Pending for ${dashboard.holdDays} day(s), then Active (expected).`
+              : " · Fees are labeled Active (expected) immediately."}
+          </p>
+          {!dashboard.programEnabled ? (
+            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+              The affiliate program is currently disabled by the platform operator. Existing history remains visible.
+            </p>
+          ) : null}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200" htmlFor="referral-code">
@@ -47,9 +43,9 @@ export default async function PartnerReferralsPage() {
                 id="referral-code"
                 className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-950 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
                 readOnly
-                value={code}
+                value={dashboard.code}
               />
-              <CopyValueButton value={code} label="Copy" />
+              <CopyValueButton value={dashboard.code} label="Copy" />
             </div>
           </div>
 
@@ -62,26 +58,91 @@ export default async function PartnerReferralsPage() {
                 id="referral-link"
                 className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-950 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
                 readOnly
-                value={referralLink}
+                value={dashboard.referralLink}
               />
-              <CopyValueButton value={referralLink} label="Copy" />
+              <CopyValueButton value={dashboard.referralLink} label="Copy" />
             </div>
           </div>
-
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Use Copy to share your code or full link. The link always uses the permanent Quantum Reach domain. No
-            internal account identifiers are included.
-          </p>
         </section>
       ) : (
         <p
           role="status"
-          className="max-w-2xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          className="max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
         >
-          No active referral code is available. Referral access is available while your paid subscriber access and
-          affiliate membership are active.
+          No active referral code is available. Affiliate membership is created automatically when paid subscriber access
+          is activated (simulated test payment, Stripe, or operator manual paid clearance). Complimentary grants do not
+          create affiliate membership.
         </p>
       )}
+
+      <section className="grid max-w-3xl gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-950">
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Referred signups</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">{dashboard.referredCount}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-950">
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Expected fees (pending + active)</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
+            {dashboard.expectedFeesTotalLabel}
+          </p>
+        </div>
+      </section>
+
+      <section className="max-w-4xl overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
+        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+          <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">Referral activity</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Expected fees are planning figures from platform affiliate settings. They are not paid out from this page.
+          </p>
+        </div>
+        {dashboard.rows.length === 0 ? (
+          <p className="p-5 text-sm text-slate-600 dark:text-slate-300">
+            No referred activations yet. Share your link — paid and simulated-paid activations with a valid referral
+            appear here. Complimentary activations are not commissionable.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Date</th>
+                  <th className="px-4 py-3 font-semibold">Referred</th>
+                  <th className="px-4 py-3 font-semibold">Package</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Expected fee</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboard.rows.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-200 dark:border-slate-800">
+                    <td className="px-4 py-3 text-slate-800 dark:text-slate-100">
+                      {row.date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                    </td>
+                    <td className="px-4 py-3 text-slate-800 dark:text-slate-100">{row.referredLabel}</td>
+                    <td className="px-4 py-3 text-slate-800 dark:text-slate-100">{row.packageName ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={
+                          row.status === "ACTIVE"
+                            ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+                            : row.status === "PENDING"
+                              ? "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                              : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                        }
+                      >
+                        {row.status === "ACTIVE" ? "Active (expected)" : row.status === "PENDING" ? "Pending" : row.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-950 dark:text-slate-50">
+                      {moneyCents(row.expectedFeeCents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   );
 }

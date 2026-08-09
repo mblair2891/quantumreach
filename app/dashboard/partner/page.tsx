@@ -24,7 +24,8 @@ export default async function Page() {
       <header>
         <h1 className="text-3xl font-semibold text-slate-950 dark:text-slate-50">Partner Center</h1>
         <p className="mt-2 max-w-3xl text-slate-600 dark:text-slate-300">
-          Active paid subscribers automatically receive an affiliate membership and referral code. Share your link to attribute new acquisitions. Commission dashboards and payouts are deferred past private beta.
+          Active paid subscribers automatically receive an affiliate membership and referral code. Share your link, track
+          referred activations, and view expected referral fees. Payout execution remains out of private-beta scope.
         </p>
       </header>
 
@@ -34,13 +35,13 @@ export default async function Page() {
             Membership status: <strong className="text-slate-950 dark:text-slate-50">{membership!.status}</strong>
           </p>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Your referral code is ready. Open the referral page to copy the code and public link.
+            Your referral code is ready. Open referrals to copy your link and see referred signups with expected fees.
           </p>
           <Link
             className="inline-flex rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
             href="/dashboard/partner/referrals"
           >
-            View referral code and link
+            View referrals and expected fees
           </Link>
         </section>
       ) : (
@@ -56,8 +57,9 @@ export default async function Page() {
         <h2 className="font-semibold text-slate-950 dark:text-slate-50">Private beta scope</h2>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-300">
           <li>Referral code generation and public <code className="text-slate-900 dark:text-slate-100">/r/[code]</code> attribution</li>
+          <li>Partner-visible referral list with expected fees after paid/simulated-paid activation</li>
           <li>Access-end retires the code; resubscription creates a new period and code</li>
-          <li>Commissions, holds, clawbacks, and payouts remain out of private-beta scope</li>
+          <li>Payouts, tax forms, and clawback accounting remain out of private-beta scope</li>
         </ul>
       </section>
     </main>
