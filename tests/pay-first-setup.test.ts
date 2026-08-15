@@ -37,6 +37,32 @@ describe("pay-first account setup", () => {
     expect(payment).toContain("isGuestOrder");
   });
 
+  it("allows guest Stripe checkout without requireUserProfile and defers fulfill until claim", () => {
+    const checkout = source("app/api/billing/checkout/route.ts");
+    const commerce = source("lib/stripe/commerce.ts");
+    const webhooks = source("lib/stripe/webhooks.ts");
+    const service = source("lib/customer-journey/service.ts");
+    const accountSetup = source("lib/auth/account-setup.ts");
+    const confirmation = source("app/setup/confirmation/page.tsx");
+    expect(checkout).toContain("getOptionalUserProfile");
+    expect(checkout).toContain("acquisitionCookie");
+    expect(checkout).not.toContain("requireUserProfile");
+    expect(commerce).toContain("getOrCreateGuestStripeCustomer");
+    expect(commerce).toContain("STANDARD_SETUP");
+    expect(commerce).toContain("checkout=success");
+    expect(commerce).toContain("reconcilePaidCheckoutSession");
+    expect(commerce).not.toContain("mixes recurring and one-time");
+    expect(webhooks).toContain("stripeSubscriptionId");
+    expect(webhooks).not.toContain("cannot yet be correlated to a fulfilled workspace");
+    expect(service).toContain("requiresAccountSetup: true");
+    expect(service).toContain("if(!order.userId) return { requiresAccountSetup: true as const }");
+    expect(accountSetup).toContain("stripeCustomerLink");
+    expect(confirmation).toContain("StripeCheckoutButton");
+    expect(confirmation).toContain("getBillingConfig");
+    expect(confirmation).toContain("reconcilePaidCheckoutSession");
+    expect(confirmation).toContain("issueAccountSetupToken");
+  });
+
   it("never creates affiliate membership for complimentary clearance", () => {
     const service = source("lib/customer-journey/service.ts");
     expect(service).toContain('order.paymentMethod !== "COMPLIMENTARY"');

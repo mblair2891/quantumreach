@@ -14,7 +14,10 @@ import {
 import { FunnelProgress } from "@/components/funnel/progress";
 import { FunnelShell } from "@/components/funnel/shell";
 import { SimulatedPaymentButton } from "@/components/funnel/simulated-payment-button";
+import { StripeCheckoutButton } from "@/components/funnel/stripe-checkout-button";
 import { isSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
+import { getBillingConfig } from "@/lib/billing/config";
+import { issueAccountSetupToken } from "@/lib/auth/account-setup";
 import { ACCOUNT_SETUP_TOKEN_TTL_HOURS } from "@/lib/auth/constants";
 import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE } from "@/lib/customer-journey/timezones";
 import { getCapturedReferralCodeForSession } from "@/lib/affiliates/service";
@@ -29,6 +32,7 @@ export default async function Confirmation({
     orderId?: string;
     setupToken?: string;
     checkoutError?: string;
+    checkout?: string;
   };
 }) {
   let selection;
@@ -66,9 +70,10 @@ export default async function Confirmation({
   // Prefill from /r/{code} capture on this acquisition session (coupons are separate).
   const prefilledReferralCode = (await getCapturedReferralCodeForSession(selection.session.id)) ?? "";
 
-  // Post-submit: payment / setup invite state
-  if (searchParams.submitted === "1") {
-    const order = searchParams.orderId
+  // Post-submit: payment / setup invite state (including Stripe success/cancel return)
+  const checkoutState = searchParams.checkout;
+  if (searchParams.submitted === "1" || checkoutState === "success" || checkoutState === "cancelled") {
+    let order = searchParams.orderId
       ? await prisma.customerOrder.findFirst({
           where: {
             id: searchParams.orderId,
@@ -89,11 +94,30 @@ export default async function Confirmation({
           });
 
     if (order) {
+      const billing = getBillingConfig();
+      if (checkoutState === "success" && order.paymentStatus !== "PAID" && billing.configured) {
+        try {
+          const { reconcilePaidCheckoutSession } = await import("@/lib/stripe/commerce");
+          const reconciled = await reconcilePaidCheckoutSession(order.id);
+          order = reconciled.order;
+        } catch {
+          // Webhook may still arrive; keep the unpaid Stripe CTA visible.
+        }
+      }
+
       const paid = order.paymentStatus === "PAID";
-      const setupUrl =
+      let setupUrl =
         searchParams.setupToken && paid
           ? `/setup/account?token=${encodeURIComponent(searchParams.setupToken)}`
           : null;
+      if (paid && !order.userId && !setupUrl) {
+        try {
+          const issued = await issueAccountSetupToken(order.id);
+          setupUrl = `/setup/account?token=${encodeURIComponent(issued.rawToken)}`;
+        } catch {
+          setupUrl = null;
+        }
+      }
 
       return (
         <FunnelShell>
@@ -125,7 +149,9 @@ export default async function Confirmation({
               <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6 dark:border-emerald-800 dark:bg-emerald-950/40">
                 <h2 className="font-semibold text-emerald-950 dark:text-emerald-100">Next: create your password</h2>
                 <p className="text-sm text-emerald-900 dark:text-emerald-200">
-                  Test payment completed — no real card was charged. Live email delivery is deferred in this environment.
+                  {order.paymentMethod === "SIMULATED_TEST"
+                    ? "Test payment completed — no real card was charged. Live email delivery is deferred in this environment."
+                    : "Payment is confirmed. Workspace provisioning starts after you create your password."}{" "}
                   Use the secure setup link below (valid about {ACCOUNT_SETUP_TOKEN_TTL_HOURS} hours) to set your password
                   and activate your workspace.
                 </p>
@@ -136,6 +162,28 @@ export default async function Confirmation({
                 <Link className="funnel-primary inline-flex w-full" href={setupUrl}>
                   Open account setup
                 </Link>
+              </section>
+            ) : null}
+
+            {billing.configured && !paid ? (
+              <section className="mt-7 rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-6 dark:border-indigo-700 dark:bg-indigo-950/40">
+                <h2 className="font-semibold text-indigo-950 dark:text-indigo-100">Pay with Stripe</h2>
+                <p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">
+                  Stripe test-mode checkout. No live charges. After payment you will receive an account setup link
+                  {order.purchaserEmail ? (
+                    <>
+                      {" "}
+                      for <strong>{order.purchaserEmail}</strong>
+                    </>
+                  ) : null}
+                  . Nothing is provisioned until you create your password.
+                </p>
+                {checkoutState === "cancelled" ? (
+                  <p role="alert" className="mt-3 text-sm text-amber-800">
+                    Checkout was cancelled. You can try again.
+                  </p>
+                ) : null}
+                <StripeCheckoutButton orderId={order.id} />
               </section>
             ) : null}
 
@@ -153,7 +201,7 @@ export default async function Confirmation({
               </section>
             ) : null}
 
-            {!isSimulatedPaymentEnvironment() && !paid ? (
+            {!billing.configured && !isSimulatedPaymentEnvironment() && !paid ? (
               <p className="mt-7 rounded-xl border bg-amber-50 p-4 text-sm text-amber-950">
                 Live checkout is not enabled in this environment. An operator can clear payment manually when appropriate.
               </p>

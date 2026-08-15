@@ -209,6 +209,19 @@ export async function completeAccountSetup(input: CompleteAccountSetupInput) {
     data: { userId: profile.id },
   });
 
+  if (record.order.stripeCustomerId) {
+    const existingLink = await prisma.stripeCustomerLink.findUnique({
+      where: { stripeCustomerId: record.order.stripeCustomerId },
+    });
+    if (!existingLink) {
+      await prisma.stripeCustomerLink.upsert({
+        where: { userId: profile.id },
+        create: { userId: profile.id, stripeCustomerId: record.order.stripeCustomerId },
+        update: {},
+      });
+    }
+  }
+
   if (record.order.acquisitionSessionId) {
     await prisma.acquisitionSession.update({
       where: { id: record.order.acquisitionSessionId },

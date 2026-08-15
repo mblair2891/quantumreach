@@ -43,9 +43,14 @@ async function syncPaid(object: Record<string, any>, eventId: string) {
 async function syncSubscription(object: Record<string, any>, eventId: string) {
   const providerSubscriptionId = stripeId(object); if (!providerSubscriptionId) return;
   const order = await findOrder(object);
-  // A subscription can arrive before Checkout/payment fulfillment. Retaining the webhook as FAILED
-  // makes Stripe retry it after the order/workspace correlation exists; no unaffiliated subscription is created.
-  if (!order?.workspaceId || !order.userId) throw new Error("Stripe subscription cannot yet be correlated to a fulfilled workspace.");
+  if (!order) throw new Error("Stripe subscription cannot yet be correlated to a customer order.");
+  // Guest pay-first: store the provider id and wait for account claim + workspace fulfillment.
+  if (!order.workspaceId || !order.userId) {
+    if (order.stripeSubscriptionId !== providerSubscriptionId) {
+      await prisma.customerOrder.update({ where: { id: order.id }, data: { stripeSubscriptionId: providerSubscriptionId } });
+    }
+    return;
+  }
   const status = subscriptionStatus(object.status); const periodEnd = object.current_period_end ? new Date(Number(object.current_period_end) * 1000) : undefined;
   const subscription = await prisma.saasSubscription.upsert({ where: { stripeSubscriptionId: providerSubscriptionId }, create: { userId: order.userId, workspaceId: order.workspaceId, stripeCustomerId: order.stripeCustomerId, stripeSubscriptionId: providerSubscriptionId, status, currentPeriodEnd: periodEnd, affiliateAttributionId: order.affiliateAttributionId, commissionEligible: Boolean(order.affiliateAttributionId) }, update: { status, currentPeriodEnd: periodEnd, workspaceId: order.workspaceId, stripeCustomerId: order.stripeCustomerId } });
   const subscriber = await prisma.userProfile.findUniqueOrThrow({ where: { id: order.userId } });

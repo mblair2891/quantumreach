@@ -237,11 +237,15 @@ export async function verifyManualPayment(infrastructureOrderId:string, operator
 /** The centralized, verified-provider entry point for Stripe financial clearance. */
 export async function verifyStripePayment(orderId:string, stripeEventId:string, paymentIntentId?:string, subscriptionId?:string){
  const order=await prisma.customerOrder.findUniqueOrThrow({where:{id:orderId}});
- if(order.paymentStatus==="PAID") { if(order.paymentMethod!=="STRIPE") return fulfillCustomerOrder(orderId); return fulfillCustomerOrder(orderId); }
+ if(order.paymentStatus==="PAID") {
+  if(!order.userId) return { requiresAccountSetup: true as const };
+  return fulfillCustomerOrder(orderId);
+ }
  if(order.status==="CANCELED"||order.status==="REFUNDED") throw new Error("Order cannot receive Stripe clearance in its current state.");
  await prisma.customerOrder.update({where:{id:orderId},data:{status:"PAID",paymentStatus:"PAID",paymentMethod:"STRIPE",paymentVerifiedAt:new Date(),stripePaymentIntentId:paymentIntentId,stripeSubscriptionId:subscriptionId}});
  const infrastructure=await prisma.infrastructureOrder.findUnique({where:{customerOrderId:orderId}});
  if(infrastructure) await prisma.infrastructureOrderStageEvent.create({data:{infrastructureOrderId:infrastructure.id,eventType:"STRIPE_PAYMENT_VERIFIED",actorType:"SYSTEM",actorId:stripeEventId,newStage:"Payment verified"}});
+ if(!order.userId) return { requiresAccountSetup: true as const };
  return fulfillCustomerOrder(orderId);
 }
 function getProductKey(metadata: Prisma.JsonValue): string | undefined {
@@ -293,7 +297,13 @@ export async function fulfillCustomerOrder(orderId:string) {
     const couponRule = couponSnapshot.coupon && typeof couponSnapshot.coupon === "object" && !Array.isArray(couponSnapshot.coupon) ? couponSnapshot.coupon as Prisma.JsonObject : {};
     const initialStatus = order.paymentMethod === "SIMULATED_TEST" && Number(couponRule.trialDays ?? 0) > 0 ? "TRIALING" : "ACTIVE";
     const subscription = await prisma.saasSubscription.findFirst({ where: { userId: user.id, workspaceId: workspace.id, status: { in: ["ACTIVE", "TRIALING"] } } })
-      ?? await prisma.saasSubscription.create({ data: { userId: user.id, workspaceId: workspace.id, planKey: corePlan?.key ?? "QUANTUM_REACH_CORE", status: initialStatus, affiliateAttributionId: order.affiliateAttributionId } });
+      ?? await prisma.saasSubscription.create({ data: { userId: user.id, workspaceId: workspace.id, planKey: corePlan?.key ?? "QUANTUM_REACH_CORE", status: initialStatus, affiliateAttributionId: order.affiliateAttributionId, stripeCustomerId: order.stripeCustomerId, stripeSubscriptionId: order.stripeSubscriptionId } });
+    if (!subscription.stripeSubscriptionId && order.stripeSubscriptionId) {
+      await prisma.saasSubscription.update({
+        where: { id: subscription.id },
+        data: { stripeSubscriptionId: order.stripeSubscriptionId, stripeCustomerId: order.stripeCustomerId ?? subscription.stripeCustomerId },
+      });
+    }
     if (order.paymentMethod !== "COMPLIMENTARY") await ensureAffiliateMembershipForActiveSubscriber({ userId: user.id, email: user.email, displayName: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email, subscriptionId: subscription.id, correlationId: eventKey });
     if (order.acceptedCommercialTerms) await prisma.saasSubscription.update({ where: { id: subscription.id }, data: { customerOrderId: order.id, commercialCatalogVersionId: order.commercialCatalogVersionId, acceptedCommercialTerms: order.acceptedCommercialTerms } });
     await prisma.customerOrder.update({ where: { id: orderId }, data: { workspaceId: workspace.id, status: "PARTIALLY_FULFILLED" } });
