@@ -18,13 +18,17 @@ describe("simulated payment environment safety", () => {
     expect(simulatedPaymentEnvironmentName(environment)).toBe(name);
   });
 
-  it("enforces the same shared gate in UI, action, and service without an override", () => {
-    const page = source("app/setup/confirmation/page.tsx");
+  it("enforces the same shared gate in remaining UI, action, and service without an override", () => {
+    const page = source("app/setup/status/page.tsx");
     const action = source("app/setup/confirmation/actions.ts");
     const service = source("lib/simulated-payment/service.ts");
+    const confirmation = source("app/setup/confirmation/page.tsx");
     expect(page).toContain("isSimulatedPaymentEnvironment()");
     expect(action).toContain("assertSimulatedPaymentEnvironment()");
     expect(service).toContain("assertSimulatedPaymentEnvironment()");
+    expect(confirmation).not.toContain("isSimulatedPaymentEnvironment");
+    expect(confirmation).not.toContain("SimulatedPaymentButton");
+    expect(confirmation).not.toContain("Preview payment testing");
     expect([page, action, service].join("\n")).not.toMatch(/SIMULATED.*ENABLED|ALLOW.*SIMULATED|PUBLIC.*SIMULATED/i);
   });
 

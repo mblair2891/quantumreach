@@ -8,14 +8,11 @@ import { applyCouponToSummary, getAppliedCoupon, type CouponCalculation } from "
 import {
   applyCouponAction,
   removeCouponAction,
-  simulateSuccessfulPaymentAction,
   submitGuestCheckoutAction,
 } from "./actions";
 import { FunnelProgress } from "@/components/funnel/progress";
 import { FunnelShell } from "@/components/funnel/shell";
-import { SimulatedPaymentButton } from "@/components/funnel/simulated-payment-button";
 import { StripeCheckoutButton } from "@/components/funnel/stripe-checkout-button";
-import { isSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 import { getBillingConfig } from "@/lib/billing/config";
 import { issueAccountSetupToken } from "@/lib/auth/account-setup";
 import { ACCOUNT_SETUP_TOKEN_TTL_HOURS } from "@/lib/auth/constants";
@@ -187,21 +184,7 @@ export default async function Confirmation({
               </section>
             ) : null}
 
-            {isSimulatedPaymentEnvironment() && !paid ? (
-              <section className="mt-7 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 p-6 dark:border-indigo-700 dark:bg-indigo-950/40">
-                <h2 className="font-semibold text-indigo-950 dark:text-indigo-100">Preview payment testing</h2>
-                <p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">
-                  Preview test payment — no real card will be charged. After payment you will receive an account setup
-                  link (shown on this page when email is not live).
-                </p>
-                <form action={simulateSuccessfulPaymentAction} className="mt-5">
-                  <input type="hidden" name="orderId" value={order.id} />
-                  <SimulatedPaymentButton />
-                </form>
-              </section>
-            ) : null}
-
-            {!billing.configured && !isSimulatedPaymentEnvironment() && !paid ? (
+            {!billing.configured && !paid ? (
               <p className="mt-7 rounded-xl border bg-amber-50 p-4 text-sm text-amber-950">
                 Live checkout is not enabled in this environment. An operator can clear payment manually when appropriate.
               </p>
@@ -304,7 +287,6 @@ export default async function Confirmation({
           />
           <Row label="Today’s total" value={money(charges.todayTotalCents)} emphasize />
           <Row label="Recurring monthly fee" value={`${money(charges.recurringMonthlyCents)}/month`} />
-          <Row label="Financial state" value="Unpaid · pay before account setup" />
         </div>
 
         <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
