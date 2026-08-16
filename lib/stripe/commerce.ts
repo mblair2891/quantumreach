@@ -61,15 +61,32 @@ export async function getOrCreateStripeCustomer(userId: string, email: string) {
   const saved = await prisma.stripeCustomerLink.upsert({ where: { userId }, create: { userId, stripeCustomerId: customer.id }, update: {} }); return saved.stripeCustomerId;
 }
 
+export function purchaserDisplayName(order: { purchaserFirstName?: string | null; purchaserLastName?: string | null }) {
+  return [order.purchaserFirstName, order.purchaserLastName].map((part) => part?.trim()).filter(Boolean).join(" ");
+}
+
 /** Guest Checkout: reuse an existing Stripe Customer by purchaser email. Do not write StripeCustomerLink until account claim. */
-export async function getOrCreateGuestStripeCustomer(order: { id: string; purchaserEmail: string | null; stripeCustomerId: string | null }) {
-  if (order.stripeCustomerId) return order.stripeCustomerId;
+export async function getOrCreateGuestStripeCustomer(order: {
+  id: string;
+  purchaserEmail: string | null;
+  purchaserFirstName?: string | null;
+  purchaserLastName?: string | null;
+  stripeCustomerId: string | null;
+}) {
   const email = (order.purchaserEmail ?? "").trim().toLowerCase();
   if (!email) throw new Error("Purchaser email is required for guest checkout.");
+  const name = purchaserDisplayName(order) || undefined;
+  if (order.stripeCustomerId) {
+    if (name) await getStripeClient().customers.update(order.stripeCustomerId, { email, name });
+    return order.stripeCustomerId;
+  }
   const existing = await getStripeClient().customers.list({ email, limit: 1 });
-  if (existing.data[0]?.id) return existing.data[0].id;
+  if (existing.data[0]?.id) {
+    if (name) await getStripeClient().customers.update(existing.data[0].id, { email, name });
+    return existing.data[0].id;
+  }
   const customer = await getStripeClient().customers.create(
-    { email, metadata: { quantumReachOrderId: order.id } },
+    { email, ...(name ? { name } : {}), metadata: { quantumReachOrderId: order.id } },
     { idempotencyKey: `guest-customer:${order.id}` },
   );
   return customer.id;

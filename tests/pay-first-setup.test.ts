@@ -44,6 +44,7 @@ describe("pay-first account setup", () => {
     const service = source("lib/customer-journey/service.ts");
     const accountSetup = source("lib/auth/account-setup.ts");
     const confirmation = source("app/setup/confirmation/page.tsx");
+    const actions = source("app/setup/confirmation/actions.ts");
     expect(checkout).toContain("getOptionalUserProfile");
     expect(checkout).toContain("acquisitionCookie");
     expect(checkout).not.toContain("requireUserProfile");
@@ -61,6 +62,12 @@ describe("pay-first account setup", () => {
     expect(confirmation).toContain("getBillingConfig");
     expect(confirmation).toContain("reconcilePaidCheckoutSession");
     expect(confirmation).toContain("issueAccountSetupToken");
+    expect(confirmation).toContain("resolveConfirmationOrder");
+    expect(confirmation).toContain("getDraftSession");
+    expect(confirmation.indexOf("resolveConfirmationOrder")).toBeLessThan(confirmation.indexOf('redirect("/start?selection=expired")'));
+    expect(actions).toContain("createCheckout");
+    expect(actions).toContain("getBillingConfig");
+    expect(actions).toContain("if (stripeUrl) redirect(stripeUrl)");
   });
 
   it("never creates affiliate membership for complimentary clearance", () => {

@@ -9,6 +9,7 @@ import { buildAcquisitionChargeSummary } from "@/lib/commercial/charge-lines";
 import { catalogPrice, loadValidatedDraft } from "@/lib/customer-journey/acquisition-draft";
 import { createGuestAcquisitionOrder } from "@/lib/customer-journey/service";
 import { getOptionalUserProfile } from "@/lib/auth/rbac";
+import { getBillingConfig } from "@/lib/billing/config";
 import { assertSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 import { simulateSuccessfulPayment } from "@/lib/simulated-payment/service";
 
@@ -46,15 +47,15 @@ export async function removeCouponAction() {
   revalidatePath("/setup/confirmation");
 }
 
-/** Pay-first: create unpaid guest order and show payment step. */
+/** Pay-first: create unpaid guest order and start Stripe Checkout when billing is configured. */
 export async function submitGuestCheckoutAction(form: FormData) {
   let orderId = "";
-  let resume = "";
+  let stripeUrl = "";
   try {
     if (String(form.get("agreementAccepted") ?? "") !== "on") {
       throw new Error("You must accept the terms to continue.");
     }
-    resume = String(form.get("resume") ?? "");
+    const resume = String(form.get("resume") ?? "");
     const order = await createGuestAcquisitionOrder(resume, {
       email: String(form.get("email") ?? ""),
       firstName: String(form.get("firstName") ?? ""),
@@ -72,13 +73,26 @@ export async function submitGuestCheckoutAction(form: FormData) {
       path: "/",
       maxAge: 60 * 60 * 24 * 60,
     });
+    if (getBillingConfig().configured) {
+      const user = await getOptionalUserProfile();
+      const { createCheckout } = await import("@/lib/stripe/commerce");
+      const session = await createCheckout(order.id, {
+        id: user?.id ?? null,
+        email: user?.email ?? null,
+        acquisitionSessionId: order.acquisitionSessionId,
+      });
+      stripeUrl = session.url;
+    }
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    redirect(
-      `/setup/confirmation?checkoutError=${encodeURIComponent(error instanceof Error ? error.message : "Could not submit order.")}`,
-    );
+    const detail = error instanceof Error ? error.message : "Could not submit order.";
+    if (orderId) {
+      redirect(`/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}&checkoutError=${encodeURIComponent(detail)}`);
+    }
+    redirect(`/setup/confirmation?checkoutError=${encodeURIComponent(detail)}`);
   }
   // redirect() throws NEXT_REDIRECT — must stay outside catch so it is not treated as failure.
+  if (stripeUrl) redirect(stripeUrl);
   redirect(`/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}`);
 }
 

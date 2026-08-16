@@ -12,9 +12,9 @@ const db = {
   $transaction: vi.fn(async (work: any) => work(db)),
 };
 const reconcileAffiliate = vi.fn();
-const createCustomer = vi.fn(); const listCustomers = vi.fn(); const createSession = vi.fn(); const retrieveSession = vi.fn(); const createPortalSession = vi.fn(); const constructEvent = vi.fn(); const fulfill = vi.fn();
+const createCustomer = vi.fn(); const listCustomers = vi.fn(); const updateCustomer = vi.fn(); const createSession = vi.fn(); const retrieveSession = vi.fn(); const createPortalSession = vi.fn(); const constructEvent = vi.fn(); const fulfill = vi.fn();
 const stripeClient = {
-  customers: { create: createCustomer, list: listCustomers },
+  customers: { create: createCustomer, list: listCustomers, update: updateCustomer },
   checkout: { sessions: { create: createSession, retrieve: retrieveSession } },
   billingPortal: { sessions: { create: createPortalSession } },
   webhooks: { constructEvent },
@@ -96,6 +96,38 @@ describe("Stripe checkout and webhook boundaries", () => {
     await createCheckout("order_1", { acquisitionSessionId: "acq_1" });
     expect(createCustomer).toHaveBeenCalledWith({ email: "guest@example.com", metadata: { quantumReachOrderId: "order_1" } }, { idempotencyKey: "guest-customer:order_1" });
     expect(db.stripeCustomerLink.upsert).not.toHaveBeenCalled();
+  });
+  it("sets the guest Stripe customer name from persisted purchaser fields", async () => {
+    db.customerOrder.findUniqueOrThrow.mockResolvedValue({
+      ...order,
+      userId: null,
+      purchaserEmail: "guest@example.com",
+      purchaserFirstName: "Ada",
+      purchaserLastName: "Lovelace",
+      stripeCustomerId: null,
+    });
+    createCustomer.mockResolvedValue({ id: "cus_guest" });
+    const { createCheckout } = await import("@/lib/stripe/commerce");
+    await createCheckout("order_1", { acquisitionSessionId: "acq_1" });
+    expect(createCustomer).toHaveBeenCalledWith(
+      { email: "guest@example.com", name: "Ada Lovelace", metadata: { quantumReachOrderId: "order_1" } },
+      { idempotencyKey: "guest-customer:order_1" },
+    );
+    expect(updateCustomer).not.toHaveBeenCalled();
+  });
+  it("updates a reused guest Stripe customer with the purchaser name", async () => {
+    db.customerOrder.findUniqueOrThrow.mockResolvedValue({
+      ...order,
+      userId: null,
+      purchaserEmail: "guest@example.com",
+      purchaserFirstName: "Ada",
+      purchaserLastName: "Lovelace",
+      stripeCustomerId: "cus_saved",
+    });
+    const { createCheckout } = await import("@/lib/stripe/commerce");
+    await createCheckout("order_1", { acquisitionSessionId: "acq_1" });
+    expect(updateCustomer).toHaveBeenCalledWith("cus_saved", { email: "guest@example.com", name: "Ada Lovelace" });
+    expect(createCustomer).not.toHaveBeenCalled();
   });
   it("allows guest checkout when the acquisition session or purchaser email matches", async () => {
     db.customerOrder.findUniqueOrThrow.mockResolvedValue({ ...order, userId: null, purchaserEmail: "guest@example.com", stripeCustomerId: "cus_saved" });

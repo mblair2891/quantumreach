@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { getOptionalUserProfile } from "@/lib/auth/rbac";
-import { catalogPrice, loadValidatedDraft, money } from "@/lib/customer-journey/acquisition-draft";
+import { catalogPrice, getDraftSession, loadValidatedDraft, money } from "@/lib/customer-journey/acquisition-draft";
 import { buildAcquisitionChargeSummary } from "@/lib/commercial/charge-lines";
 import { applyCouponToSummary, getAppliedCoupon, type CouponCalculation } from "@/lib/commercial/coupons";
 import {
@@ -18,6 +18,7 @@ import { issueAccountSetupToken } from "@/lib/auth/account-setup";
 import { ACCOUNT_SETUP_TOKEN_TTL_HOURS } from "@/lib/auth/constants";
 import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE } from "@/lib/customer-journey/timezones";
 import { getCapturedReferralCodeForSession } from "@/lib/affiliates/service";
+import type { CustomerOrder } from "@prisma/client";
 
 export default async function Confirmation({
   searchParams,
@@ -32,12 +33,37 @@ export default async function Confirmation({
     checkout?: string;
   };
 }) {
-  let selection;
+  const signedInUser = await getOptionalUserProfile();
+  const checkoutState = searchParams.checkout;
+  const paymentReturn =
+    Boolean(searchParams.orderId) ||
+    searchParams.submitted === "1" ||
+    checkoutState === "success" ||
+    checkoutState === "cancelled";
+
+  let selection: Awaited<ReturnType<typeof loadValidatedDraft>> | null = null;
   try {
     selection = await loadValidatedDraft();
   } catch {
+    selection = null;
+  }
+
+  // Stripe success/cancel (and submitted resume) must work even if the acquisition draft expired.
+  if (paymentReturn) {
+    const order = await resolveConfirmationOrder({
+      orderId: searchParams.orderId,
+      signedInUserId: signedInUser?.id,
+      draftSessionId: selection?.session.id,
+    });
+    if (order) {
+      return renderOrderPaymentState({ order, searchParams, checkoutState });
+    }
+  }
+
+  if (!selection) {
     redirect("/start?selection=expired");
   }
+
   const setupPrice = catalogPrice(selection.setup);
   const setupProductKey = selection.setup.key;
   if (!setupPrice.configured || (setupProductKey !== "STANDARD_SETUP" && setupProductKey !== "PRIORITY_SETUP")) {
@@ -61,145 +87,11 @@ export default async function Confirmation({
     }
   }
 
-  const signedInUser = await getOptionalUserProfile();
   const resume = selection.session.anonymousId ?? selection.session.id;
   const plan = charges.plan;
+  const billingConfigured = getBillingConfig().configured;
   // Prefill from /r/{code} capture on this acquisition session (coupons are separate).
   const prefilledReferralCode = (await getCapturedReferralCodeForSession(selection.session.id)) ?? "";
-
-  // Post-submit: payment / setup invite state (including Stripe success/cancel return)
-  const checkoutState = searchParams.checkout;
-  if (searchParams.submitted === "1" || checkoutState === "success" || checkoutState === "cancelled") {
-    let order = searchParams.orderId
-      ? await prisma.customerOrder.findFirst({
-          where: {
-            id: searchParams.orderId,
-            OR: [
-              { acquisitionSessionId: selection.session.id },
-              ...(signedInUser ? [{ userId: signedInUser.id }] : []),
-            ],
-          },
-        })
-      : signedInUser
-        ? await prisma.customerOrder.findFirst({
-            where: { userId: signedInUser.id, acquisitionSessionId: selection.session.id },
-            orderBy: { createdAt: "desc" },
-          })
-        : await prisma.customerOrder.findFirst({
-            where: { acquisitionSessionId: selection.session.id, userId: null },
-            orderBy: { createdAt: "desc" },
-          });
-
-    if (order) {
-      const billing = getBillingConfig();
-      if (checkoutState === "success" && order.paymentStatus !== "PAID" && billing.configured) {
-        try {
-          const { reconcilePaidCheckoutSession } = await import("@/lib/stripe/commerce");
-          const reconciled = await reconcilePaidCheckoutSession(order.id);
-          order = reconciled.order;
-        } catch {
-          // Webhook may still arrive; keep the unpaid Stripe CTA visible.
-        }
-      }
-
-      const paid = order.paymentStatus === "PAID";
-      let setupUrl =
-        searchParams.setupToken && paid
-          ? `/setup/account?token=${encodeURIComponent(searchParams.setupToken)}`
-          : null;
-      if (paid && !order.userId && !setupUrl) {
-        try {
-          const issued = await issueAccountSetupToken(order.id);
-          setupUrl = `/setup/account?token=${encodeURIComponent(issued.rawToken)}`;
-        } catch {
-          setupUrl = null;
-        }
-      }
-
-      return (
-        <FunnelShell>
-          <main className="mx-auto max-w-3xl px-5 py-16">
-            <FunnelProgress current={6} />
-            <p className="funnel-eyebrow">{paid ? "Payment verified" : "Order submitted"}</p>
-            <h1 className="funnel-title mt-3 text-4xl font-semibold">
-              {paid ? "Set up your Quantum Reach account." : "Review and pay when ready."}
-            </h1>
-            <p className="mt-4 text-slate-700">
-              Order <span className="font-mono text-sm text-slate-800">{order.id}</span> is{" "}
-              <strong>{order.paymentStatus.toLowerCase()}</strong>
-              {order.purchaserEmail ? (
-                <>
-                  {" "}
-                  for <strong>{order.purchaserEmail}</strong>
-                </>
-              ) : null}
-              . No infrastructure purchase or provider provisioning is claimed before clearance and account setup.
-            </p>
-
-            {searchParams.testPayment === "failed" ? (
-              <p role="alert" className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-800">
-                The test payment could not be completed safely. Refresh and try again.
-              </p>
-            ) : null}
-
-            {paid && setupUrl ? (
-              <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6 dark:border-emerald-800 dark:bg-emerald-950/40">
-                <h2 className="font-semibold text-emerald-950 dark:text-emerald-100">Next: create your password</h2>
-                <p className="text-sm text-emerald-900 dark:text-emerald-200">
-                  {order.paymentMethod === "SIMULATED_TEST"
-                    ? "Test payment completed — no real card was charged. Live email delivery is deferred in this environment."
-                    : "Payment is confirmed. Workspace provisioning starts after you create your password."}{" "}
-                  Use the secure setup link below (valid about {ACCOUNT_SETUP_TOKEN_TTL_HOURS} hours) to set your password
-                  and activate your workspace.
-                </p>
-                <p className="text-sm text-emerald-900 dark:text-emerald-200">
-                  When email sending is enabled in production, this link is also emailed to{" "}
-                  <strong>{order.purchaserEmail}</strong>.
-                </p>
-                <Link className="funnel-primary inline-flex w-full" href={setupUrl}>
-                  Open account setup
-                </Link>
-              </section>
-            ) : null}
-
-            {billing.configured && !paid ? (
-              <section className="mt-7 rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-6 dark:border-indigo-700 dark:bg-indigo-950/40">
-                <h2 className="font-semibold text-indigo-950 dark:text-indigo-100">Pay with Stripe</h2>
-                <p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">
-                  Stripe test-mode checkout. No live charges. After payment you will receive an account setup link
-                  {order.purchaserEmail ? (
-                    <>
-                      {" "}
-                      for <strong>{order.purchaserEmail}</strong>
-                    </>
-                  ) : null}
-                  . Nothing is provisioned until you create your password.
-                </p>
-                {checkoutState === "cancelled" ? (
-                  <p role="alert" className="mt-3 text-sm text-amber-800">
-                    Checkout was cancelled. You can try again.
-                  </p>
-                ) : null}
-                <StripeCheckoutButton orderId={order.id} />
-              </section>
-            ) : null}
-
-            {!billing.configured && !paid ? (
-              <p className="mt-7 rounded-xl border bg-amber-50 p-4 text-sm text-amber-950">
-                Live checkout is not enabled in this environment. An operator can clear payment manually when appropriate.
-              </p>
-            ) : null}
-
-            {paid && !setupUrl ? (
-              <p className="mt-7 rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">
-                Payment is recorded. If you did not receive a setup link, contact support with your order id.
-              </p>
-            ) : null}
-          </main>
-        </FunnelShell>
-      );
-    }
-  }
 
   return (
     <FunnelShell>
@@ -346,10 +238,14 @@ export default async function Confirmation({
               <span>I agree to the terms and confirm this order information is accurate.</span>
             </label>
             <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 sm:col-span-2">
-              Submitting creates an unpaid order. After test or live payment you will set a password via a secure link.
+              {billingConfigured
+                ? "Submitting creates your order and takes you to secure checkout. After payment you will set a password via a secure link."
+                : "Submitting creates an unpaid order. After payment you will set a password via a secure link."}{" "}
               No domains, mailboxes, or live sends are provisioned at this step.
             </p>
-            <button className="funnel-primary w-full sm:col-span-2">Continue to payment</button>
+            <button className="funnel-primary w-full sm:col-span-2">
+              {billingConfigured ? "Continue to secure checkout" : "Continue to payment"}
+            </button>
           </form>
           <p className="mt-4 text-center text-sm text-slate-600">
             Already have an account?{" "}
@@ -358,6 +254,177 @@ export default async function Confirmation({
             </Link>
           </p>
         </section>
+      </main>
+    </FunnelShell>
+  );
+}
+
+async function resolveConfirmationOrder(input: {
+  orderId?: string;
+  signedInUserId?: string | null;
+  draftSessionId?: string;
+}) {
+  const cookieSession = await getDraftSession();
+  const sessionId = input.draftSessionId ?? cookieSession?.id ?? null;
+  const userId = input.signedInUserId ?? null;
+
+  if (input.orderId) {
+    return prisma.customerOrder.findFirst({
+      where: {
+        id: input.orderId,
+        OR: [
+          ...(sessionId ? [{ acquisitionSessionId: sessionId }] : []),
+          ...(userId ? [{ userId }] : []),
+          { userId: null },
+        ],
+      },
+    });
+  }
+
+  if (userId) {
+    return prisma.customerOrder.findFirst({
+      where: {
+        userId,
+        ...(sessionId ? { acquisitionSessionId: sessionId } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  if (sessionId) {
+    return prisma.customerOrder.findFirst({
+      where: { acquisitionSessionId: sessionId, userId: null },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  return null;
+}
+
+async function renderOrderPaymentState({
+  order: initialOrder,
+  searchParams,
+  checkoutState,
+}: {
+  order: CustomerOrder;
+  searchParams: {
+    testPayment?: string;
+    setupToken?: string;
+    checkoutError?: string;
+  };
+  checkoutState?: string;
+}) {
+  let order = initialOrder;
+  const billing = getBillingConfig();
+  if (checkoutState === "success" && order.paymentStatus !== "PAID" && billing.configured) {
+    try {
+      const { reconcilePaidCheckoutSession } = await import("@/lib/stripe/commerce");
+      const reconciled = await reconcilePaidCheckoutSession(order.id);
+      order = reconciled.order;
+    } catch {
+      // Webhook may still arrive; keep the unpaid Stripe CTA visible.
+    }
+  }
+
+  const paid = order.paymentStatus === "PAID";
+  let setupUrl =
+    searchParams.setupToken && paid
+      ? `/setup/account?token=${encodeURIComponent(searchParams.setupToken)}`
+      : null;
+  if (paid && !order.userId && !setupUrl) {
+    try {
+      const issued = await issueAccountSetupToken(order.id);
+      setupUrl = `/setup/account?token=${encodeURIComponent(issued.rawToken)}`;
+    } catch {
+      setupUrl = null;
+    }
+  }
+
+  return (
+    <FunnelShell>
+      <main className="mx-auto max-w-3xl px-5 py-16">
+        <FunnelProgress current={6} />
+        <p className="funnel-eyebrow">{paid ? "Payment verified" : "Order submitted"}</p>
+        <h1 className="funnel-title mt-3 text-4xl font-semibold">
+          {paid ? "Set up your Quantum Reach account." : "Review and pay when ready."}
+        </h1>
+        <p className="mt-4 text-slate-700">
+          Order <span className="font-mono text-sm text-slate-800">{order.id}</span> is{" "}
+          <strong>{order.paymentStatus.toLowerCase()}</strong>
+          {order.purchaserEmail ? (
+            <>
+              {" "}
+              for <strong>{order.purchaserEmail}</strong>
+            </>
+          ) : null}
+          . No infrastructure purchase or provider provisioning is claimed before clearance and account setup.
+        </p>
+
+        {searchParams.checkoutError ? (
+          <p role="alert" className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-800">
+            {searchParams.checkoutError}
+          </p>
+        ) : null}
+
+        {searchParams.testPayment === "failed" ? (
+          <p role="alert" className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-800">
+            The test payment could not be completed safely. Refresh and try again.
+          </p>
+        ) : null}
+
+        {paid && setupUrl ? (
+          <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6 dark:border-emerald-800 dark:bg-emerald-950/40">
+            <h2 className="font-semibold text-emerald-950 dark:text-emerald-100">Next: create your password</h2>
+            <p className="text-sm text-emerald-900 dark:text-emerald-200">
+              {order.paymentMethod === "SIMULATED_TEST"
+                ? "Test payment completed — no real card was charged. Live email delivery is deferred in this environment."
+                : "Payment is confirmed. Workspace provisioning starts after you create your password."}{" "}
+              Use the secure setup link below (valid about {ACCOUNT_SETUP_TOKEN_TTL_HOURS} hours) to set your password
+              and activate your workspace.
+            </p>
+            <p className="text-sm text-emerald-900 dark:text-emerald-200">
+              When email sending is enabled in production, this link is also emailed to{" "}
+              <strong>{order.purchaserEmail}</strong>.
+            </p>
+            <Link className="funnel-primary inline-flex w-full" href={setupUrl}>
+              Open account setup
+            </Link>
+          </section>
+        ) : null}
+
+        {billing.configured && !paid ? (
+          <section className="mt-7 rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-6 dark:border-indigo-700 dark:bg-indigo-950/40">
+            <h2 className="font-semibold text-indigo-950 dark:text-indigo-100">Pay with Stripe</h2>
+            <p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">
+              Stripe test-mode checkout. No live charges. After payment you will receive an account setup link
+              {order.purchaserEmail ? (
+                <>
+                  {" "}
+                  for <strong>{order.purchaserEmail}</strong>
+                </>
+              ) : null}
+              . Nothing is provisioned until you create your password.
+            </p>
+            {checkoutState === "cancelled" ? (
+              <p role="alert" className="mt-3 text-sm text-amber-800">
+                Checkout was cancelled. You can try again.
+              </p>
+            ) : null}
+            <StripeCheckoutButton orderId={order.id} />
+          </section>
+        ) : null}
+
+        {!billing.configured && !paid ? (
+          <p className="mt-7 rounded-xl border bg-amber-50 p-4 text-sm text-amber-950">
+            Live checkout is not enabled in this environment. An operator can clear payment manually when appropriate.
+          </p>
+        ) : null}
+
+        {paid && !setupUrl ? (
+          <p className="mt-7 rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">
+            Payment is recorded. If you did not receive a setup link, contact support with your order id.
+          </p>
+        ) : null}
       </main>
     </FunnelShell>
   );
