@@ -140,7 +140,7 @@ export default async function StartPage({ searchParams }: { searchParams: Record
             No active subscriber package is available.
           </p>
         )}
-        <p className="mt-7 text-center text-sm text-slate-600">No payment, domain purchase, mailbox creation, or provider action occurs at this step.</p>
+        <p className="mt-7 text-center text-sm text-slate-700">No payment, domain purchase, mailbox creation, or provider action occurs at this step.</p>
       </main>
     </FunnelShell>
   );

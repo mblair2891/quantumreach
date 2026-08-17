@@ -28,7 +28,7 @@ function AgencySystemVisual() {
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-slate-950 text-sm font-bold text-white">Q</span>
             <div>
               <p className="text-sm font-semibold text-slate-950">Your agency system</p>
-              <p className="text-xs text-slate-500">Built with Quantum Reach</p>
+              <p className="text-xs text-slate-600">Built with Quantum Reach</p>
             </div>
           </div>
           <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">Ready to launch</span>
@@ -46,7 +46,7 @@ function AgencySystemVisual() {
                 {index + 1}
               </span>
               <p className="font-semibold text-slate-950 sm:text-center">{title}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-center">{detail}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-center">{detail}</p>
             </div>
           ))}
         </div>
@@ -82,7 +82,7 @@ export default function HomePage() {
             <Link className="funnel-primary w-full sm:w-auto" href="/start">Join Quantum Reach <span className="ml-2">→</span></Link>
             <Link className="funnel-secondary w-full sm:w-auto" href="/sign-in">Sign in</Link>
           </div>
-          <p className="mt-5 text-sm text-slate-500">Start with the presentation. Your setup comes later, with guidance.</p>
+          <p className="mt-5 text-sm text-slate-700">Start with the presentation. Your setup comes later, with guidance.</p>
         </div>
         <AgencySystemVisual />
       </section>

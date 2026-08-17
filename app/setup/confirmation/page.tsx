@@ -393,9 +393,9 @@ async function renderOrderPaymentState({
         ) : null}
 
         {showCheckEmail ? (
-          <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6 dark:border-emerald-800 dark:bg-emerald-950/40">
-            <h2 className="font-semibold text-emerald-950 dark:text-emerald-100">Next: create your password</h2>
-            <p className="text-sm text-emerald-900 dark:text-emerald-200">
+          <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6">
+            <h2 className="font-semibold text-emerald-950">Next: create your password</h2>
+            <p className="text-sm text-emerald-950">
               {order.paymentMethod === "SIMULATED_TEST"
                 ? "Test payment completed — no real card was charged. "
                 : "Payment is confirmed. Workspace provisioning starts after you create your password. "}
@@ -404,7 +404,7 @@ async function renderOrderPaymentState({
             </p>
             <form action={resendAccountSetupEmailAction}>
               <input type="hidden" name="orderId" value={order.id} />
-              <button className="text-sm font-semibold text-emerald-900 underline dark:text-emerald-100">
+              <button className="text-sm font-semibold text-emerald-950 underline">
                 Resend setup email
               </button>
             </form>
@@ -412,16 +412,16 @@ async function renderOrderPaymentState({
         ) : null}
 
         {showSetupLink && setupUrl ? (
-          <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6 dark:border-emerald-800 dark:bg-emerald-950/40">
-            <h2 className="font-semibold text-emerald-950 dark:text-emerald-100">Next: create your password</h2>
-            <p className="text-sm text-emerald-900 dark:text-emerald-200">
+          <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6">
+            <h2 className="font-semibold text-emerald-950">Next: create your password</h2>
+            <p className="text-sm text-emerald-950">
               {order.paymentMethod === "SIMULATED_TEST"
                 ? "Test payment completed — no real card was charged. Live email delivery is deferred in this environment."
                 : "Payment is confirmed. Workspace provisioning starts after you create your password."}{" "}
               Use the secure setup link below (valid about {ACCOUNT_SETUP_TOKEN_TTL_HOURS} hours) to set your password
               and activate your workspace.
             </p>
-            <p className="text-sm text-emerald-900 dark:text-emerald-200">
+            <p className="text-sm text-emerald-950">
               {emailDelivery === "FAILED" ? (
                 "We could not email the setup link. Use the secure link below."
               ) : (
@@ -438,9 +438,9 @@ async function renderOrderPaymentState({
         ) : null}
 
         {billing.configured && !paid ? (
-          <section className="mt-7 rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-6 dark:border-indigo-700 dark:bg-indigo-950/40">
-            <h2 className="font-semibold text-indigo-950 dark:text-indigo-100">Pay with Stripe</h2>
-            <p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">
+          <section className="mt-7 rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-6">
+            <h2 className="font-semibold text-indigo-950">Pay with Stripe</h2>
+            <p className="mt-2 text-sm text-indigo-950">
               Stripe test-mode checkout. No live charges. After payment you will receive an account setup link
               {order.purchaserEmail ? (
                 <>

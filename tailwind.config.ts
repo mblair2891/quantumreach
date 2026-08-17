@@ -1,7 +1,8 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: ["class"],
+  // Dark utilities apply under .dark, but never inside always-light funnel/auth surfaces.
+  darkMode: ["variant", "&:is(.dark *):not(.funnel-page *):not(.qr-light-surface *)"],
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
