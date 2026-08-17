@@ -1,4 +1,5 @@
 import "server-only";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { isOperatorEmail } from "@/lib/admin/operator";
 import { freedWorkspaceSlug } from "@/lib/workspaces/slug";
@@ -22,6 +23,15 @@ export async function deleteTestSubscriberByEmail(email: string, actorEmail: str
     // Clean orphan auth user if profile already gone
     const authOnly = await prisma.user.findUnique({ where: { email: normalized } });
     if (!authOnly) throw new Error("No subscriber found for that email.");
+    const orphanOrderIds = (
+      await prisma.customerOrder.findMany({
+        where: { purchaserEmail: normalized },
+        select: { id: true },
+      })
+    ).map((order) => order.id);
+    await prisma.$transaction(async (tx) => {
+      await cleanupAffiliateLifecycle(tx, { email: normalized, orderIds: orphanOrderIds });
+    });
     await deleteAuthUser(authOnly.id);
     return { deleted: true as const, email: normalized, userProfileId: null, authUserId: authOnly.id, workspaces: [] as string[] };
   }
@@ -39,6 +49,13 @@ export async function deleteTestSubscriberByEmail(email: string, actorEmail: str
     select: { id: true },
   });
   const ownedWorkspaceIds = [...new Set([...ownedViaMembership, ...ownedDirect.map((w) => w.id)])];
+
+  const relatedOrderIds = (
+    await prisma.customerOrder.findMany({
+      where: { OR: [{ userId: profile.id }, { purchaserEmail: normalized }] },
+      select: { id: true },
+    })
+  ).map((order) => order.id);
 
   // Detach orders from user before profile delete; keep order history with purchaserEmail.
   await prisma.customerOrder.updateMany({
@@ -63,13 +80,13 @@ export async function deleteTestSubscriberByEmail(email: string, actorEmail: str
   await prisma.customerNotificationIntent.deleteMany({ where: { userId: profile.id } });
   await prisma.auditLog.deleteMany({ where: { actorId: profile.id } });
 
-  // Affiliate lifecycle for this user
-  const participants = await prisma.affiliateParticipant.findMany({ where: { userId: profile.id } });
-  for (const participant of participants) {
-    await prisma.affiliateMembershipCode.deleteMany({ where: { membershipPeriod: { participantId: participant.id } } });
-    await prisma.affiliateMembershipPeriod.deleteMany({ where: { participantId: participant.id } });
-    await prisma.affiliateParticipant.delete({ where: { id: participant.id } }).catch(() => undefined);
-  }
+  await prisma.$transaction(async (tx) => {
+    await cleanupAffiliateLifecycle(tx, {
+      email: normalized,
+      userId: profile.id,
+      orderIds: relatedOrderIds,
+    });
+  });
 
   const authUserId = profile.authUserId;
   await prisma.userProfile.delete({ where: { id: profile.id } });
@@ -86,6 +103,56 @@ export async function deleteTestSubscriberByEmail(email: string, actorEmail: str
     authUserId,
     workspaces: ownedWorkspaceIds,
   };
+}
+
+/**
+ * Delete referral attributions before membership codes. Codes are referenced by
+ * AffiliateReferralAttribution_code_fkey (Restrict), so deleting codes first fails.
+ */
+async function cleanupAffiliateLifecycle(
+  db: Prisma.TransactionClient,
+  input: { email: string; userId?: string | null; orderIds?: string[] },
+) {
+  const orderIds = input.orderIds ?? [];
+  const referredFilters = [
+    ...(input.userId ? [{ customerUserId: input.userId }] : []),
+    ...(orderIds.length ? [{ orderId: { in: orderIds } }] : []),
+  ];
+  if (referredFilters.length) {
+    await db.affiliateReferralAttribution.deleteMany({ where: { OR: referredFilters } });
+  }
+
+  const participants = await db.affiliateParticipant.findMany({
+    where: {
+      OR: [...(input.userId ? [{ userId: input.userId }] : []), { email: input.email }],
+    },
+  });
+
+  for (const participant of participants) {
+    const periods = await db.affiliateMembershipPeriod.findMany({
+      where: { participantId: participant.id },
+      include: { code: { select: { id: true } } },
+    });
+    const codeIds = periods.flatMap((period) => (period.code ? [period.code.id] : []));
+    const periodIds = periods.map((period) => period.id);
+
+    if (codeIds.length || periodIds.length) {
+      await db.affiliateReferralAttribution.deleteMany({
+        where: {
+          OR: [
+            ...(codeIds.length ? [{ affiliateCodeId: { in: codeIds } }] : []),
+            ...(periodIds.length ? [{ affiliateMembershipPeriodId: { in: periodIds } }] : []),
+          ],
+        },
+      });
+    }
+
+    if (codeIds.length) {
+      await db.affiliateMembershipCode.deleteMany({ where: { id: { in: codeIds } } });
+    }
+    await db.affiliateMembershipPeriod.deleteMany({ where: { participantId: participant.id } });
+    await db.affiliateParticipant.delete({ where: { id: participant.id } });
+  }
 }
 
 async function deleteAuthUser(authUserId: string) {
