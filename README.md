@@ -130,7 +130,7 @@ Before production launch, run the validation suite, verify Zoom OAuth and webhoo
 
 This repository includes the Quantum Reach Revenue OS foundation: CRM pipeline records, governed CSV imports, AWS SES-first email-provider abstraction, suppression/unsubscribe/bounce/complaint foundations, compliance-gated campaigns, native scheduling, disabled-by-default research provider abstraction, proposal-to-contract workflows, native e-signature audit artifacts, Stripe hard-gate helpers, client provisioning requests, and operator summaries.
 
-Live email requires AWS SES configuration, DNS authentication, verified workspace sending domains, compliant campaigns, active billing where enabled, and `EMAIL_SENDING_ENABLED=true` with `EMAIL_SANDBOX_MODE=false`. Existing Zoom OAuth, Zoom-only meetings, webhook signature verification, local recording upload, M4A upload, and recording-to-analysis workflows remain supported.
+Live campaign email requires AWS SES configuration, DNS authentication, verified workspace sending domains, compliant campaigns, active billing where enabled, and `EMAIL_SENDING_ENABLED=true` with `EMAIL_SANDBOX_MODE=false`. Guest account-setup mail is separate system mail (`lib/email/transactional.ts`): it sends from `TRANSACTIONAL_FROM_EMAIL` when `EMAIL_SENDING_ENABLED=true` and SES credentials are present, and does not use workspace warmup gates. While SES is in sandbox, recipients must be verified identities. Existing Zoom OAuth, Zoom-only meetings, webhook signature verification, local recording upload, M4A upload, and recording-to-analysis workflows remain supported.
 
 ## Managed domain provisioning foundation
 

@@ -62,6 +62,12 @@ describe("pay-first account setup", () => {
     expect(confirmation).toContain("getBillingConfig");
     expect(confirmation).toContain("reconcilePaidCheckoutSession");
     expect(confirmation).toContain("issueAccountSetupToken");
+    expect(confirmation).toContain("showCheckEmail");
+    expect(confirmation).toContain("showSetupLink");
+    expect(confirmation).toContain("Resend setup email");
+    expect(accountSetup).toContain("sendAccountSetupEmail");
+    expect(accountSetup).toContain('"SENT"');
+    expect(accountSetup).not.toContain("RECORDED_INTENT");
     expect(confirmation).toContain("resolveConfirmationOrder");
     expect(confirmation).toContain("getDraftSession");
     expect(confirmation.indexOf("resolveConfirmationOrder")).toBeLessThan(confirmation.indexOf('redirect("/start?selection=expired")'));

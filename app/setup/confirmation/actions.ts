@@ -10,6 +10,7 @@ import { catalogPrice, loadValidatedDraft } from "@/lib/customer-journey/acquisi
 import { createGuestAcquisitionOrder } from "@/lib/customer-journey/service";
 import { getOptionalUserProfile } from "@/lib/auth/rbac";
 import { getBillingConfig } from "@/lib/billing/config";
+import { issueAccountSetupToken } from "@/lib/auth/account-setup";
 import { assertSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 import { simulateSuccessfulPayment } from "@/lib/simulated-payment/service";
 
@@ -101,6 +102,7 @@ export async function simulateSuccessfulPaymentAction(form: FormData) {
   const orderId = String(form.get("orderId") ?? "");
   const user = await getOptionalUserProfile();
   let setupToken: string | null = null;
+  let emailDelivery: string | null = null;
   try {
     const result = await simulateSuccessfulPayment({
       orderId,
@@ -108,15 +110,46 @@ export async function simulateSuccessfulPaymentAction(form: FormData) {
     });
     if (result.requiresAccountSetup && result.setup) {
       setupToken = result.setup.rawToken;
+      emailDelivery = result.setup.emailDelivery;
     }
   } catch (error) {
     if (isRedirectError(error)) throw error;
     redirect(`/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}&testPayment=failed`);
   }
-  if (setupToken) {
-    redirect(
-      `/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}&testPayment=completed&setupToken=${encodeURIComponent(setupToken)}`,
-    );
+  if (setupToken && emailDelivery) {
+    const params = new URLSearchParams({
+      submitted: "1",
+      orderId,
+      testPayment: "completed",
+      emailDelivery,
+    });
+    if (emailDelivery !== "SENT") {
+      params.set("setupToken", setupToken);
+    }
+    redirect(`/setup/confirmation?${params.toString()}`);
   }
   redirect("/setup/status?testPayment=completed");
+}
+
+/** Re-issue the guest setup token and send (or fall back to an on-page link). */
+export async function resendAccountSetupEmailAction(form: FormData) {
+  const orderId = String(form.get("orderId") ?? "").trim();
+  if (!orderId) redirect("/setup/confirmation");
+  try {
+    const issued = await issueAccountSetupToken(orderId);
+    const params = new URLSearchParams({
+      submitted: "1",
+      orderId,
+      emailDelivery: issued.emailDelivery,
+    });
+    if (issued.emailDelivery !== "SENT") {
+      params.set("setupToken", issued.rawToken);
+    }
+    redirect(`/setup/confirmation?${params.toString()}`);
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    redirect(
+      `/setup/confirmation?submitted=1&orderId=${encodeURIComponent(orderId)}&checkoutError=${encodeURIComponent("Could not resend the setup email.")}`,
+    );
+  }
 }

@@ -21,6 +21,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1111.0",
     "@prisma/client": "^5.22.0",
     "@sentry/nextjs": "^8.55.0",
     "better-auth": "^1.6.26",

@@ -6,8 +6,11 @@ import { hashPassword } from "better-auth/crypto";
 import { ensureUserProfileForAuthUser } from "@/lib/auth/rbac";
 import { fulfillCustomerOrder } from "@/lib/customer-journey/service";
 import { lockAffiliateAttribution } from "@/lib/affiliates/service";
+import { sendAccountSetupEmail } from "@/lib/email/transactional";
 
 export { generateRawSetupToken, hashSetupToken } from "@/lib/auth/setup-token-crypto";
+
+export type AccountSetupEmailDelivery = "SENT" | "DEFERRED_PREVIEW_LINK" | "FAILED";
 
 export type AccountSetupTokenIssue = {
   tokenId: string;
@@ -15,8 +18,18 @@ export type AccountSetupTokenIssue = {
   setupUrl: string;
   expiresAt: Date;
   email: string;
-  emailDelivery: "DEFERRED_PREVIEW_LINK" | "RECORDED_INTENT";
+  emailDelivery: AccountSetupEmailDelivery;
 };
+
+export function parseAccountSetupEmailDelivery(value?: string | null): AccountSetupEmailDelivery | null {
+  if (value === "SENT" || value === "DEFERRED_PREVIEW_LINK" || value === "FAILED") return value;
+  return null;
+}
+
+export function confirmationSetupInvitePresentation(emailDelivery: AccountSetupEmailDelivery | null) {
+  if (emailDelivery === "SENT") return { showCheckEmail: true, showOnPageSetupLink: false };
+  return { showCheckEmail: false, showOnPageSetupLink: true };
+}
 
 function appBaseUrl() {
   const base = (process.env.APP_BASE_URL || process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -47,14 +60,37 @@ export async function issueAccountSetupToken(orderId: string): Promise<AccountSe
 
   const token = await prisma.accountSetupToken.findUniqueOrThrow({ where: { tokenHash } });
   const setupUrl = `${appBaseUrl()}/setup/account?token=${encodeURIComponent(rawToken)}`;
+  const emailDelivery = await deliverAccountSetupEmail({ to: email, setupUrl, expiresAt, orderId });
   return {
     tokenId: token.id,
     rawToken,
     setupUrl,
     expiresAt,
     email,
-    emailDelivery: process.env.EMAIL_SENDING_ENABLED === "true" ? "RECORDED_INTENT" : "DEFERRED_PREVIEW_LINK",
+    emailDelivery,
   };
+}
+
+async function deliverAccountSetupEmail(input: {
+  to: string;
+  setupUrl: string;
+  expiresAt: Date;
+  orderId: string;
+}): Promise<AccountSetupEmailDelivery> {
+  if (process.env.EMAIL_SENDING_ENABLED !== "true") return "DEFERRED_PREVIEW_LINK";
+  try {
+    const result = await sendAccountSetupEmail(input);
+    if (result.sent) {
+      console.info(JSON.stringify({ event: "account_setup_email_sent", orderId: input.orderId, messageId: result.messageId }));
+      return "SENT";
+    }
+    console.warn(JSON.stringify({ event: "account_setup_email_failed", orderId: input.orderId, reason: result.reason }));
+    return "FAILED";
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 300) : "unknown";
+    console.warn(JSON.stringify({ event: "account_setup_email_failed", orderId: input.orderId, reason }));
+    return "FAILED";
+  }
 }
 
 export async function getActiveSetupTokenByRaw(rawToken: string) {

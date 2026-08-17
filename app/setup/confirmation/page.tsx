@@ -8,13 +8,18 @@ import { applyCouponToSummary, getAppliedCoupon, type CouponCalculation } from "
 import {
   applyCouponAction,
   removeCouponAction,
+  resendAccountSetupEmailAction,
   submitGuestCheckoutAction,
 } from "./actions";
 import { FunnelProgress } from "@/components/funnel/progress";
 import { FunnelShell } from "@/components/funnel/shell";
 import { StripeCheckoutButton } from "@/components/funnel/stripe-checkout-button";
 import { getBillingConfig } from "@/lib/billing/config";
-import { issueAccountSetupToken } from "@/lib/auth/account-setup";
+import {
+  confirmationSetupInvitePresentation,
+  issueAccountSetupToken,
+  parseAccountSetupEmailDelivery,
+} from "@/lib/auth/account-setup";
 import { ACCOUNT_SETUP_TOKEN_TTL_HOURS } from "@/lib/auth/constants";
 import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE } from "@/lib/customer-journey/timezones";
 import { getCapturedReferralCodeForSession } from "@/lib/affiliates/service";
@@ -29,6 +34,7 @@ export default async function Confirmation({
     testPayment?: string;
     orderId?: string;
     setupToken?: string;
+    emailDelivery?: string;
     checkoutError?: string;
     checkout?: string;
   };
@@ -310,6 +316,7 @@ async function renderOrderPaymentState({
   searchParams: {
     testPayment?: string;
     setupToken?: string;
+    emailDelivery?: string;
     checkoutError?: string;
   };
   checkoutState?: string;
@@ -327,18 +334,31 @@ async function renderOrderPaymentState({
   }
 
   const paid = order.paymentStatus === "PAID";
+  const emailDelivery = parseAccountSetupEmailDelivery(searchParams.emailDelivery);
   let setupUrl =
     searchParams.setupToken && paid
       ? `/setup/account?token=${encodeURIComponent(searchParams.setupToken)}`
       : null;
-  if (paid && !order.userId && !setupUrl) {
+  if (paid && !order.userId && !emailDelivery && !setupUrl) {
     try {
       const issued = await issueAccountSetupToken(order.id);
-      setupUrl = `/setup/account?token=${encodeURIComponent(issued.rawToken)}`;
+      const params = new URLSearchParams({
+        submitted: "1",
+        orderId: order.id,
+        emailDelivery: issued.emailDelivery,
+      });
+      if (checkoutState) params.set("checkout", checkoutState);
+      if (searchParams.testPayment) params.set("testPayment", searchParams.testPayment);
+      if (issued.emailDelivery !== "SENT") params.set("setupToken", issued.rawToken);
+      redirect(`/setup/confirmation?${params.toString()}`);
     } catch {
       setupUrl = null;
     }
   }
+
+  const invite = confirmationSetupInvitePresentation(emailDelivery);
+  const showCheckEmail = paid && Boolean(setupUrl || emailDelivery) && invite.showCheckEmail;
+  const showSetupLink = paid && Boolean(setupUrl) && invite.showOnPageSetupLink;
 
   return (
     <FunnelShell>
@@ -372,7 +392,26 @@ async function renderOrderPaymentState({
           </p>
         ) : null}
 
-        {paid && setupUrl ? (
+        {showCheckEmail ? (
+          <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6 dark:border-emerald-800 dark:bg-emerald-950/40">
+            <h2 className="font-semibold text-emerald-950 dark:text-emerald-100">Next: create your password</h2>
+            <p className="text-sm text-emerald-900 dark:text-emerald-200">
+              {order.paymentMethod === "SIMULATED_TEST"
+                ? "Test payment completed — no real card was charged. "
+                : "Payment is confirmed. Workspace provisioning starts after you create your password. "}
+              Check <strong>{order.purchaserEmail}</strong> for your secure setup link. It is valid about{" "}
+              {ACCOUNT_SETUP_TOKEN_TTL_HOURS} hours and can be used once.
+            </p>
+            <form action={resendAccountSetupEmailAction}>
+              <input type="hidden" name="orderId" value={order.id} />
+              <button className="text-sm font-semibold text-emerald-900 underline dark:text-emerald-100">
+                Resend setup email
+              </button>
+            </form>
+          </section>
+        ) : null}
+
+        {showSetupLink && setupUrl ? (
           <section className="mt-7 space-y-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-6 dark:border-emerald-800 dark:bg-emerald-950/40">
             <h2 className="font-semibold text-emerald-950 dark:text-emerald-100">Next: create your password</h2>
             <p className="text-sm text-emerald-900 dark:text-emerald-200">
@@ -383,8 +422,14 @@ async function renderOrderPaymentState({
               and activate your workspace.
             </p>
             <p className="text-sm text-emerald-900 dark:text-emerald-200">
-              When email sending is enabled in production, this link is also emailed to{" "}
-              <strong>{order.purchaserEmail}</strong>.
+              {emailDelivery === "FAILED" ? (
+                "We could not email the setup link. Use the secure link below."
+              ) : (
+                <>
+                  When email sending is enabled in production, this link is also emailed to{" "}
+                  <strong>{order.purchaserEmail}</strong>.
+                </>
+              )}
             </p>
             <Link className="funnel-primary inline-flex w-full" href={setupUrl}>
               Open account setup
@@ -420,7 +465,7 @@ async function renderOrderPaymentState({
           </p>
         ) : null}
 
-        {paid && !setupUrl ? (
+        {paid && !setupUrl && !showCheckEmail ? (
           <p className="mt-7 rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">
             Payment is recorded. If you did not receive a setup link, contact support with your order id.
           </p>
