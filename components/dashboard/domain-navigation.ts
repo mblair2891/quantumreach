@@ -6,7 +6,7 @@ export type DashboardNavItem = readonly [string, string, LucideIcon];
 
 export const workspaceDomainNavItem: DashboardNavItem = [
   "Sending Domains",
-  "/dashboard/sending-domains",
+  "/dashboard/sending/domains",
   Globe2,
 ];
 

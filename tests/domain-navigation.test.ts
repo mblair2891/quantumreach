@@ -7,9 +7,11 @@ describe("managed domain and registrant navigation", () => {
   it("shows Sending Domains in the workspace dashboard navigation", () => {
     const shell = read("components/dashboard/shell.tsx");
     const domainNav = read("components/dashboard/domain-navigation.ts");
+    const nav = read("lib/saas/navigation.ts");
     expect(shell).toContain("workspaceDomainNavItem");
     expect(domainNav).toContain('"Sending Domains"');
-    expect(domainNav).toContain('"/dashboard/sending-domains"');
+    expect(domainNav).toContain('"/dashboard/sending/domains"');
+    expect(nav).toContain('href:"/dashboard/sending/domains"');
   });
 
   it("shows Domain Inventory only through the operator allowlist gate", () => {
@@ -37,22 +39,22 @@ describe("managed domain and registrant navigation", () => {
     expect(settings).not.toContain("/dashboard/settings/domains/registrant");
   });
 
-  it("blocks unauthorized registrant data access from the sending domains page", () => {
-    const page = read("app/dashboard/sending-domains/page.tsx");
-    expect(page).toContain("await requireWorkspaceAccess()");
-    expect(page).toContain("listWorkspaceDomains(workspace.id)");
-    expect(page).toContain("canManageRegistrant");
-    expect(page).toContain("Ask a workspace admin to manage registrant details.");
+  it("routes the legacy sending-domains URL to the live BYO page", () => {
+    const legacy = read("app/dashboard/sending-domains/page.tsx");
+    const page = read("app/dashboard/sending/domains/page.tsx");
+    expect(legacy).toContain('redirect("/dashboard/sending/domains")');
+    expect(page).toContain("requireSubscriberWorkspaceAccess");
+    expect(page).toContain("addByoDomainAction");
+    expect(page).toContain("/dashboard/settings/domain-registrant");
   });
 
   it("has no broken managed-domain navigation links in the wired pages", () => {
-    const sendingDomains = read("app/dashboard/sending-domains/page.tsx");
+    const sendingDomains = read("app/dashboard/sending/domains/page.tsx");
     const settings = read("app/dashboard/settings/page.tsx");
     const domainNav = read("components/dashboard/domain-navigation.ts");
-    expect(domainNav).toContain('"/dashboard/sending-domains"');
+    expect(domainNav).toContain('"/dashboard/sending/domains"');
     expect(domainNav).toContain('"/dashboard/admin/domains"');
     expect(settings).toContain("/dashboard/settings/domain-registrant");
     expect(sendingDomains).toContain('href="/dashboard/settings/domain-registrant"');
-    expect(sendingDomains).toContain('href="#domain-readiness"');
   });
 });

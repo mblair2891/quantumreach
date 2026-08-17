@@ -1,16 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { requireWorkspaceAccess } from "@/lib/auth/rbac";
-import { getDomainRegistrantProfile } from "@/lib/managed-domains/purchase";
-import { validateRegistrantContact } from "@/lib/managed-domains/registrant";
-import { listWorkspaceDomains } from "@/lib/managed-domains/service";
+import { redirect } from "next/navigation";
 
-export default async function WorkspaceSendingDomainsPage() {
-  const { workspace, membership } = await requireWorkspaceAccess();
-  const domains = await listWorkspaceDomains(workspace.id);
-  const profile = await getDomainRegistrantProfile(workspace.id);
-  const registrant = validateRegistrantContact(profile);
-  const canManageRegistrant = ["WORKSPACE_OWNER", "ADMIN"].includes(String(membership.roleKey));
-  return <div className="space-y-6"><div><p className="text-sm font-medium text-slate-500">Workspace sending infrastructure</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">Sending Domains</h1><p className="mt-2 max-w-3xl text-slate-600 dark:text-slate-300">Request a managed domain or bring your own domain for DNS and SES verification before sending.</p></div><div className="rounded-lg border bg-blue-50 p-4 text-sm text-blue-900">Customer/workspace is normally the registrant for WORKSPACE_OWNED domains. Quantum Reach acts as reseller/service manager for DNS, SES, warmup, renewal, and billing. Quantum Reach-owned domains are a separate ownership mode.</div><section className="grid gap-4 md:grid-cols-4"><Card><CardHeader><CardTitle>Request managed domain</CardTitle><CardDescription>Purchase workflow is gated until registrant information is complete and confirmed.</CardDescription></CardHeader><CardContent><Button disabled title="Complete registrant profile before purchase requests are enabled.">Request managed domain</Button></CardContent></Card><Card><CardHeader><CardTitle>Bring your own domain</CardTitle><CardDescription>BYOD setup is not yet self-service.</CardDescription></CardHeader><CardContent><Button disabled variant="outline" title="Contact support while self-service BYOD is being prepared.">Bring your own domain</Button></CardContent></Card><Card><CardHeader><CardTitle>Manage registrant profile</CardTitle><CardDescription>{registrant.complete ? "Registrant profile is complete." : "Registrant details are required for WORKSPACE_OWNED domains."}</CardDescription></CardHeader><CardContent>{canManageRegistrant ? <Button href="/dashboard/settings/domain-registrant" variant="outline">Manage registrant profile</Button> : <p className="text-sm text-slate-500">Ask a workspace admin to manage registrant details.</p>}</CardContent></Card><Card><CardHeader><CardTitle>View domain readiness</CardTitle><CardDescription>Review DNS, SES, and warmup status for domains assigned to this workspace.</CardDescription></CardHeader><CardContent><Button href="#domain-readiness" variant="outline">View domain readiness</Button></CardContent></Card></section><section id="domain-readiness" className="space-y-3">{domains.length === 0 ? <p className="rounded-lg border p-4 text-sm text-slate-600">No assigned domains are visible for this workspace yet.</p> : domains.map((d:any) => <article className="rounded-lg border p-4" key={d.id}><h2 className="font-medium">{d.domainName}</h2><p>Status: {d.lifecycleStatus}; DNS records: {d.dnsRecords.length}; SES: {d.sesIdentity?.verificationStatus ?? "not connected"}; Warmup: {d.warmupPlan?.status ?? "not started"}</p></article>)}</section></div>;
+/** Legacy route. BYO add/verify lives at /dashboard/sending/domains. */
+export default function WorkspaceSendingDomainsPage() {
+  redirect("/dashboard/sending/domains");
 }

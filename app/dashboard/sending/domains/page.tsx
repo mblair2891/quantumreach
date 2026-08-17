@@ -30,6 +30,12 @@ export default async function Page() {
           className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
         />
         <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Add domain</button>
+        <p className="text-sm text-slate-700 dark:text-slate-300">
+          Need registrant details for a purchased domain?{" "}
+          <a className="font-semibold underline" href="/dashboard/settings/domain-registrant">
+            Manage registrant profile
+          </a>
+        </p>
       </form>
 
       {domains.length === 0 ? (
