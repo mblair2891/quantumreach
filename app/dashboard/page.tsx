@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { redirect } from "next/navigation";
 import { createSummitDentalExample, getGuidedJourney } from "@/lib/customer-journey/guided";
 import { isRequiredSetupComplete, subscriberSetupSteps } from "@/lib/customer-journey/subscriber-copy";
+import { loadSubscriberSetupFacts } from "@/lib/customer-journey/setup-facts";
 export default async function Page(){
  const {workspace,user}=await requireSubscriberWorkspaceAccess();
  const now = new Date(); const today = new Date(now); today.setHours(0, 0, 0, 0);
@@ -23,10 +24,7 @@ export default async function Page(){
  ]);
  const pipelineValue = opportunities.reduce((total, opportunity) => total + Number(opportunity.amount ?? 0), 0);
  const snapshot: DashboardSnapshot = { leads, openOpportunities: opportunities.length, pipelineValue: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(pipelineValue), dueTasks: tasks, upcomingMeetings: meetings, campaigns, replies: replies + simulatedReplies, proposalsNeedingAction: proposals, contractsNeedingAction: contracts, activeClients: clients, readySenders: senders.filter(sender => sender.campaignEligible).length, totalSenders: senders.length };
- const subscriber = await prisma.saasSubscriberProfile.findUnique({ where: { userId: user.id } });
- const progress = subscriber?.onboardingProgress && typeof subscriber.onboardingProgress === "object" && !Array.isArray(subscriber.onboardingProgress) ? subscriber.onboardingProgress as Record<string, unknown> : {};
- const onboardingComplete = progress.onboardingComplete === true;
- const setupFacts = { paid: true, workspaceReady: true, onboardingComplete };
+ const setupFacts = await loadSubscriberSetupFacts(user.id, workspace.id);
  const setupSteps = subscriberSetupSteps(setupFacts);
  const requiredSetupComplete = isRequiredSetupComplete(setupFacts);
  const state = {

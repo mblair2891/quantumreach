@@ -57,37 +57,57 @@ export function displaySendingSetup(infra?: {
   return { label: "Later", hint: "Not required to use the dashboard yet." };
 }
 
+export type SubscriberSetupFacts = {
+  profileComplete: boolean;
+  domainVerified: boolean;
+  mailboxReady: boolean;
+};
+
 export type SubscriberSetupStep = { key: string; label: string; done: boolean; value: string };
 
-export function subscriberSetupSteps(input: {
-  paid: boolean;
-  workspaceReady: boolean;
-  onboardingComplete: boolean;
-}): SubscriberSetupStep[] {
+export function subscriberSetupSteps(input: SubscriberSetupFacts): SubscriberSetupStep[] {
   return [
-    { key: "payment", label: "Payment", done: input.paid, value: input.paid ? "Complete" : "Not complete" },
     {
-      key: "workspace",
-      label: "Workspace",
-      done: input.workspaceReady,
-      value: displayWorkspaceReady(input.workspaceReady),
+      key: "profile",
+      label: "Business profile",
+      done: input.profileComplete,
+      value: input.profileComplete ? "Complete" : "Needs your details",
     },
     {
-      key: "setup",
-      label: "Your setup",
-      done: input.onboardingComplete,
-      value: displayYourSetupStatus(input.onboardingComplete, input.workspaceReady),
+      key: "domain",
+      label: "Sending domain",
+      done: input.domainVerified,
+      value: input.domainVerified ? "Verified" : "Action needed from you",
+    },
+    {
+      key: "mailbox",
+      label: "Mailbox",
+      done: input.mailboxReady,
+      value: input.mailboxReady ? "Created" : "Waiting on you",
     },
   ];
 }
 
-/** Payment + workspace + your details. Gates dashboard setup vs guided journey. */
-export function isRequiredSetupComplete(input: {
-  paid: boolean;
-  workspaceReady: boolean;
-  onboardingComplete: boolean;
-}) {
+/** Business profile + verified domain + mailbox. Gates dashboard setup vs guided journey. */
+export function isRequiredSetupComplete(input: SubscriberSetupFacts) {
   return subscriberSetupSteps(input).every((step) => step.done);
+}
+
+export function subscriberSetupFactsFromRecords(input: {
+  profileComplete: boolean;
+  domains: Array<{ sesIdentity?: { verificationStatus?: string | null; dkimStatus?: string | null } | null }>;
+  mailboxCount: number;
+}): SubscriberSetupFacts {
+  const domainVerified = input.domains.some((domain) => {
+    const ses = (domain.sesIdentity?.verificationStatus ?? "").toUpperCase();
+    const dkim = (domain.sesIdentity?.dkimStatus ?? "").toUpperCase();
+    return (ses === "VERIFIED" || ses === "SUCCESS") && (dkim === "VERIFIED" || dkim === "SUCCESS");
+  });
+  return {
+    profileComplete: input.profileComplete,
+    domainVerified,
+    mailboxReady: input.mailboxCount > 0,
+  };
 }
 
 export function subscriberLifecycleHeadline(stage: string) {

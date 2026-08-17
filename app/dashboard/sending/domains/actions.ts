@@ -1,4 +1,27 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-"use server";import { revalidatePath } from "next/cache";import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";import { prisma } from "@/lib/db/prisma";import { createDomainPurchaseRequest } from "@/lib/managed-domains/purchase";
-export async function submitDomainRequestAction(form:FormData){const {workspace,user}=await requireSubscriberWorkspaceAccess();const domain=String(form.get('domain')||'').trim().toLowerCase();if(!/^[a-z0-9-]+\.[a-z]{2,}$/i.test(domain))throw new Error('Valid domain is required.');const ownershipType=String(form.get('ownershipType')||'WORKSPACE_OWNED') as any;await createDomainPurchaseRequest({workspaceId:workspace.id,requestedByUserId:user.id,requestedDomain:domain,ownershipType,registrantAttestationAccepted:String(form.get('attestation'))==='on'});revalidatePath('/dashboard/sending/domains');}
-export async function refreshDomainReadinessAction(){const {workspace}=await requireSubscriberWorkspaceAccess();await prisma.workspaceInfrastructureProvisioning.upsert({where:{idempotencyKey:`readiness:${workspace.id}`},update:{status:'DNS_PENDING' as any,safeSummary:'Subscriber requested readiness refresh.'},create:{workspaceId:workspace.id,idempotencyKey:`readiness:${workspace.id}`,status:'DNS_PENDING' as any,safeSummary:'Subscriber requested readiness refresh.'}});revalidatePath('/dashboard/sending/domains');}
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
+import { addByoDomain, verifyByoDomain } from "@/lib/sending-infrastructure/byo-domain";
+
+export async function addByoDomainAction(form: FormData) {
+  const { workspace, user } = await requireSubscriberWorkspaceAccess();
+  await addByoDomain({
+    workspaceId: workspace.id,
+    actorUserId: user.id,
+    domainName: String(form.get("domain") ?? ""),
+  });
+  revalidatePath("/dashboard/sending/domains");
+  revalidatePath("/dashboard/onboarding");
+}
+
+export async function verifyByoDomainAction(form: FormData) {
+  const { workspace, user } = await requireSubscriberWorkspaceAccess();
+  await verifyByoDomain({
+    workspaceId: workspace.id,
+    domainId: String(form.get("domainId") ?? ""),
+    actorUserId: user.id,
+  });
+  revalidatePath("/dashboard/sending/domains");
+  revalidatePath("/dashboard/onboarding");
+}

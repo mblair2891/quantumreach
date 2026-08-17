@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
 import { prisma } from "@/lib/db/prisma";
 import { readJoinProfile } from "@/lib/customer-journey/profile";
-import { displayPlanName, displaySendingSetup } from "@/lib/customer-journey/subscriber-copy";
+import { displayPlanName, isRequiredSetupComplete, subscriberSetupSteps } from "@/lib/customer-journey/subscriber-copy";
+import { loadSubscriberSetupFacts, markRequiredSetupComplete } from "@/lib/customer-journey/setup-facts";
 import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE, normalizeCheckoutTimezone } from "@/lib/customer-journey/timezones";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -48,8 +50,6 @@ async function completeWorkspaceSetup(form: FormData) {
           ...progress,
           joinProfile,
           joinProfileComplete: true,
-          onboardingComplete: true,
-          completedAt: new Date().toISOString(),
         },
       },
     }),
@@ -57,21 +57,21 @@ async function completeWorkspaceSetup(form: FormData) {
       where: { id: workspace.id },
       data: {
         name: businessName,
-        settings: { ...settings, timezone, onboardingComplete: true },
+        settings: { ...settings, timezone },
       },
     }),
   ]);
-  redirect("/dashboard");
+  redirect("/dashboard/onboarding");
 }
 
 export default async function Page() {
   const { user, workspace } = await requireSubscriberWorkspaceAccess();
   const subscriber = await prisma.saasSubscriberProfile.findUnique({ where: { userId: user.id } });
-  const progress =
-    subscriber?.onboardingProgress && typeof subscriber.onboardingProgress === "object" && !Array.isArray(subscriber.onboardingProgress)
-      ? (subscriber.onboardingProgress as Record<string, unknown>)
-      : {};
-  if (progress.onboardingComplete === true) redirect("/dashboard");
+  const setupFacts = await loadSubscriberSetupFacts(user.id, workspace.id);
+  if (isRequiredSetupComplete(setupFacts)) {
+    await markRequiredSetupComplete(user.id, workspace.id);
+    redirect("/dashboard");
+  }
   const profile = readJoinProfile(subscriber?.onboardingProgress);
   const subscription = await prisma.saasSubscription.findFirst({
     where: { userId: user.id, workspaceId: workspace.id, status: { in: ["ACTIVE", "TRIALING"] } },
@@ -90,7 +90,7 @@ export default async function Page() {
   });
   const names = new Map(catalog.map((product) => [product.key, product.name]));
   const planName = displayPlanName(sendingPackageKey ?? subscription?.planKey, names.get(sendingPackageKey ?? subscription?.planKey ?? ""));
-  const sending = displaySendingSetup(infrastructure);
+  const steps = subscriberSetupSteps(setupFacts);
   const defaultBusinessName = profile?.businessName && profile.businessName !== "Business" ? profile.businessName : workspace.name;
   const defaultBusinessType = profile?.businessType && profile.businessType !== "Business" ? profile.businessType : "";
   const defaultTimezone = normalizeCheckoutTimezone(profile?.timezone ?? DEFAULT_CHECKOUT_TIMEZONE);
@@ -104,27 +104,24 @@ export default async function Page() {
           Finish your setup
         </h1>
         <p className="mt-2 max-w-2xl text-slate-700 dark:text-slate-300">
-          Tell us about your business so outreach, proposals, and your workspace name stay accurate. Sending
-          infrastructure can continue in the background.
+          Three steps: your business profile, a sending domain you control, and a mailbox so warmup can start.
         </p>
       </header>
 
       <Card>
         <CardHeader>
-          <CardTitle>Workspace</CardTitle>
-          <CardDescription>Payment is complete. You can start using the dashboard after you save these details.</CardDescription>
+          <CardTitle>Setup progress</CardTitle>
+          <CardDescription>Plan: {planName}. Warmup can continue after these steps.</CardDescription>
         </CardHeader>
         <CardContent>
-          <dl className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <dt className="text-sm text-slate-600 dark:text-slate-300">Plan</dt>
-              <dd className="mt-1 font-semibold text-slate-950 dark:text-slate-50">{planName}</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-600 dark:text-slate-300">Sending setup</dt>
-              <dd className="mt-1 font-semibold text-slate-950 dark:text-slate-50">{sending.label}</dd>
-            </div>
-          </dl>
+          <ul className="space-y-2 text-sm">
+            {steps.map((step) => (
+              <li key={step.key} className="flex justify-between gap-4 text-slate-800 dark:text-slate-200">
+                <span>{step.label}</span>
+                <strong className="text-slate-950 dark:text-slate-50">{step.value}</strong>
+              </li>
+            ))}
+          </ul>
         </CardContent>
       </Card>
 
@@ -170,9 +167,46 @@ export default async function Page() {
               <Input name="country" required maxLength={2} defaultValue={defaultCountry} />
             </label>
             <button className="mt-2 rounded-xl bg-sky-700 px-6 py-3 font-semibold text-white hover:bg-sky-800 sm:col-span-2">
-              Save and open dashboard
+              Save business profile
             </button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sending domain</CardTitle>
+          <CardDescription>
+            {setupFacts.domainVerified
+              ? "Your domain is verified. You can create a mailbox next."
+              : "Add a domain you already own, publish the DNS records, then verify."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link className="inline-flex rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white hover:bg-sky-800" href="/dashboard/sending/domains">
+            {setupFacts.domainVerified ? "View domain" : "Add or verify domain"}
+          </Link>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Mailbox</CardTitle>
+          <CardDescription>
+            {setupFacts.mailboxReady
+              ? "A sending address exists. Warmup can start."
+              : setupFacts.domainVerified
+                ? "Create a sending address on your verified domain."
+                : "Verify a domain first, then create a mailbox."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link
+            className="inline-flex rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white hover:bg-sky-800"
+            href="/dashboard/sending/mailboxes"
+          >
+            {setupFacts.mailboxReady ? "View mailboxes" : "Create mailbox"}
+          </Link>
         </CardContent>
       </Card>
     </main>

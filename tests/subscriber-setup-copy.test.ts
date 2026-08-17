@@ -47,13 +47,13 @@ describe("subscriber-facing setup copy", () => {
       "Action needed from you",
     );
     expect(subscriberLifecycleHeadline("ONBOARDING_REQUIRED")).toBe("Finish your workspace setup");
-    expect(subscriberSetupSteps({ paid: true, workspaceReady: true, onboardingComplete: false }).map((step) => step.value)).toEqual([
+    expect(subscriberSetupSteps({ profileComplete: true, domainVerified: false, mailboxReady: false }).map((step) => step.value)).toEqual([
       "Complete",
-      "Ready",
-      "Needs your details",
+      "Action needed from you",
+      "Waiting on you",
     ]);
-    expect(isRequiredSetupComplete({ paid: true, workspaceReady: true, onboardingComplete: false })).toBe(false);
-    expect(isRequiredSetupComplete({ paid: true, workspaceReady: true, onboardingComplete: true })).toBe(true);
+    expect(isRequiredSetupComplete({ profileComplete: true, domainVerified: false, mailboxReady: false })).toBe(false);
+    expect(isRequiredSetupComplete({ profileComplete: true, domainVerified: true, mailboxReady: true })).toBe(true);
   });
 
   it("sends a paid workspace to onboarding with finish-setup language", () => {
@@ -93,7 +93,7 @@ describe("subscriber-facing setup copy", () => {
     expect(status).not.toContain("FULFILLED");
     expect(status).not.toContain("Entitlements");
     expect(status).not.toContain("active product assignment");
-    expect(onboarding).toContain("Save and open dashboard");
+    expect(onboarding).toContain("Save business profile");
     expect(onboarding).toContain("Business name");
     expect(onboarding).toContain("text-slate-950");
     expect(onboarding).toContain("dark:text-slate-50");

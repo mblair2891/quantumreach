@@ -5,9 +5,11 @@ import { resolveSubscriberLifecycle } from "@/lib/customer-journey/lifecycle";
 import { readJoinProfile } from "@/lib/customer-journey/profile";
 import {
   displaySendingSetup,
+  isRequiredSetupComplete,
   subscriberLifecycleHeadline,
   subscriberSetupSteps,
 } from "@/lib/customer-journey/subscriber-copy";
+import { loadSubscriberSetupFacts } from "@/lib/customer-journey/setup-facts";
 import { FunnelShell } from "@/components/funnel/shell";
 import { isSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 
@@ -34,31 +36,26 @@ export default async function SetupStatus({ searchParams }: { searchParams?: { t
   const entitlementCount = setup?.workspaceId
     ? await prisma.saasSubscriptionItem.count({ where: { workspaceId: setup.workspaceId, status: "ACTIVE" } })
     : 0;
-  const progress =
-    subscriber?.onboardingProgress && typeof subscriber.onboardingProgress === "object" && !Array.isArray(subscriber.onboardingProgress)
-      ? (subscriber.onboardingProgress as Record<string, unknown>)
-      : {};
-  const onboardingComplete = progress.onboardingComplete === true;
-  const workspaceReady = Boolean(setup?.workspaceId);
-  const paid = setup?.order.paymentStatus === "PAID";
+  const setupFacts = await loadSubscriberSetupFacts(user.id, setup?.workspaceId ?? subscriber?.workspaceId);
+  const requiredSetupComplete = isRequiredSetupComplete(setupFacts);
   const lifecycle = resolveSubscriberLifecycle({
     profileComplete: Boolean(readJoinProfile(subscriber?.onboardingProgress)),
     order: setup?.order,
     infrastructure: setup,
-    workspaceReady,
+    workspaceReady: Boolean(setup?.workspaceId),
     membershipReady: membership?.status === "ACTIVE",
     subscriptionReady: Boolean(subscription),
     entitlementsReady: entitlementCount > 0,
-    onboardingComplete,
+    onboardingComplete: requiredSetupComplete,
   });
-  const steps = subscriberSetupSteps({ paid, workspaceReady, onboardingComplete });
+  const steps = subscriberSetupSteps(setupFacts);
   const sending = displaySendingSetup(setup);
   const primaryHref = lifecycle.dashboardReady
-    ? onboardingComplete
+    ? requiredSetupComplete
       ? "/dashboard"
       : "/dashboard/onboarding"
     : lifecycle.route;
-  const primaryLabel = onboardingComplete && lifecycle.dashboardReady ? "Open dashboard" : "Continue setup";
+  const primaryLabel = requiredSetupComplete && lifecycle.dashboardReady ? "Open dashboard" : "Continue setup";
 
   return (
     <FunnelShell>
@@ -72,9 +69,9 @@ export default async function SetupStatus({ searchParams }: { searchParams?: { t
           </p>
         ) : null}
         <p className="funnel-copy mt-3">
-          {onboardingComplete
-            ? "You're ready to start working in your workspace."
-            : "One next step: add a few details about your business, then open your dashboard."}
+          {requiredSetupComplete
+            ? "You're ready to start working in your workspace. Sending warmup can continue in the background."
+            : "Finish the three setup steps: your business profile, a sending domain, and a mailbox."}
         </p>
         <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white">
           {steps.map((step) => (
