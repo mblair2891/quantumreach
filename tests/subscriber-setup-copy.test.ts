@@ -5,6 +5,7 @@ import {
   displayPlanName,
   displaySendingSetup,
   displayYourSetupStatus,
+  isRequiredSetupComplete,
   subscriberLifecycleHeadline,
   subscriberSetupSteps,
 } from "@/lib/customer-journey/subscriber-copy";
@@ -51,6 +52,8 @@ describe("subscriber-facing setup copy", () => {
       "Ready",
       "Needs your details",
     ]);
+    expect(isRequiredSetupComplete({ paid: true, workspaceReady: true, onboardingComplete: false })).toBe(false);
+    expect(isRequiredSetupComplete({ paid: true, workspaceReady: true, onboardingComplete: true })).toBe(true);
   });
 
   it("sends a paid workspace to onboarding with finish-setup language", () => {
@@ -99,11 +102,30 @@ describe("subscriber-facing setup copy", () => {
     expect(banner).toContain("Finish your setup");
     expect(banner).toContain("A few details are still needed to complete your workspace.");
     expect(banner).toContain("Continue setup");
+    expect(banner).toContain("requiredSetupComplete");
     expect(banner).not.toContain("Waiting on customer");
     expect(banner).not.toContain("View setup status");
-    expect(dashboard).toContain("onboardingComplete");
-    expect(nextBest).toContain("Continue setup");
+    expect(dashboard).toContain("isRequiredSetupComplete");
+    expect(dashboard).toContain("requiredSetupComplete");
+    expect(nextBest).toContain("Continue journey");
+    expect(nextBest).toContain("requiredSetupComplete && journey");
+    expect(nextBest).toContain("guided journey unlocks after you finish setup");
+    expect(nextBest).not.toContain("Continue setup");
     expect(surfaces.toLowerCase()).not.toContain("waiting on customer");
     expect(surfaces).not.toContain("WAITING ON CUSTOMER");
+  });
+
+  it("gates the 3-step setup banner and 18-step journey so they never share a screen", () => {
+    const dashboard = source("app/dashboard/page.tsx");
+    const banner = source("components/dashboard/setup-progress-card.tsx");
+    const nextBest = source("components/dashboard/saas-dashboard.tsx");
+    expect(dashboard).toContain("requiredSetupComplete ? await getGuidedJourney");
+    expect(dashboard).toContain("requiredSetupComplete={requiredSetupComplete}");
+    expect(banner).toContain("state.requiredSetupComplete");
+    expect(banner).toContain("Continue setup");
+    expect(banner).not.toContain("journey.total");
+    expect(nextBest).toContain("Continue journey");
+    expect(nextBest).toContain("journey.completed}/{journey.total}");
+    expect(nextBest.indexOf("requiredSetupComplete && journey")).toBeLessThan(nextBest.indexOf("Continue journey"));
   });
 });

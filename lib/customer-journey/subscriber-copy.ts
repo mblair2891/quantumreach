@@ -81,6 +81,15 @@ export function subscriberSetupSteps(input: {
   ];
 }
 
+/** Payment + workspace + your details. Gates dashboard setup vs guided journey. */
+export function isRequiredSetupComplete(input: {
+  paid: boolean;
+  workspaceReady: boolean;
+  onboardingComplete: boolean;
+}) {
+  return subscriberSetupSteps(input).every((step) => step.done);
+}
+
 export function subscriberLifecycleHeadline(stage: string) {
   switch (stage) {
     case "ONBOARDING_REQUIRED":

@@ -4,12 +4,11 @@ import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
 import { prisma } from "@/lib/db/prisma";
 import { redirect } from "next/navigation";
 import { createSummitDentalExample, getGuidedJourney } from "@/lib/customer-journey/guided";
-import { subscriberSetupSteps } from "@/lib/customer-journey/subscriber-copy";
+import { isRequiredSetupComplete, subscriberSetupSteps } from "@/lib/customer-journey/subscriber-copy";
 export default async function Page(){
  const {workspace,user}=await requireSubscriberWorkspaceAccess();
  const now = new Date(); const today = new Date(now); today.setHours(0, 0, 0, 0);
- const [setup, leads, opportunities, tasks, meetings, campaigns, replies, simulatedReplies, proposals, contracts, clients, senders] = await Promise.all([
-   prisma.infrastructureOrder.findFirst({where:{workspaceId:workspace.id},include:{tasks:true},orderBy:{updatedAt:"desc"}}),
+ const [leads, opportunities, tasks, meetings, campaigns, replies, simulatedReplies, proposals, contracts, clients, senders] = await Promise.all([
    prisma.lead.count({ where: { workspaceId: workspace.id, status: { not: "ARCHIVED" } } }),
    prisma.opportunity.findMany({ where: { workspaceId: workspace.id, status: "OPEN" }, select: { amount: true } }),
    prisma.task.count({ where: { workspaceId: workspace.id, status: { notIn: ["DONE", "ARCHIVED"] }, OR: [{ dueAt: null }, { dueAt: { lte: now } }] } }),
@@ -27,20 +26,16 @@ export default async function Page(){
  const subscriber = await prisma.saasSubscriberProfile.findUnique({ where: { userId: user.id } });
  const progress = subscriber?.onboardingProgress && typeof subscriber.onboardingProgress === "object" && !Array.isArray(subscriber.onboardingProgress) ? subscriber.onboardingProgress as Record<string, unknown> : {};
  const onboardingComplete = progress.onboardingComplete === true;
- const setupSteps = subscriberSetupSteps({
-   paid: true,
-   workspaceReady: true,
-   onboardingComplete,
- });
+ const setupFacts = { paid: true, workspaceReady: true, onboardingComplete };
+ const setupSteps = subscriberSetupSteps(setupFacts);
+ const requiredSetupComplete = isRequiredSetupComplete(setupFacts);
  const state = {
-   customerActionRequired: Boolean(setup?.customerActionRequired),
-   blocked: Boolean(setup?.blockedReason),
-   onboardingComplete,
+   requiredSetupComplete,
    completedSteps: setupSteps.filter((step) => step.done).length,
    totalSteps: setupSteps.length,
  };
- const journey=await getGuidedJourney(workspace.id, onboardingComplete);
+ const journey = requiredSetupComplete ? await getGuidedJourney(workspace.id, true) : null;
  async function createExample(){"use server";const {workspace}=await requireSubscriberWorkspaceAccess();const result=await createSummitDentalExample(workspace.id);redirect(`/dashboard/opportunities/${result.opportunity.id}`)}
- return <><SetupProgressCard state={state}/><div className="mt-6"><SaasDashboard workspaceName={workspace.name} snapshot={snapshot} journey={journey} createExample={createExample}/></div></>;
+ return <><SetupProgressCard state={state}/><div className="mt-6"><SaasDashboard workspaceName={workspace.name} snapshot={snapshot} journey={journey} createExample={createExample} requiredSetupComplete={requiredSetupComplete}/></div></>;
 }
 // Operational dashboard cards preserved: Leads by outreach status; Active outreach campaigns; Recent calls; Calls needing transcript; Diagnostics needing analysis; Analyses needing review; Reports / roadmaps / proposals; Knowledge source coverage; Next recommended actions; Production readiness checklist; Workflow status summary; Recent activity.
