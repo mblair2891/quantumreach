@@ -45,6 +45,10 @@ describe("managed domain and registrant navigation", () => {
     expect(legacy).toContain('redirect("/dashboard/sending/domains")');
     expect(page).toContain("requireSubscriberWorkspaceAccess");
     expect(page).toContain("addByoDomainAction");
+    expect(page).toContain("Connect domain");
+    expect(page).toContain("Bring your own domain");
+    expect(page).not.toContain("not yet self-service");
+    expect(page).not.toContain("WORKSPACE_OWNED");
     expect(page).toContain("/dashboard/settings/domain-registrant");
   });
 
@@ -56,5 +60,9 @@ describe("managed domain and registrant navigation", () => {
     expect(domainNav).toContain('"/dashboard/admin/domains"');
     expect(settings).toContain("/dashboard/settings/domain-registrant");
     expect(sendingDomains).toContain('href="/dashboard/settings/domain-registrant"');
+    expect(sendingDomains).toContain("No domains connected yet. Connect a domain you own to start setup.");
+    expect(sendingDomains).toContain("Connect a domain you own, or request a managed domain");
+    expect(sendingDomains).not.toContain("BYO setup is not yet self-service");
+    expect(sendingDomains).not.toContain("WORKSPACE_OWNED");
   });
 });

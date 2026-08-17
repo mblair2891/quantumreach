@@ -4,6 +4,7 @@ import {
   displayPaymentStatus,
   displayPlanName,
   displaySendingSetup,
+  displaySubscriberDomainStatus,
   displayYourSetupStatus,
   isRequiredSetupComplete,
   subscriberLifecycleHeadline,
@@ -54,6 +55,8 @@ describe("subscriber-facing setup copy", () => {
     ]);
     expect(isRequiredSetupComplete({ profileComplete: true, domainVerified: false, mailboxReady: false })).toBe(false);
     expect(isRequiredSetupComplete({ profileComplete: true, domainVerified: true, mailboxReady: true })).toBe(true);
+    expect(displaySubscriberDomainStatus({ verificationStatus: "PENDING", dnsPending: true }).label).toBe("Pending DNS");
+    expect(displaySubscriberDomainStatus({ verificationStatus: "VERIFIED", dkimStatus: "VERIFIED" }).label).toBe("Verified");
   });
 
   it("sends a paid workspace to onboarding with finish-setup language", () => {

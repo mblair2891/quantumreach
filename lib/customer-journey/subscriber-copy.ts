@@ -110,6 +110,29 @@ export function subscriberSetupFactsFromRecords(input: {
   };
 }
 
+export function displaySubscriberDomainStatus(input: {
+  verificationStatus?: string | null;
+  dkimStatus?: string | null;
+  dnsPending?: boolean;
+  dnsFailed?: boolean;
+  warmupStatus?: string | null;
+}) {
+  const ses = (input.verificationStatus ?? "").toUpperCase();
+  const dkim = (input.dkimStatus ?? "").toUpperCase();
+  const sesOk = ses === "VERIFIED" || ses === "SUCCESS";
+  const dkimOk = dkim === "VERIFIED" || dkim === "SUCCESS";
+  if (input.dnsFailed && !sesOk) return { label: "Failed", detail: "DNS does not match yet. Update the records and verify again." };
+  if (sesOk && dkimOk) {
+    const warmup = (input.warmupStatus ?? "").toUpperCase();
+    if (warmup === "COMPLETED" || warmup === "ACTIVE") return { label: "Verified", detail: "Ready for warmup and sending setup." };
+    if (warmup === "WARMING" || warmup === "SCHEDULED") return { label: "Verified", detail: "Warmup is in progress." };
+    return { label: "Verified", detail: "DNS and sending identity are confirmed." };
+  }
+  if (sesOk && !dkimOk) return { label: "Verifying", detail: "Domain identity is confirmed. DKIM is still catching up." };
+  if (input.dnsPending) return { label: "Pending DNS", detail: "Publish the records below, then verify." };
+  return { label: "Action needed from you", detail: "Connect DNS, then tap Verify DNS." };
+}
+
 export function subscriberLifecycleHeadline(stage: string) {
   switch (stage) {
     case "ONBOARDING_REQUIRED":

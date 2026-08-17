@@ -39,7 +39,14 @@ export async function addByoDomain(input: { workspaceId: string; actorUserId: st
   const { effective } = await getWorkspaceEffectiveEntitlements(input.workspaceId);
   const used = await prisma.managedDomain.count({ where: { workspaceId: input.workspaceId } });
   const allowance = enforceAllowance("domain", effective, used);
-  if (!allowance.allowed) throw new Error("Your package does not include another sending domain.");
+  if (!allowance.allowed) {
+    const allowed = Number((effective as { MANAGED_DOMAIN_ALLOWANCE?: number }).MANAGED_DOMAIN_ALLOWANCE || 0);
+    throw new Error(
+      allowed
+        ? `Your plan allows ${allowed} sending domain${allowed === 1 ? "" : "s"}. Upgrade or remove a domain to connect another.`
+        : "Your plan does not include a sending domain yet. Upgrade to connect a domain.",
+    );
+  }
 
   const existing = await prisma.managedDomain.findUnique({ where: { domainName } });
   if (existing && existing.workspaceId && existing.workspaceId !== input.workspaceId) {
