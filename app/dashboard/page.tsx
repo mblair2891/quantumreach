@@ -4,6 +4,7 @@ import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
 import { prisma } from "@/lib/db/prisma";
 import { redirect } from "next/navigation";
 import { createSummitDentalExample, getGuidedJourney } from "@/lib/customer-journey/guided";
+import { subscriberSetupSteps } from "@/lib/customer-journey/subscriber-copy";
 export default async function Page(){
  const {workspace,user}=await requireSubscriberWorkspaceAccess();
  const now = new Date(); const today = new Date(now); today.setHours(0, 0, 0, 0);
@@ -23,8 +24,22 @@ export default async function Page(){
  ]);
  const pipelineValue = opportunities.reduce((total, opportunity) => total + Number(opportunity.amount ?? 0), 0);
  const snapshot: DashboardSnapshot = { leads, openOpportunities: opportunities.length, pipelineValue: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(pipelineValue), dueTasks: tasks, upcomingMeetings: meetings, campaigns, replies: replies + simulatedReplies, proposalsNeedingAction: proposals, contractsNeedingAction: contracts, activeClients: clients, readySenders: senders.filter(sender => sender.campaignEligible).length, totalSenders: senders.length };
- const state=setup?{stage:setup.currentStage,status:setup.status,customerActionRequired:setup.customerActionRequired,blocked:Boolean(setup.blockedReason),completed:setup.tasks.filter(t=>["COMPLETED","WAIVED"].includes(t.status)).length,total:setup.tasks.length}:null;
- const journey=await getGuidedJourney(workspace.id, Boolean(user.firstName && workspace.name));
+ const subscriber = await prisma.saasSubscriberProfile.findUnique({ where: { userId: user.id } });
+ const progress = subscriber?.onboardingProgress && typeof subscriber.onboardingProgress === "object" && !Array.isArray(subscriber.onboardingProgress) ? subscriber.onboardingProgress as Record<string, unknown> : {};
+ const onboardingComplete = progress.onboardingComplete === true;
+ const setupSteps = subscriberSetupSteps({
+   paid: true,
+   workspaceReady: true,
+   onboardingComplete,
+ });
+ const state = {
+   customerActionRequired: Boolean(setup?.customerActionRequired),
+   blocked: Boolean(setup?.blockedReason),
+   onboardingComplete,
+   completedSteps: setupSteps.filter((step) => step.done).length,
+   totalSteps: setupSteps.length,
+ };
+ const journey=await getGuidedJourney(workspace.id, onboardingComplete);
  async function createExample(){"use server";const {workspace}=await requireSubscriberWorkspaceAccess();const result=await createSummitDentalExample(workspace.id);redirect(`/dashboard/opportunities/${result.opportunity.id}`)}
  return <><SetupProgressCard state={state}/><div className="mt-6"><SaasDashboard workspaceName={workspace.name} snapshot={snapshot} journey={journey} createExample={createExample}/></div></>;
 }

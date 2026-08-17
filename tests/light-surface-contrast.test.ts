@@ -22,7 +22,7 @@ describe("light-surface text contrast", () => {
     const page = source("app/setup/status/page.tsx");
     expect(page).toContain("funnel-status-label");
     expect(page).toContain("funnel-status-value");
-    expect(page).toContain('className="text-slate-950"');
+    expect(page).toContain("text-slate-950");
     expect(page).not.toContain("dark:text-indigo-100");
     expect(page).not.toContain("dark:bg-indigo-950");
   });

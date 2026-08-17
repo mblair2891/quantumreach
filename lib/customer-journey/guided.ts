@@ -32,8 +32,8 @@ export type JourneySignals = {
 export type JourneyAction = { stage: string; title: string; why: string; href: string; blocker?: string };
 
 const stages: Array<{ key: keyof JourneySignals; action: JourneyAction }> = [
-  { key: "profileComplete", action: { stage: "Workspace setup", title: "Complete your agency profile", why: "Your profile provides reusable context for outreach, proposals, and agreements.", href: "/dashboard/onboarding" } },
-  { key: "prospectCount", action: { stage: "Workspace ready", title: "Add your first prospect", why: "A company, contact, and opportunity connect the rest of the customer journey.", href: "/dashboard/crm" } },
+  { key: "profileComplete", action: { stage: "Workspace setup", title: "Complete your setup", why: "A few details are still needed to complete your workspace.", href: "/dashboard/onboarding" } },
+  { key: "prospectCount", action: { stage: "Workspace ready", title: "Add your first prospect", why: "A company, contact, and opportunity connect the rest of your client pipeline.", href: "/dashboard/crm" } },
   { key: "researchCount", action: { stage: "Prospect created", title: "Research your prospect", why: "Separate supplied facts from assumptions before deciding how to approach the buyer.", href: "/dashboard/research" } },
   { key: "qualifiedCount", action: { stage: "Prospect enriched", title: "Qualify the opportunity", why: "An explainable qualification decision keeps outreach focused on a credible need.", href: "/dashboard/opportunities" } },
   { key: "outreachDraftCount", action: { stage: "Opportunity qualified", title: "Draft your first outreach", why: "Prepare an editable, compliant sequence using approved prospect context.", href: "/dashboard/outreach" } },
@@ -48,13 +48,13 @@ const stages: Array<{ key: keyof JourneySignals; action: JourneyAction }> = [
   { key: "executedContractCount", action: { stage: "Agreement created", title: "Complete the agreement", why: "Record live signature evidence or an explicitly simulated completion.", href: "/dashboard/contracts" } },
   { key: "wonCount", action: { stage: "Agreement completed", title: "Mark the opportunity won", why: "Confirmation preserves the opportunity and starts retry-safe client conversion.", href: "/dashboard/opportunities" } },
   { key: "clientCount", action: { stage: "Opportunity won", title: "Activate the client", why: "Create the agency-client delivery relationship without provisioning a separate SaaS tenant.", href: "/dashboard/projects" } },
-  { key: "projectCount", action: { stage: "Client activated", title: "Start client onboarding and delivery", why: "A delivery project makes ownership, milestones, and customer requests visible.", href: "/dashboard/projects" } },
+  { key: "projectCount", action: { stage: "Client activated", title: "Start client onboarding and delivery", why: "A delivery project makes ownership, milestones, and client requests visible.", href: "/dashboard/projects" } },
   { key: "completedDeliverableCount", action: { stage: "Delivery active", title: "Complete the first deliverable", why: "Record an approved initial result before measuring retention or expansion.", href: "/dashboard/deliverables" } },
 ];
 
 export function resolveNextBestAction(signals: JourneySignals): JourneyAction {
   const missing = stages.find(({ key }) => typeof signals[key] === "boolean" ? !signals[key] : signals[key] === 0);
-  return missing?.action ?? { stage: "Initial result delivered", title: "Review client health and expansion", why: "The first lifecycle is complete; review results, revenue, and the next customer outcome.", href: "/dashboard/reports" };
+  return missing?.action ?? { stage: "Initial result delivered", title: "Review client health and expansion", why: "The first lifecycle is complete; review results, revenue, and the next client outcome.", href: "/dashboard/reports" };
 }
 
 export async function getGuidedJourney(workspaceId: string, profileComplete: boolean) {

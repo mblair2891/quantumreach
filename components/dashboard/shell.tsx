@@ -48,7 +48,7 @@ export async function DashboardShell({ children }: { children: React.ReactNode }
       <div className="flex flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950/95">
           <div>
-            <p className="text-sm text-slate-600 dark:text-slate-300">Subscriber workspace</p>
+            <p className="text-sm text-slate-600 dark:text-slate-300">Your workspace</p>
             <p className="font-medium text-slate-950 dark:text-slate-50">CRM → Outreach → Meetings → Delivery</p>
           </div>
           <div className="flex items-center gap-3">

@@ -3,6 +3,11 @@ import { requireUserProfile } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db/prisma";
 import { resolveSubscriberLifecycle } from "@/lib/customer-journey/lifecycle";
 import { readJoinProfile } from "@/lib/customer-journey/profile";
+import {
+  displaySendingSetup,
+  subscriberLifecycleHeadline,
+  subscriberSetupSteps,
+} from "@/lib/customer-journey/subscriber-copy";
 import { FunnelShell } from "@/components/funnel/shell";
 import { isSimulatedPaymentEnvironment } from "@/lib/simulated-payment/environment";
 
@@ -10,29 +15,56 @@ export const dynamic = "force-dynamic";
 
 export default async function SetupStatus({ searchParams }: { searchParams?: { testPayment?: string } }) {
   const user = await requireUserProfile();
-  const setup = await prisma.infrastructureOrder.findFirst({ where: { order: { userId: user.id } }, include: { tasks: true, order: true }, orderBy: { createdAt: "desc" } });
+  const setup = await prisma.infrastructureOrder.findFirst({
+    where: { order: { userId: user.id } },
+    include: { tasks: true, order: true },
+    orderBy: { createdAt: "desc" },
+  });
   const subscriber = await prisma.saasSubscriberProfile.findUnique({ where: { userId: user.id } });
-  const membership = setup?.workspaceId ? await prisma.workspaceMember.findUnique({ where: { workspaceId_userId: { workspaceId: setup.workspaceId, userId: user.id } } }) : null;
-  const subscription = setup?.workspaceId ? await prisma.saasSubscription.findFirst({ where: { userId: user.id, workspaceId: setup.workspaceId, status: { in: ["ACTIVE", "TRIALING"] } } }) : null;
-  const entitlementCount = setup?.workspaceId ? await prisma.saasSubscriptionItem.count({ where: { workspaceId: setup.workspaceId, status: "ACTIVE" } }) : 0;
-  const progress = subscriber?.onboardingProgress && typeof subscriber.onboardingProgress === "object" && !Array.isArray(subscriber.onboardingProgress) ? subscriber.onboardingProgress as Record<string, unknown> : {};
-  const lifecycle = resolveSubscriberLifecycle({ profileComplete: Boolean(readJoinProfile(subscriber?.onboardingProgress)), order: setup?.order, infrastructure: setup, workspaceReady: Boolean(setup?.workspaceId), membershipReady: membership?.status === "ACTIVE", subscriptionReady: Boolean(subscription), entitlementsReady: entitlementCount > 0, onboardingComplete: progress.onboardingComplete === true });
-  const rows = [
-    ["Order", setup?.order.status ?? "Not started"],
-    ["Financial clearance", setup ? `${setup.order.paymentStatus} · ${setup.order.paymentMethod}` : "Not started"],
-    ["Workspace", setup?.workspaceId ? "Created" : "Pending"],
-    ["Membership", membership?.status === "ACTIVE" ? `Active · ${membership.roleKey}` : "Pending"],
-    ["Subscription", subscription ? `${subscription.status} · ${subscription.planKey}` : "Pending"],
-    ["Entitlements", entitlementCount ? `${entitlementCount} active product assignment(s)` : "Pending"],
-    ["Infrastructure", setup ? `${setup.status.replaceAll("_", " ")} · ${setup.currentStage}` : "Not selected"],
-    ["Onboarding", progress.onboardingComplete === true ? "Complete" : setup?.workspaceId ? "Required" : "Pending"],
-    ["Dashboard", lifecycle.dashboardReady ? "Available" : "Not ready"],
-  ];
+  const membership = setup?.workspaceId
+    ? await prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: setup.workspaceId, userId: user.id } },
+      })
+    : null;
+  const subscription = setup?.workspaceId
+    ? await prisma.saasSubscription.findFirst({
+        where: { userId: user.id, workspaceId: setup.workspaceId, status: { in: ["ACTIVE", "TRIALING"] } },
+      })
+    : null;
+  const entitlementCount = setup?.workspaceId
+    ? await prisma.saasSubscriptionItem.count({ where: { workspaceId: setup.workspaceId, status: "ACTIVE" } })
+    : 0;
+  const progress =
+    subscriber?.onboardingProgress && typeof subscriber.onboardingProgress === "object" && !Array.isArray(subscriber.onboardingProgress)
+      ? (subscriber.onboardingProgress as Record<string, unknown>)
+      : {};
+  const onboardingComplete = progress.onboardingComplete === true;
+  const workspaceReady = Boolean(setup?.workspaceId);
+  const paid = setup?.order.paymentStatus === "PAID";
+  const lifecycle = resolveSubscriberLifecycle({
+    profileComplete: Boolean(readJoinProfile(subscriber?.onboardingProgress)),
+    order: setup?.order,
+    infrastructure: setup,
+    workspaceReady,
+    membershipReady: membership?.status === "ACTIVE",
+    subscriptionReady: Boolean(subscription),
+    entitlementsReady: entitlementCount > 0,
+    onboardingComplete,
+  });
+  const steps = subscriberSetupSteps({ paid, workspaceReady, onboardingComplete });
+  const sending = displaySendingSetup(setup);
+  const primaryHref = lifecycle.dashboardReady
+    ? onboardingComplete
+      ? "/dashboard"
+      : "/dashboard/onboarding"
+    : lifecycle.route;
+  const primaryLabel = onboardingComplete && lifecycle.dashboardReady ? "Open dashboard" : "Continue setup";
+
   return (
     <FunnelShell>
       <main className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
-        <p className="funnel-eyebrow">Subscriber lifecycle</p>
-        <h1 className="funnel-title mt-3 text-4xl font-semibold">Your setup status</h1>
+        <p className="funnel-eyebrow">Your workspace</p>
+        <h1 className="funnel-title mt-3 text-4xl font-semibold">{subscriberLifecycleHeadline(lifecycle.stage)}</h1>
         {isSimulatedPaymentEnvironment() && setup?.order.paymentMethod === "SIMULATED_TEST" ? (
           <p className="mt-5 rounded-xl border border-indigo-300 bg-indigo-50 p-4 text-sm font-semibold text-indigo-950">
             {searchParams?.testPayment === "completed" ? "Test payment completed" : "Test payment"} — no real charge was
@@ -40,28 +72,34 @@ export default async function SetupStatus({ searchParams }: { searchParams?: { t
           </p>
         ) : null}
         <p className="funnel-copy mt-3">
-          Current stage: <strong className="text-slate-950">{lifecycle.stage.replaceAll("_", " ")}</strong>
+          {onboardingComplete
+            ? "You're ready to start working in your workspace."
+            : "One next step: add a few details about your business, then open your dashboard."}
         </p>
         <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          {rows.map(([label, value]) => (
-            <div className="flex justify-between gap-5 border-b border-slate-200 px-5 py-4 last:border-0" key={label}>
-              <span className="funnel-status-label">{label}</span>
-              <strong className="funnel-status-value">{value}</strong>
+          {steps.map((step) => (
+            <div className="flex justify-between gap-5 border-b border-slate-200 px-5 py-4 last:border-0" key={step.key}>
+              <span className="funnel-status-label">{step.label}</span>
+              <strong className="funnel-status-value">{step.value}</strong>
             </div>
           ))}
+          <div className="flex justify-between gap-5 px-5 py-4">
+            <span className="funnel-status-label">Sending setup</span>
+            <strong className="funnel-status-value">{sending.label}</strong>
+          </div>
         </div>
         {lifecycle.blockingCondition ? (
           <p className="mt-6 rounded-xl bg-amber-50 p-4 text-amber-950">{lifecycle.blockingCondition}</p>
         ) : null}
         <section className="funnel-card mt-6 p-6">
-          <h2 className="font-semibold text-slate-950">Next action</h2>
+          <h2 className="font-semibold text-slate-950">Next</h2>
           <p className="mt-2 text-slate-700">{lifecycle.nextAction}</p>
           <div className="mt-5 flex flex-wrap gap-3">
-            <Link className="funnel-primary" href={lifecycle.route}>
-              {lifecycle.dashboardReady ? "Continue" : "Check next step"}
+            <Link className="funnel-primary" href={primaryHref}>
+              {primaryLabel}
             </Link>
             <Link className="funnel-secondary" href="/setup/status">
-              Refresh status
+              Refresh
             </Link>
             <a className="funnel-secondary" href="mailto:support@quantumreach.ai">
               Contact support
@@ -69,8 +107,7 @@ export default async function SetupStatus({ searchParams }: { searchParams?: { t
           </div>
         </section>
         <p className="mt-5 text-sm text-slate-700">
-          Managed infrastructure is tracked independently and may remain deferred without blocking an otherwise active
-          dashboard.
+          {sending.hint} Managed sending infrastructure can continue in the background without blocking your dashboard.
         </p>
       </main>
     </FunnelShell>
