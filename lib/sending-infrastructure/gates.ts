@@ -12,7 +12,7 @@ export type SendingGates = {
   configurationSet: string | null;
 };
 
-export function getSendingGates(env: NodeJS.ProcessEnv = process.env): SendingGates {
+export function getSendingGates(env: Record<string, string | undefined> = process.env): SendingGates {
   const sesRegion = (env.AWS_SES_REGION || env.AWS_REGION || "us-east-2").trim();
   const accessKeyId = (env.AWS_SES_ACCESS_KEY_ID || env.AWS_ACCESS_KEY_ID || "").trim();
   const secretAccessKey = (env.AWS_SES_SECRET_ACCESS_KEY || env.AWS_SECRET_ACCESS_KEY || "").trim();
@@ -29,7 +29,7 @@ export function getSendingGates(env: NodeJS.ProcessEnv = process.env): SendingGa
   };
 }
 
-export function sesCredentials(env: NodeJS.ProcessEnv = process.env) {
+export function sesCredentials(env: Record<string, string | undefined> = process.env) {
   const gates = getSendingGates(env);
   return {
     region: gates.sesRegion,

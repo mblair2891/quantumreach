@@ -4,6 +4,7 @@ import {
   displayPaymentStatus,
   displayPlanName,
   displaySendingSetup,
+  displayDnsRecordPurpose,
   displaySubscriberDomainStatus,
   displayYourSetupStatus,
   isRequiredSetupComplete,
@@ -55,6 +56,8 @@ describe("subscriber-facing setup copy", () => {
     ]);
     expect(isRequiredSetupComplete({ profileComplete: true, domainVerified: false, mailboxReady: false })).toBe(false);
     expect(isRequiredSetupComplete({ profileComplete: true, domainVerified: true, mailboxReady: true })).toBe(true);
+    expect(displayDnsRecordPurpose("SES_VERIFICATION")).toBe("Domain ownership");
+    expect(displayDnsRecordPurpose("DKIM")).toBe("Signing");
     expect(displaySubscriberDomainStatus({ verificationStatus: "PENDING", dnsPending: true }).label).toBe("Pending DNS");
     expect(displaySubscriberDomainStatus({ verificationStatus: "VERIFIED", dkimStatus: "VERIFIED" }).label).toBe("Verified");
   });

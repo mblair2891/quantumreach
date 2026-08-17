@@ -53,6 +53,8 @@ describe("managed sending Path A", () => {
     const byo = source("lib/sending-infrastructure/byo-domain.ts");
     expect(byo).toContain("pollSesDomainIdentity");
     expect(byo).toContain("isSesIdentityVerified");
+    expect(byo).toContain('purpose: "SES_VERIFICATION"');
+    expect(byo).toContain('purpose: "DKIM"');
     expect(byo).toContain("verified ? \"WARMING\"");
     expect(source("lib/sending-infrastructure/ses-identity.ts")).toContain("VerifyDomainIdentityCommand");
     expect(source("lib/sending-infrastructure/outbound.ts")).toContain("sender.fromAddress");

@@ -110,6 +110,25 @@ export function subscriberSetupFactsFromRecords(input: {
   };
 }
 
+export function displayDnsRecordPurpose(purpose?: string | null) {
+  switch ((purpose ?? "").toUpperCase()) {
+    case "SPF":
+      return "Sending permission";
+    case "DMARC":
+      return "Email policy";
+    case "DKIM":
+      return "Signing";
+    case "SES_VERIFICATION":
+      return "Domain ownership";
+    case "MAIL_FROM":
+      return "Mail from";
+    case "TRACKING":
+      return "Tracking";
+    default:
+      return purpose || "DNS";
+  }
+}
+
 export function displaySubscriberDomainStatus(input: {
   verificationStatus?: string | null;
   dkimStatus?: string | null;

@@ -1,3 +1,4 @@
-export type DnsRecord = { type: string; name: string; value: string; ttl?: number; purpose?: string };
+export type DnsRecordPurpose = "SPF" | "DMARC" | "DKIM" | "SES_VERIFICATION" | "MAIL_FROM" | "TRACKING" | "OTHER";
+export type DnsRecord = { type: string; name: string; value: string; ttl?: number; purpose?: DnsRecordPurpose };
 export function desiredEmailDnsRecords(domainName: string): DnsRecord[] { return [{ type: "TXT", name: domainName, value: "v=spf1 include:amazonses.com ~all", purpose: "SPF" }, { type: "TXT", name: `_dmarc.${domainName}`, value: "v=DMARC1; p=none; rua=mailto:dmarc@quantumreach.example", purpose: "DMARC" }]; }
 export function reconcileDns(desired: DnsRecord[], observed: DnsRecord[]) { const key = (r: DnsRecord) => `${r.type}:${r.name}:${r.value}`.toLowerCase(); const observedKeys = new Set(observed.map(key)); return { missingRecords: desired.filter((r) => !observedKeys.has(key(r))), mismatchedRecords: [], appliedRecords: [], deleteRecords: [] as DnsRecord[] }; }

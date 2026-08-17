@@ -5,7 +5,7 @@ import { ENTITLEMENT_KEYS } from "@/lib/sending-infrastructure/catalog";
 import { enforceAllowance } from "@/lib/sending-infrastructure/readiness";
 import { getDomainRegistrantProfile } from "@/lib/managed-domains/purchase";
 import { validateRegistrantContact } from "@/lib/managed-domains/registrant";
-import { displaySubscriberDomainStatus } from "@/lib/customer-journey/subscriber-copy";
+import { displayDnsRecordPurpose, displaySubscriberDomainStatus } from "@/lib/customer-journey/subscriber-copy";
 import { addByoDomainAction, requestManagedDomainAction, verifyByoDomainAction } from "./actions";
 
 export default async function Page({
@@ -176,6 +176,7 @@ export default async function Page({
                         <th className="py-2 pr-3">Type</th>
                         <th className="py-2 pr-3">Name</th>
                         <th className="py-2 pr-3">Value</th>
+                        <th className="py-2 pr-3">What it’s for</th>
                         <th className="py-2">Status</th>
                       </tr>
                     </thead>
@@ -185,6 +186,7 @@ export default async function Page({
                           <td className="py-2 pr-3 font-mono">{record.type}</td>
                           <td className="py-2 pr-3 font-mono text-xs">{record.name}</td>
                           <td className="py-2 pr-3 font-mono text-xs">{record.value}</td>
+                          <td className="py-2 pr-3">{displayDnsRecordPurpose(record.purpose)}</td>
                           <td className="py-2">
                             {record.status === "VERIFIED" ? "Found" : record.status === "FAILED" ? "Not matching" : "Waiting"}
                           </td>

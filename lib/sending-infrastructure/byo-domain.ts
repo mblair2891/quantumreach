@@ -6,6 +6,7 @@ import { getWorkspaceEffectiveEntitlements } from "./operational";
 import { getSendingGates, isSesIdentityVerified, unavailableMessage } from "./gates";
 import { pollSesDomainIdentity, requestSesDomainIdentity } from "./ses-identity";
 import { dnsValueMatches, lookupDnsRecord } from "./dns-observe";
+import type { DnsRecord, DnsRecordPurpose } from "./dns";
 
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i;
 
@@ -13,20 +14,22 @@ export function normalizeDomainName(value: string) {
   return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\.$/, "");
 }
 
-function requiredRecords(domainName: string, verificationToken: string, dkimTokens: string[]) {
-  const records = [
-    { type: "TXT", name: domainName, value: "v=spf1 include:amazonses.com ~all", purpose: "SPF" as const, ttl: 300 },
-    { type: "TXT", name: `_dmarc.${domainName}`, value: "v=DMARC1; p=none; rua=mailto:dmarc@quantumreach.app", purpose: "DMARC" as const, ttl: 300 },
+type ByoDnsRecord = DnsRecord & { purpose: DnsRecordPurpose };
+
+function requiredRecords(domainName: string, verificationToken: string, dkimTokens: string[]): ByoDnsRecord[] {
+  const records: ByoDnsRecord[] = [
+    { type: "TXT", name: domainName, value: "v=spf1 include:amazonses.com ~all", purpose: "SPF", ttl: 300 },
+    { type: "TXT", name: `_dmarc.${domainName}`, value: "v=DMARC1; p=none; rua=mailto:dmarc@quantumreach.app", purpose: "DMARC", ttl: 300 },
   ];
   if (verificationToken) {
-    records.push({ type: "TXT", name: `_amazonses.${domainName}`, value: verificationToken, purpose: "SES_VERIFICATION" as const, ttl: 300 });
+    records.push({ type: "TXT", name: `_amazonses.${domainName}`, value: verificationToken, purpose: "SES_VERIFICATION", ttl: 300 });
   }
   for (const token of dkimTokens) {
     records.push({
       type: "CNAME",
       name: `${token}._domainkey.${domainName}`,
       value: `${token}.dkim.amazonses.com`,
-      purpose: "DKIM" as const,
+      purpose: "DKIM",
       ttl: 300,
     });
   }
