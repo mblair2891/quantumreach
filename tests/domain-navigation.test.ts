@@ -71,16 +71,20 @@ describe("managed domain and registrant navigation", () => {
 
   it("lets subscribers copy displayed DNS name and value strings", () => {
     const page = read("app/dashboard/sending/domains/page.tsx");
+    const table = read("components/dashboard/dns-records-table.tsx");
     const button = read("components/dashboard/copy-value-button.tsx");
-    expect(page).toContain("Publish these DNS records");
-    expect(page).toContain("CopyValueButton");
-    expect(page).toContain("displayDnsRecordName");
-    expect(page).toContain("value={name.host}");
-    expect(page).toContain('value={record.value}');
-    expect(page).toContain('ariaLabel="Copy name"');
-    expect(page).toContain('ariaLabel="Copy value"');
-    expect(page).toContain("If your DNS host adds your domain automatically");
+    expect(table).toContain("Publish these DNS records");
+    expect(table).toContain("CopyValueButton");
+    expect(table).toContain("displayDnsRecordName");
+    expect(table).toContain("value={name.host}");
+    expect(table).toContain("value={record.value}");
+    expect(table).toContain('ariaLabel="Copy name"');
+    expect(table).toContain('ariaLabel="Copy value"');
+    expect(table).toContain("If your DNS host adds your domain automatically");
     expect(page).toContain("RemoveByoDomainForm");
+    expect(page).toContain("ViewDnsRecords");
+    expect(page).toContain("you can create mailboxes on this domain.");
+    expect(page).toContain("showDnsInline");
     expect(button).toContain("navigator.clipboard.writeText(value)");
     expect(button).toContain("Copy failed");
     expect(button).toContain('status === "copied" ? "Copied"');

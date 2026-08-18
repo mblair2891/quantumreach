@@ -5,11 +5,11 @@ import { ENTITLEMENT_KEYS } from "@/lib/sending-infrastructure/catalog";
 import { enforceAllowance } from "@/lib/sending-infrastructure/readiness";
 import { getDomainRegistrantProfile } from "@/lib/managed-domains/purchase";
 import { validateRegistrantContact } from "@/lib/managed-domains/registrant";
-import { displayDnsRecordPurpose, displaySubscriberDomainStatus } from "@/lib/customer-journey/subscriber-copy";
-import { displayDnsRecordName } from "@/lib/sending-infrastructure/dns-display";
+import { displaySubscriberDomainStatus } from "@/lib/customer-journey/subscriber-copy";
 import { lookupDnsHostHint } from "@/lib/sending-infrastructure/dns-observe";
 import { canManageSendingDomains, isSubscriberRemovableByoDomain } from "@/lib/sending-infrastructure/byo-domain";
-import { CopyValueButton } from "@/components/dashboard/copy-value-button";
+import { DnsRecordsTable } from "@/components/dashboard/dns-records-table";
+import { ViewDnsRecords } from "@/components/dashboard/view-dns-records";
 import { RemoveByoDomainForm } from "@/components/dashboard/remove-byo-domain-form";
 import { getManagedPurchasingReadiness } from "@/lib/managed-domains/purchase";
 import {
@@ -48,8 +48,10 @@ export default async function Page({
   ]);
   const hostHints = await Promise.all(
     domains.map((domain) => {
-      const pending = domain.dnsRecords.some((record) => record.status === "REQUIRED" || record.status === "PENDING");
-      return pending ? lookupDnsHostHint(domain.domainName) : Promise.resolve(null);
+      const ses = (domain.sesIdentity?.verificationStatus ?? "").toUpperCase();
+      const dkim = (domain.sesIdentity?.dkimStatus ?? "").toUpperCase();
+      const verified = (ses === "VERIFIED" || ses === "SUCCESS") && (dkim === "VERIFIED" || dkim === "SUCCESS");
+      return verified ? Promise.resolve(null) : lookupDnsHostHint(domain.domainName);
     }),
   );
   const allowed = Number(entitlements.effective[ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE] || 0);
@@ -204,6 +206,14 @@ export default async function Page({
           });
           const canRemove = canRemoveDomains && isSubscriberRemovableByoDomain(domain, workspace.id);
           const hostHint = hostHints[index];
+          const showDnsInline = status.label !== "Verified";
+          const dnsTable = (
+            <DnsRecordsTable
+              domainName={domain.domainName}
+              records={domain.dnsRecords}
+              hostHint={hostHint}
+            />
+          );
           return (
             <article
               key={domain.id}
@@ -213,17 +223,29 @@ export default async function Page({
                 <div>
                   <h2 className="text-xl font-semibold">{domain.domainName}</h2>
                   <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
-                    <strong>{status.label}.</strong> {status.detail}
+                    {status.label === "Verified" ? (
+                      <>
+                        <strong>Verified</strong> — you can create mailboxes on this domain.
+                      </>
+                    ) : (
+                      <>
+                        <strong>{status.label}.</strong> {status.detail}
+                      </>
+                    )}
                   </p>
                   {domain.sesIdentity?.safeError && !domain.sesIdentity.safeError.startsWith("OPERATOR_FORCE") ? (
                     <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">{domain.sesIdentity.safeError}</p>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-start justify-end gap-2">
-                  <form action={verifyByoDomainAction}>
-                    <input type="hidden" name="domainId" value={domain.id} />
-                    <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Verify DNS</button>
-                  </form>
+                  {showDnsInline ? (
+                    <form action={verifyByoDomainAction}>
+                      <input type="hidden" name="domainId" value={domain.id} />
+                      <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Verify DNS</button>
+                    </form>
+                  ) : (
+                    <ViewDnsRecords domainName={domain.domainName}>{dnsTable}</ViewDnsRecords>
+                  )}
                   {canRemove ? (
                     <RemoveByoDomainForm domainId={domain.id} domainName={domain.domainName} action={removeByoDomainAction} />
                   ) : domain.providerDomainId ? (
@@ -233,63 +255,7 @@ export default async function Page({
                   ) : null}
                 </div>
               </div>
-              <div>
-                <h3 className="font-semibold">Publish these DNS records</h3>
-                <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
-                  If your DNS host adds your domain automatically, use the Host name without .{domain.domainName}
-                </p>
-                {hostHint ? <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{hostHint}</p> : null}
-                <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-700">
-                        <th className="py-2 pr-3">Type</th>
-                        <th className="py-2 pr-3">Name</th>
-                        <th className="py-2 pr-3">Value</th>
-                        <th className="py-2 pr-3">What it’s for</th>
-                        <th className="py-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {domain.dnsRecords.map((record) => {
-                        const name = displayDnsRecordName(record.name, domain.domainName);
-                        return (
-                        <tr key={record.id} className="border-b border-slate-100 dark:border-slate-800">
-                          <td className="py-2 pr-3 font-mono">{record.type}</td>
-                          <td className="py-2 pr-3 align-top">
-                            <span className="inline-flex max-w-xs items-start gap-1.5">
-                              <span className="min-w-0 break-all font-mono text-xs">{name.host}</span>
-                              <CopyValueButton value={name.host} label="Copy" ariaLabel="Copy name" variant="compact" />
-                            </span>
-                            {name.host !== name.fullName ? (
-                              <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-                                Full name: <span className="break-all font-mono">{name.fullName}</span>
-                              </p>
-                            ) : null}
-                          </td>
-                          <td className="py-2 pr-3 align-top">
-                            <span className="inline-flex max-w-md items-start gap-1.5">
-                              <span className="min-w-0 break-all font-mono text-xs">{record.value}</span>
-                              <CopyValueButton value={record.value} label="Copy" ariaLabel="Copy value" variant="compact" />
-                            </span>
-                          </td>
-                          <td className="py-2 pr-3">{displayDnsRecordPurpose(record.purpose)}</td>
-                          <td className="py-2">
-                            {record.status === "VERIFIED"
-                              ? "Found"
-                              : record.status === "FAILED"
-                                ? record.safeError === "MULTIPLE_SPF_RECORDS"
-                                  ? "Not matching · Multiple SPF records"
-                                  : "Not matching"
-                                : "Waiting"}
-                          </td>
-                        </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {showDnsInline ? dnsTable : null}
             </article>
           );
         })

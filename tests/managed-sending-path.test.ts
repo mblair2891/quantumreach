@@ -87,7 +87,7 @@ describe("managed sending Path A", () => {
     expect(byo).toContain("lookupDnsRecord(record.type, record.name)");
     expect(byo).toContain("evaluateDnsRecordMatch");
     expect(byo).not.toContain("zoneRelativeHost(record.name");
-    expect(source("app/dashboard/sending/domains/page.tsx")).toContain("Multiple SPF records");
+    expect(source("components/dashboard/dns-records-table.tsx")).toContain("Multiple SPF records");
   });
 
   it("shows zone-relative DNS hosts for common BYO records", () => {
