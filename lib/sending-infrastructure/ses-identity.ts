@@ -1,5 +1,6 @@
 import "server-only";
 import {
+  DeleteIdentityCommand,
   GetIdentityDkimAttributesCommand,
   GetIdentityVerificationAttributesCommand,
   SESClient,
@@ -37,6 +38,18 @@ export async function requestSesDomainIdentity(domainName: string): Promise<SesI
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 300) : "SES_IDENTITY_FAILED";
     return { error: message };
+  }
+}
+
+export async function deleteSesDomainIdentity(domainName: string): Promise<{ deleted: boolean; error?: string }> {
+  const gates = getSendingGates();
+  if (!gates.sesConfigured) return { deleted: false, error: "AWS_SES_NOT_CONFIGURED" };
+  try {
+    await client().send(new DeleteIdentityCommand({ Identity: domainName }));
+    return { deleted: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 300) : "SES_DELETE_FAILED";
+    return { deleted: false, error: message };
   }
 }
 

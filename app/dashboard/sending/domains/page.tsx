@@ -6,15 +6,20 @@ import { enforceAllowance } from "@/lib/sending-infrastructure/readiness";
 import { getDomainRegistrantProfile } from "@/lib/managed-domains/purchase";
 import { validateRegistrantContact } from "@/lib/managed-domains/registrant";
 import { displayDnsRecordPurpose, displaySubscriberDomainStatus } from "@/lib/customer-journey/subscriber-copy";
+import { displayDnsRecordName } from "@/lib/sending-infrastructure/dns-display";
+import { lookupDnsHostHint } from "@/lib/sending-infrastructure/dns-observe";
+import { canManageSendingDomains, isSubscriberRemovableByoDomain } from "@/lib/sending-infrastructure/byo-domain";
 import { CopyValueButton } from "@/components/dashboard/copy-value-button";
-import { addByoDomainAction, requestManagedDomainAction, verifyByoDomainAction } from "./actions";
+import { RemoveByoDomainForm } from "@/components/dashboard/remove-byo-domain-form";
+import { addByoDomainAction, removeByoDomainAction, requestManagedDomainAction, verifyByoDomainAction } from "./actions";
 
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: { error?: string; connected?: string; verified?: string; requested?: string };
+  searchParams?: { error?: string; connected?: string; verified?: string; requested?: string; removed?: string };
 }) {
-  const { workspace } = await requireSubscriberWorkspaceAccess();
+  const { workspace, membership } = await requireSubscriberWorkspaceAccess();
+  const canRemoveDomains = canManageSendingDomains(String(membership.roleKey));
   const [domains, entitlements, profile] = await Promise.all([
     prisma.managedDomain.findMany({
       where: { OR: [{ workspaceId: workspace.id }, { assignments: { some: { workspaceId: workspace.id, status: "ACTIVE" } } }] },
@@ -24,6 +29,12 @@ export default async function Page({
     getWorkspaceEffectiveEntitlements(workspace.id),
     getDomainRegistrantProfile(workspace.id),
   ]);
+  const hostHints = await Promise.all(
+    domains.map((domain) => {
+      const pending = domain.dnsRecords.some((record) => record.status === "REQUIRED" || record.status === "PENDING");
+      return pending ? lookupDnsHostHint(domain.domainName) : Promise.resolve(null);
+    }),
+  );
   const allowed = Number(entitlements.effective[ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE] || 0);
   const atCap = !enforceAllowance("domain", entitlements.effective, domains.length).allowed;
   const registrant = validateRegistrantContact(profile);
@@ -63,6 +74,11 @@ export default async function Page({
       {searchParams?.requested ? (
         <p role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
           Managed domain request submitted. We’ll follow up when it’s ready.
+        </p>
+      ) : null}
+      {searchParams?.removed ? (
+        <p role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
+          Domain removed from Quantum Reach. You can connect another domain if your plan has a free slot.
         </p>
       ) : null}
 
@@ -140,7 +156,7 @@ export default async function Page({
           No domains connected yet. Connect a domain you own to start setup.
         </p>
       ) : (
-        domains.map((domain) => {
+        domains.map((domain, index) => {
           const status = displaySubscriberDomainStatus({
             verificationStatus: domain.sesIdentity?.verificationStatus,
             dkimStatus: domain.sesIdentity?.dkimStatus,
@@ -148,6 +164,8 @@ export default async function Page({
             dnsFailed: domain.dnsRecords.some((record) => record.status === "FAILED"),
             warmupStatus: domain.warmupPlan?.status,
           });
+          const canRemove = canRemoveDomains && isSubscriberRemovableByoDomain(domain, workspace.id);
+          const hostHint = hostHints[index];
           return (
             <article
               key={domain.id}
@@ -163,13 +181,22 @@ export default async function Page({
                     <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">{domain.sesIdentity.safeError}</p>
                   ) : null}
                 </div>
-                <form action={verifyByoDomainAction}>
-                  <input type="hidden" name="domainId" value={domain.id} />
-                  <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Verify DNS</button>
-                </form>
+                <div className="flex flex-wrap items-start justify-end gap-2">
+                  <form action={verifyByoDomainAction}>
+                    <input type="hidden" name="domainId" value={domain.id} />
+                    <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Verify DNS</button>
+                  </form>
+                  {canRemove ? (
+                    <RemoveByoDomainForm domainId={domain.id} domainName={domain.domainName} action={removeByoDomainAction} />
+                  ) : null}
+                </div>
               </div>
               <div>
                 <h3 className="font-semibold">Publish these DNS records</h3>
+                <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+                  If your DNS host adds your domain automatically, use the Host name without .{domain.domainName}
+                </p>
+                {hostHint ? <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{hostHint}</p> : null}
                 <div className="mt-2 overflow-x-auto">
                   <table className="w-full text-left text-sm">
                     <thead>
@@ -182,14 +209,21 @@ export default async function Page({
                       </tr>
                     </thead>
                     <tbody>
-                      {domain.dnsRecords.map((record) => (
+                      {domain.dnsRecords.map((record) => {
+                        const name = displayDnsRecordName(record.name, domain.domainName);
+                        return (
                         <tr key={record.id} className="border-b border-slate-100 dark:border-slate-800">
                           <td className="py-2 pr-3 font-mono">{record.type}</td>
                           <td className="py-2 pr-3 align-top">
                             <span className="inline-flex max-w-xs items-start gap-1.5">
-                              <span className="min-w-0 break-all font-mono text-xs">{record.name}</span>
-                              <CopyValueButton value={record.name} label="Copy" ariaLabel="Copy name" variant="compact" />
+                              <span className="min-w-0 break-all font-mono text-xs">{name.host}</span>
+                              <CopyValueButton value={name.host} label="Copy" ariaLabel="Copy name" variant="compact" />
                             </span>
+                            {name.host !== name.fullName ? (
+                              <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+                                Full name: <span className="break-all font-mono">{name.fullName}</span>
+                              </p>
+                            ) : null}
                           </td>
                           <td className="py-2 pr-3 align-top">
                             <span className="inline-flex max-w-md items-start gap-1.5">
@@ -202,7 +236,8 @@ export default async function Page({
                             {record.status === "VERIFIED" ? "Found" : record.status === "FAILED" ? "Not matching" : "Waiting"}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

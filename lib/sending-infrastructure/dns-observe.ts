@@ -1,4 +1,5 @@
 import { promises as dns } from "node:dns";
+import { nameserverProviderHint } from "./dns-display";
 
 export type ObservedDns = { type: string; name: string; values: string[]; error?: string };
 
@@ -26,6 +27,25 @@ export async function lookupDnsRecord(type: string, name: string): Promise<Obser
     const code = error && typeof error === "object" && "code" in error ? String((error as { code?: string }).code) : "DNS_LOOKUP_FAILED";
     return { type, name: host, values: [], error: code };
   }
+}
+
+export async function lookupNameServers(domainName: string): Promise<string[]> {
+  const host = normalizeName(domainName);
+  try {
+    return (await dns.resolveNs(host)).map(normalizeName);
+  } catch {
+    return [];
+  }
+}
+
+export async function lookupDnsHostHint(domainName: string, timeoutMs = 1500): Promise<string | null> {
+  const nameservers = await Promise.race([
+    lookupNameServers(domainName),
+    new Promise<string[]>((resolve) => {
+      setTimeout(() => resolve([]), timeoutMs);
+    }),
+  ]);
+  return nameserverProviderHint(nameservers);
 }
 
 export function dnsValueMatches(expected: string, observed: string[]) {

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { evaluateSenderReadiness } from "@/lib/sending-infrastructure/readiness";
 import { warmupDailyLimit } from "@/lib/sending-infrastructure/warmup";
 import { dnsValueMatches } from "@/lib/sending-infrastructure/dns-observe";
+import { displayDnsRecordName, nameserverProviderHint, zoneRelativeHost } from "@/lib/sending-infrastructure/dns-display";
 import { getSendingGates, isSesIdentityVerified, unavailableMessage } from "@/lib/sending-infrastructure/gates";
 
 const source = (path: string) => readFileSync(path, "utf8");
@@ -59,6 +60,38 @@ describe("managed sending Path A", () => {
     expect(source("lib/sending-infrastructure/ses-identity.ts")).toContain("VerifyDomainIdentityCommand");
     expect(source("lib/sending-infrastructure/outbound.ts")).toContain("sender.fromAddress");
     expect(source("lib/sending-infrastructure/outbound.ts")).not.toContain("noreply@quantumreach.app");
+    expect(byo).toContain("lookupDnsRecord(record.type, record.name)");
+    expect(byo).not.toContain("zoneRelativeHost(record.name");
+  });
+
+  it("shows zone-relative DNS hosts for common BYO records", () => {
+    expect(zoneRelativeHost("slotdaddy.com", "slotdaddy.com")).toBe("@");
+    expect(zoneRelativeHost("_dmarc.slotdaddy.com", "slotdaddy.com")).toBe("_dmarc");
+    expect(zoneRelativeHost("_amazonses.slotdaddy.com", "slotdaddy.com")).toBe("_amazonses");
+    expect(zoneRelativeHost("3dkaiwcmwplgdqq6jtkqybahf54hnvgx._domainkey.slotdaddy.com", "slotdaddy.com")).toBe(
+      "3dkaiwcmwplgdqq6jtkqybahf54hnvgx._domainkey",
+    );
+    expect(displayDnsRecordName("slotdaddy.com", "slotdaddy.com")).toEqual({
+      host: "@",
+      fullName: "slotdaddy.com",
+    });
+    expect(nameserverProviderHint(["ns1.cloudflare.com"])).toMatch(/Cloudflare/i);
+    expect(nameserverProviderHint(["ns1.example.org"])).toBeNull();
+  });
+
+  it("lets a workspace owner remove a BYO domain after confirmation", () => {
+    const byo = source("lib/sending-infrastructure/byo-domain.ts");
+    const actions = source("app/dashboard/sending/domains/actions.ts");
+    const form = source("components/dashboard/remove-byo-domain-form.tsx");
+    expect(byo).toContain("export async function removeByoDomain");
+    expect(byo).toContain("BYO_DOMAIN_REMOVED");
+    expect(byo).toContain("deleteSesDomainIdentity");
+    expect(byo).toContain("This domain still has mail queued or sending");
+    expect(byo).toContain("managedDomain.delete");
+    expect(actions).toContain("removeByoDomainAction");
+    expect(form).toContain("Remove domain");
+    expect(form).toContain("This disconnects the domain from Quantum Reach. It does not delete the domain at your registrar.");
+    expect(source("lib/sending-infrastructure/ses-identity.ts")).toContain("DeleteIdentityCommand");
   });
 
   it("suppresses bounced recipients from the SES webhook", () => {

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect";
 import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
-import { addByoDomain, verifyByoDomain } from "@/lib/sending-infrastructure/byo-domain";
+import { addByoDomain, removeByoDomain, verifyByoDomain } from "@/lib/sending-infrastructure/byo-domain";
 import { createDomainPurchaseRequest } from "@/lib/managed-domains/purchase";
 
 function fail(message: string): never {
@@ -46,6 +46,27 @@ export async function verifyByoDomainAction(form: FormData) {
     fail(error instanceof Error ? error.message : "Could not verify DNS.");
   }
   redirect("/dashboard/sending/domains?verified=1");
+}
+
+export async function removeByoDomainAction(form: FormData) {
+  const { workspace, user, membership } = await requireSubscriberWorkspaceAccess();
+  try {
+    await removeByoDomain({
+      workspaceId: workspace.id,
+      domainId: String(form.get("domainId") ?? ""),
+      actorUserId: user.id,
+      actorRoleKey: String(membership.roleKey),
+      confirmName: String(form.get("confirmName") ?? ""),
+    });
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    fail(error instanceof Error ? error.message : "Could not remove that domain.");
+  }
+  revalidatePath("/dashboard/sending/domains");
+  revalidatePath("/dashboard/onboarding");
+  revalidatePath("/dashboard/sending/mailboxes");
+  revalidatePath("/dashboard/sending/senders");
+  redirect("/dashboard/sending/domains?removed=1");
 }
 
 export async function requestManagedDomainAction(form: FormData) {

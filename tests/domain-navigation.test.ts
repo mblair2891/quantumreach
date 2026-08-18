@@ -71,10 +71,13 @@ describe("managed domain and registrant navigation", () => {
     const button = read("components/dashboard/copy-value-button.tsx");
     expect(page).toContain("Publish these DNS records");
     expect(page).toContain("CopyValueButton");
-    expect(page).toContain('value={record.name}');
+    expect(page).toContain("displayDnsRecordName");
+    expect(page).toContain("value={name.host}");
     expect(page).toContain('value={record.value}');
     expect(page).toContain('ariaLabel="Copy name"');
     expect(page).toContain('ariaLabel="Copy value"');
+    expect(page).toContain("If your DNS host adds your domain automatically");
+    expect(page).toContain("RemoveByoDomainForm");
     expect(button).toContain("navigator.clipboard.writeText(value)");
     expect(button).toContain("Copy failed");
     expect(button).toContain('status === "copied" ? "Copied"');

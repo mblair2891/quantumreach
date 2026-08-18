@@ -4,7 +4,7 @@ import { assignManagedDomain, auditDomain, parseDomain } from "@/lib/managed-dom
 import { enforceAllowance } from "./readiness";
 import { getWorkspaceEffectiveEntitlements } from "./operational";
 import { getSendingGates, isSesIdentityVerified, unavailableMessage } from "./gates";
-import { pollSesDomainIdentity, requestSesDomainIdentity } from "./ses-identity";
+import { deleteSesDomainIdentity, pollSesDomainIdentity, requestSesDomainIdentity } from "./ses-identity";
 import { dnsValueMatches, lookupDnsRecord } from "./dns-observe";
 import type { DnsRecord, DnsRecordPurpose } from "./dns";
 
@@ -12,6 +12,17 @@ const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61
 
 export function normalizeDomainName(value: string) {
   return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\.$/, "");
+}
+
+export function canManageSendingDomains(roleKey?: string | null) {
+  return ["WORKSPACE_OWNER", "ADMIN"].includes(String(roleKey));
+}
+
+export function isSubscriberRemovableByoDomain(
+  domain: { ownershipType: string; workspaceId: string | null },
+  workspaceId: string,
+) {
+  return domain.ownershipType === "WORKSPACE_OWNED" && domain.workspaceId === workspaceId;
 }
 
 type ByoDnsRecord = DnsRecord & { purpose: DnsRecordPurpose };
@@ -204,6 +215,115 @@ export async function verifyByoDomain(input: { workspaceId: string; domainId: st
     dkimStatus,
     reason: verified ? null : sesError || "Publish the DNS records below, then verify again. This can take a few minutes.",
   };
+}
+
+const IN_FLIGHT_STATUSES = ["QUEUED", "SENDING"];
+
+export async function removeByoDomain(input: {
+  workspaceId: string;
+  domainId: string;
+  actorUserId: string;
+  actorRoleKey?: string | null;
+  confirmName: string;
+}) {
+  if (!canManageSendingDomains(input.actorRoleKey)) {
+    throw new Error("Only a workspace owner can remove a sending domain.");
+  }
+
+  const domain = await prisma.managedDomain.findFirst({
+    where: {
+      id: input.domainId,
+      OR: [{ workspaceId: input.workspaceId }, { assignments: { some: { workspaceId: input.workspaceId, status: "ACTIVE" } } }],
+    },
+  });
+  if (!domain) throw new Error("Domain is not assigned to this workspace.");
+  if (!isSubscriberRemovableByoDomain(domain, input.workspaceId)) {
+    throw new Error("Managed domains cannot be removed here. Contact support if you need this domain disconnected.");
+  }
+  if (normalizeDomainName(input.confirmName) !== normalizeDomainName(domain.domainName)) {
+    throw new Error("Type the domain name to confirm removal.");
+  }
+
+  const mailboxes = await prisma.managedMailbox.findMany({
+    where: { workspaceId: input.workspaceId, managedDomainId: domain.id },
+    select: { id: true },
+  });
+  const mailboxIds = mailboxes.map((row) => row.id);
+
+  const [queuedMail, reservedCapacity] = await Promise.all([
+    prisma.outboundMessageLedger.count({
+      where: {
+        workspaceId: input.workspaceId,
+        status: { in: IN_FLIGHT_STATUSES },
+        OR: [
+          { managedDomainId: domain.id },
+          ...(mailboxIds.length ? [{ managedMailboxId: { in: mailboxIds } }] : []),
+        ],
+      },
+    }),
+    prisma.sendingCapacityReservation.count({
+      where: { workspaceId: input.workspaceId, managedDomainId: domain.id, status: "RESERVED", isSimulated: false },
+    }),
+  ]);
+  if (queuedMail > 0 || reservedCapacity > 0) {
+    throw new Error("This domain still has mail queued or sending. Wait for those to finish, then remove it.");
+  }
+
+  await deleteSesDomainIdentity(domain.domainName);
+
+  await prisma.$transaction(async (tx) => {
+    if (mailboxIds.length) {
+      await tx.warmupDecision.deleteMany({ where: { OR: [{ managedDomainId: domain.id }, { managedMailboxId: { in: mailboxIds } }] } });
+      await tx.mailboxHealthSnapshot.deleteMany({ where: { managedMailboxId: { in: mailboxIds } } });
+      await tx.inboundEmailMessage.deleteMany({ where: { managedMailboxId: { in: mailboxIds } } });
+      await tx.mailboxWarmupProfile.deleteMany({ where: { OR: [{ managedDomainId: domain.id }, { managedMailboxId: { in: mailboxIds } }] } });
+      await tx.mailboxProvisioningEvent.deleteMany({ where: { managedMailboxId: { in: mailboxIds } } });
+      await tx.warmupOverride.deleteMany({
+        where: { workspaceId: input.workspaceId, OR: [{ targetId: domain.id }, { targetId: { in: mailboxIds } }] },
+      });
+    } else {
+      await tx.warmupDecision.deleteMany({ where: { managedDomainId: domain.id } });
+      await tx.mailboxWarmupProfile.deleteMany({ where: { managedDomainId: domain.id } });
+      await tx.warmupOverride.deleteMany({ where: { workspaceId: input.workspaceId, targetId: domain.id } });
+    }
+
+    await tx.sendingCapacityReservation.deleteMany({ where: { managedDomainId: domain.id } });
+    await tx.sendingCapacityLedger.deleteMany({ where: { managedDomainId: domain.id } });
+    await tx.outboundMessageLedger.updateMany({
+      where: {
+        OR: [
+          { managedDomainId: domain.id },
+          ...(mailboxIds.length ? [{ managedMailboxId: { in: mailboxIds } }] : []),
+        ],
+      },
+      data: { managedDomainId: null, managedMailboxId: null },
+    });
+    await tx.infrastructureSenderIdentity.deleteMany({
+      where: { workspaceId: input.workspaceId, managedDomainId: domain.id },
+    });
+    await tx.desiredDnsRecord.deleteMany({ where: { managedDomainId: domain.id } });
+    await tx.dnsReconciliationRun.deleteMany({ where: { managedDomainId: domain.id } });
+    if (mailboxIds.length) {
+      await tx.managedMailbox.deleteMany({ where: { id: { in: mailboxIds }, workspaceId: input.workspaceId } });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        actorId: input.actorUserId,
+        action: "BYO_DOMAIN_REMOVED",
+        entityType: "ManagedDomain",
+        entityId: domain.id,
+        metadata: {
+          domainName: domain.domainName,
+          mailboxCount: mailboxIds.length,
+        },
+      },
+    });
+    await tx.managedDomain.delete({ where: { id: domain.id } });
+  });
+
+  return { removed: true as const, domainName: domain.domainName };
 }
 
 export async function operatorForceDomainStatus(input: {
