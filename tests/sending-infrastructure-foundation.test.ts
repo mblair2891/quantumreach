@@ -19,6 +19,7 @@ describe("managed sending infrastructure foundations", () => {
     expect(entitlements[ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE]).toBe(7);
     expect(entitlements[ENTITLEMENT_KEYS.MAILBOX_ALLOWANCE]).toBe(18);
     expect(entitlements[ENTITLEMENT_KEYS.SENDER_IDENTITY_ALLOWANCE]).toBe(18);
+    expect(entitlements[ENTITLEMENT_KEYS.CORE_BRAND_DOMAIN]).toBeUndefined();
   });
   it("enforces domain mailbox sender and monthly send allowances with override", () => {
     const e = aggregateEntitlements([{ productKey: COMMERCE_PRODUCT_KEYS.LAUNCH }]);

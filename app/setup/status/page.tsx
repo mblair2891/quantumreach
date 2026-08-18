@@ -71,7 +71,7 @@ export default async function SetupStatus({ searchParams }: { searchParams?: { t
         <p className="funnel-copy mt-3">
           {requiredSetupComplete
             ? "You're ready to start working in your workspace. Sending warmup can continue in the background."
-            : "Finish the three setup steps: your business profile, a sending domain, and a mailbox."}
+            : "Finish the three setup steps: your business profile, a sending domain for outreach, and a mailbox."}
         </p>
         <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white">
           {steps.map((step) => (

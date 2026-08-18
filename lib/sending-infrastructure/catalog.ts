@@ -7,9 +7,12 @@ export const COMMERCE_PRODUCT_KEYS = {
   DOMAIN_PACK: "ADDITIONAL_DOMAIN_PACK",
   SENDER_PACK: "ADDITIONAL_SENDER_PACK",
   SEND_CAPACITY: "ADDITIONAL_SEND_CAPACITY",
+  /** Optional monthly core brand domain — not a sending-package slot. */
+  CORE_DOMAIN_ADDON: "CORE_DOMAIN_ADDON",
 } as const;
 
 export const ENTITLEMENT_KEYS = {
+  /** Sending-domain slots for outreach only. Never the customer’s primary brand/website domain. */
   MANAGED_DOMAIN_ALLOWANCE: "MANAGED_DOMAIN_ALLOWANCE",
   MAILBOX_ALLOWANCE: "MAILBOX_ALLOWANCE",
   SENDER_IDENTITY_ALLOWANCE: "SENDER_IDENTITY_ALLOWANCE",
@@ -25,6 +28,8 @@ export const ENTITLEMENT_KEYS = {
   WHITE_LABEL_ENABLED: "WHITE_LABEL_ENABLED",
   AFFILIATE_ENABLED: "AFFILIATE_ENABLED",
   CLIENT_WORKSPACE_RESELLING_ENABLED: "CLIENT_WORKSPACE_RESELLING_ENABLED",
+  /** Optional core brand domain add-on. Not granted by Launch/Growth/Scale. */
+  CORE_BRAND_DOMAIN: "CORE_BRAND_DOMAIN",
 } as const;
 
 export type EntitlementKey = typeof ENTITLEMENT_KEYS[keyof typeof ENTITLEMENT_KEYS];
@@ -40,11 +45,12 @@ export const DEFAULT_COMMERCE_CATALOG: CatalogProduct[] = [
   { key: COMMERCE_PRODUCT_KEYS.DOMAIN_PACK, name: "Additional Domain Pack", category: "DOMAIN_ADDON", active: true, recurring: true, sortOrder: 60, entitlements: { [ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE]: 1 } },
   { key: COMMERCE_PRODUCT_KEYS.SENDER_PACK, name: "Additional Sender Pack", category: "SENDER_ADDON", active: true, recurring: true, sortOrder: 70, entitlements: { [ENTITLEMENT_KEYS.MAILBOX_ALLOWANCE]: 3, [ENTITLEMENT_KEYS.SENDER_IDENTITY_ALLOWANCE]: 3 } },
   { key: COMMERCE_PRODUCT_KEYS.SEND_CAPACITY, name: "Additional Send Capacity", category: "SEND_CAPACITY_ADDON", active: true, recurring: true, sortOrder: 80, entitlements: { [ENTITLEMENT_KEYS.MONTHLY_SEND_ALLOWANCE]: 1000 } },
+  { key: COMMERCE_PRODUCT_KEYS.CORE_DOMAIN_ADDON, name: "Core brand domain", category: "SOFTWARE_UPGRADE", active: true, recurring: true, sortOrder: 90, entitlements: { [ENTITLEMENT_KEYS.CORE_BRAND_DOMAIN]: 1 } },
 ];
 
 export type SubscriptionItemInput = { id?: string; stripeSubscriptionItemId?: string | null; productKey: string; quantity?: number; status?: string };
 export type EffectiveEntitlements = Record<EntitlementKey, number | boolean | string>;
-const numeric = new Set<EntitlementKey>([ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE, ENTITLEMENT_KEYS.MAILBOX_ALLOWANCE, ENTITLEMENT_KEYS.SENDER_IDENTITY_ALLOWANCE, ENTITLEMENT_KEYS.MONTHLY_SEND_ALLOWANCE, ENTITLEMENT_KEYS.ACTIVE_OUTREACH_CONTACT_ALLOWANCE, ENTITLEMENT_KEYS.DAILY_SEND_CEILING, ENTITLEMENT_KEYS.CAMPAIGN_CONCURRENCY_LIMIT, ENTITLEMENT_KEYS.TEAM_USER_ALLOWANCE, ENTITLEMENT_KEYS.STORAGE_GB_ALLOWANCE, ENTITLEMENT_KEYS.DAILY_MAILBOX_CAPACITY, ENTITLEMENT_KEYS.DAILY_DOMAIN_CAPACITY]);
+const numeric = new Set<EntitlementKey>([ENTITLEMENT_KEYS.MANAGED_DOMAIN_ALLOWANCE, ENTITLEMENT_KEYS.MAILBOX_ALLOWANCE, ENTITLEMENT_KEYS.SENDER_IDENTITY_ALLOWANCE, ENTITLEMENT_KEYS.MONTHLY_SEND_ALLOWANCE, ENTITLEMENT_KEYS.ACTIVE_OUTREACH_CONTACT_ALLOWANCE, ENTITLEMENT_KEYS.DAILY_SEND_CEILING, ENTITLEMENT_KEYS.CAMPAIGN_CONCURRENCY_LIMIT, ENTITLEMENT_KEYS.TEAM_USER_ALLOWANCE, ENTITLEMENT_KEYS.STORAGE_GB_ALLOWANCE, ENTITLEMENT_KEYS.DAILY_MAILBOX_CAPACITY, ENTITLEMENT_KEYS.DAILY_DOMAIN_CAPACITY, ENTITLEMENT_KEYS.CORE_BRAND_DOMAIN]);
 
 export function aggregateEntitlements(items: SubscriptionItemInput[], catalog = DEFAULT_COMMERCE_CATALOG, overrides: Partial<EffectiveEntitlements> = {}): EffectiveEntitlements {
   const result: Partial<EffectiveEntitlements> = {};

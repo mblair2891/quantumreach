@@ -15,7 +15,7 @@ const system = [
   {
     number: "03",
     title: "Get Your Infrastructure",
-    copy: "Choose managed domains and email infrastructure built into your setup flow.",
+    copy: "Choose sending domains and outreach mailboxes built into your setup flow.",
   },
 ];
 

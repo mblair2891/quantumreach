@@ -127,7 +127,7 @@ export default async function Confirmation({
             </Link>
           </div>
           <ul className="mt-5 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
-            <li>{plan.domains.toLocaleString()} managed domains</li>
+            <li>{plan.domains.toLocaleString()} sending domains</li>
             <li>{plan.mailboxes.toLocaleString()} mailboxes</li>
             <li>{plan.contacts.toLocaleString()} contacts</li>
             <li>{plan.teamUsers.toLocaleString()} team users</li>

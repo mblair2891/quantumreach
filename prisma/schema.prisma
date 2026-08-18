@@ -3436,6 +3436,10 @@ model SaasWorkspaceProfile {
 
   brandingSourceWorkspaceId String?
   referralAttributionId     String?
+  /// NONE | BYO | MANAGED_ADDON — core brand domain is not a sending-package entitlement.
+  coreDomainMode            String    @default("NONE")
+  /// Hostname only for BYO or requested add-on. Never used as the outbound blast domain.
+  coreDomainName            String?
   suspendedAt               DateTime?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt

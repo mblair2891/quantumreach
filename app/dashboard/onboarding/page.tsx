@@ -6,6 +6,12 @@ import { readJoinProfile } from "@/lib/customer-journey/profile";
 import { displayPlanName, isRequiredSetupComplete, subscriberSetupSteps } from "@/lib/customer-journey/subscriber-copy";
 import { loadSubscriberSetupFacts, markRequiredSetupComplete } from "@/lib/customer-journey/setup-facts";
 import { COMMON_TIMEZONES, DEFAULT_CHECKOUT_TIMEZONE, normalizeCheckoutTimezone } from "@/lib/customer-journey/timezones";
+import {
+  displayCoreDomainMode,
+  getWorkspaceCoreDomain,
+  isCoreDomainAddonPriced,
+  saveWorkspaceCoreDomain,
+} from "@/lib/workspaces/core-domain";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
@@ -64,6 +70,24 @@ async function completeWorkspaceSetup(form: FormData) {
   redirect("/dashboard/onboarding");
 }
 
+async function saveCoreDomainChoice(form: FormData) {
+  "use server";
+  const { workspace } = await requireSubscriberWorkspaceAccess();
+  const choice = String(form.get("coreDomainChoice") ?? "");
+  if (choice === "byo") {
+    await saveWorkspaceCoreDomain({
+      workspaceId: workspace.id,
+      mode: "BYO",
+      domainName: String(form.get("coreDomainName") ?? ""),
+    });
+  } else if (choice === "addon") {
+    await saveWorkspaceCoreDomain({ workspaceId: workspace.id, mode: "MANAGED_ADDON" });
+  } else {
+    await saveWorkspaceCoreDomain({ workspaceId: workspace.id, mode: "NONE" });
+  }
+  redirect("/dashboard/onboarding");
+}
+
 export default async function Page() {
   const { user, workspace } = await requireSubscriberWorkspaceAccess();
   const subscriber = await prisma.saasSubscriberProfile.findUnique({ where: { userId: user.id } });
@@ -95,6 +119,8 @@ export default async function Page() {
   const defaultBusinessType = profile?.businessType && profile.businessType !== "Business" ? profile.businessType : "";
   const defaultTimezone = normalizeCheckoutTimezone(profile?.timezone ?? DEFAULT_CHECKOUT_TIMEZONE);
   const defaultCountry = (profile?.country ?? "US").toUpperCase();
+  const coreDomain = await getWorkspaceCoreDomain(workspace.id);
+  const addonPriced = isCoreDomainAddonPriced();
 
   return (
     <main className="mx-auto max-w-3xl space-y-6">
@@ -104,7 +130,8 @@ export default async function Page() {
           Finish your setup
         </h1>
         <p className="mt-2 max-w-2xl text-slate-700 dark:text-slate-300">
-          Three steps: your business profile, a sending domain you control, and a mailbox so warmup can start.
+          Three required steps: your business profile, a sending domain for outreach, and a mailbox so warmup can start.
+          Your main business domain is optional and separate.
         </p>
       </header>
 
@@ -175,16 +202,69 @@ export default async function Page() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Sending domain</CardTitle>
+          <CardTitle>Main business domain</CardTitle>
+          <CardDescription>
+            Do you already have a main business domain — the one for your website and normal admin/support email? This is
+            not used for outreach sending.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {coreDomain.mode !== "NONE" ? (
+            <p className="text-sm text-slate-800 dark:text-slate-200">
+              {displayCoreDomainMode(coreDomain.mode)}
+              {coreDomain.domainName ? (
+                <>
+                  : <strong>{coreDomain.domainName}</strong>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          <form action={saveCoreDomainChoice} className="grid gap-3">
+            <input type="hidden" name="coreDomainChoice" value="byo" />
+            <label className="grid gap-1 text-sm font-medium text-slate-800 dark:text-slate-200">
+              Yes — save it as a reference
+              <Input name="coreDomainName" placeholder="example.com" defaultValue={coreDomain.mode === "BYO" ? coreDomain.domainName ?? "" : ""} />
+            </label>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              We won’t transfer or change this domain. Sending packages use separate sending domains.
+            </p>
+            <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white hover:bg-sky-800">
+              Save main business domain
+            </button>
+          </form>
+          <div className="flex flex-wrap gap-3">
+            <form action={saveCoreDomainChoice}>
+              <input type="hidden" name="coreDomainChoice" value="skip" />
+              <button className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+                Continue with sending only
+              </button>
+            </form>
+            <form action={saveCoreDomainChoice}>
+              <input type="hidden" name="coreDomainChoice" value="addon" />
+              <button className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+                {addonPriced ? "Add Core brand domain (monthly)" : "Core brand domain add-on — coming soon"}
+              </button>
+            </form>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Core brand domain (optional) — website & admin/support identity. It is not bundled into Launch, Growth, or
+            Scale sending packages.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sending domains & outreach mailboxes</CardTitle>
           <CardDescription>
             {setupFacts.domainVerified
-              ? "Your domain is verified. You can create a mailbox next."
-              : "Add a domain you already own, publish the DNS records, then verify."}
+              ? "Your sending domain is verified. You can create an outreach mailbox next."
+              : "These domains are for outreach / bulk sending, not your main company website domain. Add a sending domain you control, publish the DNS records, then verify."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Link className="inline-flex rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white hover:bg-sky-800" href="/dashboard/sending/domains">
-            {setupFacts.domainVerified ? "View domain" : "Add or verify domain"}
+            {setupFacts.domainVerified ? "View sending domain" : "Add or verify sending domain"}
           </Link>
         </CardContent>
       </Card>

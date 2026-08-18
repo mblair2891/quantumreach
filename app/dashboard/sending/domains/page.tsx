@@ -65,12 +65,13 @@ export default async function Page({
       <header>
         <h1 className="text-3xl font-semibold text-slate-950 dark:text-slate-50">Sending domains</h1>
         <p className="mt-2 max-w-3xl text-slate-700 dark:text-slate-300">
-          Connect a domain you own, or request a managed domain. We verify DNS and prepare sending. Your plan limits how
-          many domains you can use.
+          Sending domains are for outreach / bulk sending, not your main company website domain. Connect a secondary
+          domain you own, or request a managed sending domain. We verify DNS and prepare sending. Your plan limits how
+          many sending domains you can use.
         </p>
         {allowed > 0 ? (
           <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-            Plan allows {allowed} domain{allowed === 1 ? "" : "s"} · {domains.length} connected.
+            Plan allows {allowed} sending domain{allowed === 1 ? "" : "s"} · {domains.length} connected.
           </p>
         ) : null}
       </header>

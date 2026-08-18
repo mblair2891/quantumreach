@@ -117,16 +117,16 @@ export default async function StartPage({ searchParams }: { searchParams: Record
                 </p>
                 <ul className="mt-6 space-y-2 text-sm text-slate-800">
                   <li>✓ Complete Quantum Reach platform</li>
-                  <li>✓ {Number(e.MANAGED_DOMAIN_ALLOWANCE ?? m.domains ?? 0)} managed domains</li>
-                  <li>✓ {Number(e.MAILBOX_ALLOWANCE ?? m.mailboxes ?? 0)} managed mailboxes</li>
-                  <li>✓ Approximately {Number(e.MONTHLY_SEND_ALLOWANCE ?? m.monthlySendAllowance ?? 0).toLocaleString()} mature monthly sends</li>
+                  <li>✓ Sending domains & outreach mailboxes: {Number(e.MANAGED_DOMAIN_ALLOWANCE ?? m.domains ?? 0)} sending domains</li>
+                  <li>✓ {Number(e.MAILBOX_ALLOWANCE ?? m.mailboxes ?? 0)} outreach mailboxes / senders</li>
+                  <li>✓ Approximately {Number(e.MONTHLY_SEND_ALLOWANCE ?? m.monthlySendAllowance ?? 0).toLocaleString()} monthly send capacity after warm-up</li>
                   <li>✓ {Number(e.ACTIVE_OUTREACH_CONTACT_ALLOWANCE ?? 0).toLocaleString()} active CRM contacts</li>
                   <li>✓ {Number(e.TEAM_USER_ALLOWANCE ?? 0)} team users</li>
                   <li>✓ {String(m.onboarding ?? "Configured")} onboarding</li>
                   <li>✓ {String(m.support ?? "Configured")} support</li>
                 </ul>
                 <p className="mt-6 text-xs leading-5 text-slate-600">
-                  Sending capacity becomes available gradually as managed domains and mailboxes complete Quantum Reach’s health-based warm-up process. Capacity depends on health, provider limits, recipient quality, and compliance.
+                  Sending packages entitle sending domains, outreach senders, capacity, and warm-up only. Your main website / admin-support domain is not included. Sending capacity becomes available gradually as sending domains and mailboxes complete warm-up.
                 </p>
                 <button className="funnel-primary mt-auto pt-6">
                   Choose {product.name}

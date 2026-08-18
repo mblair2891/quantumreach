@@ -37,9 +37,9 @@ export default function PricingPage() {
       <section className="mx-auto max-w-7xl px-6 py-16">
         <h1 className="text-4xl font-semibold text-slate-950">Plans</h1>
         <p className="mt-3 max-w-2xl text-slate-700">
-          One complete package: the Quantum Reach platform plus managed outreach capacity. Every plan includes
-          CRM, campaigns, meetings, and delivery tools. Sending volume is available after domain verification and
-          warm-up.
+          One complete package: the Quantum Reach platform plus sending domains & outreach mailboxes. Every plan includes
+          CRM, campaigns, meetings, and delivery tools. Sending volume is available after sending-domain verification and
+          warm-up. Your main business website domain is not included.
         </p>
         <div className="mt-10 grid gap-4 md:grid-cols-3">
           {plans.map((plan) => (
@@ -54,10 +54,10 @@ export default function PricingPage() {
               <ul className="mt-5 space-y-2 text-sm text-slate-700">
                 <li>Complete platform included</li>
                 <li>
-                  Plan allows {plan.domains} sending domain{plan.domains === 1 ? "" : "s"}
+                  Sending domains & outreach mailboxes: {plan.domains} sending domain{plan.domains === 1 ? "" : "s"}
                 </li>
-                <li>{plan.mailboxes} mailboxes / senders</li>
-                <li>About {plan.sends} mature monthly sends</li>
+                <li>{plan.mailboxes} outreach senders</li>
+                <li>About {plan.sends} monthly send capacity after warm-up</li>
               </ul>
               <Link className="mt-6 inline-flex rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white" href="/start">
                 Get started
@@ -66,6 +66,10 @@ export default function PricingPage() {
           ))}
         </div>
         <p className="mt-8 text-sm text-slate-700">
+          Optional: Core brand domain add-on (monthly) for a website & admin/support identity if you do not already have a
+          main business domain. It is not required for sending packages.
+        </p>
+        <p className="mt-4 text-sm text-slate-700">
           Questions?{" "}
           <a className="font-semibold underline" href="mailto:support@quantumreach.app">
             support@quantumreach.app

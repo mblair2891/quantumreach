@@ -9,10 +9,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { requireWorkspaceAdmin } from "@/lib/auth/rbac";
 import { getBillingConfig } from "@/lib/billing/config";
+import { displayCoreDomainMode, getWorkspaceCoreDomain } from "@/lib/workspaces/core-domain";
 
 export default async function Page() {
   const { workspace, membership } = await requireWorkspaceAdmin();
   const billing = getBillingConfig();
+  const coreDomain = await getWorkspaceCoreDomain(workspace.id);
   return (
     <div className="space-y-6">
       <header>
@@ -43,6 +45,17 @@ export default async function Page() {
             </p>
             <p>
               Your role: <strong>{String(membership.roleKey)}</strong>
+            </p>
+            <p>
+              Core domain:{" "}
+              <strong>
+                {coreDomain.domainName
+                  ? `${coreDomain.domainName} (${coreDomain.mode})`
+                  : displayCoreDomainMode(coreDomain.mode)}
+              </strong>
+            </p>
+            <p className="text-xs text-slate-600">
+              Your main business domain (optional reference — not used for outreach sending).
             </p>
           </CardContent>
         </Card>
