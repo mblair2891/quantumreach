@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Stripe event objects have provider-specific shapes. */
 import { prisma } from "@/lib/db/prisma";
 import { verifyStripePayment } from "@/lib/customer-journey/service";
+import { issueAccountSetupToken } from "@/lib/auth/account-setup";
 import type Stripe from "stripe";
 import { resolveStripePrice } from "./prices";
 import { reconcileAffiliateMembershipForSubscriptionStatus } from "@/lib/affiliates/service";
@@ -37,7 +38,10 @@ async function syncPaid(object: Record<string, any>, eventId: string) {
   });
   await createCommission(order, paymentIntentId, amount);
   // Shared fulfillment is the only authority for workspaces, entitlements, queue state, and notifications.
-  await verifyStripePayment(order.id, eventId, paymentIntentId, subscriptionId);
+  const clearance = await verifyStripePayment(order.id, eventId, paymentIntentId, subscriptionId);
+  if (clearance && typeof clearance === "object" && "requiresAccountSetup" in clearance && clearance.requiresAccountSetup) {
+    await issueAccountSetupToken(order.id);
+  }
 }
 
 async function syncSubscription(object: Record<string, any>, eventId: string) {

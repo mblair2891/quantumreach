@@ -136,7 +136,7 @@ export async function resendAccountSetupEmailAction(form: FormData) {
   const orderId = String(form.get("orderId") ?? "").trim();
   if (!orderId) redirect("/setup/confirmation");
   try {
-    const issued = await issueAccountSetupToken(orderId);
+    const issued = await issueAccountSetupToken(orderId, { force: true });
     const params = new URLSearchParams({
       submitted: "1",
       orderId,

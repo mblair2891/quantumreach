@@ -10,7 +10,9 @@ const prisma = vi.hoisted(() => ({
   customerOrder: { findUniqueOrThrow: vi.fn() },
   accountSetupToken: {
     findUniqueOrThrow: vi.fn(),
+    findFirst: vi.fn(),
     updateMany: vi.fn(),
+    update: vi.fn(),
     create: vi.fn(),
   },
   $transaction: vi.fn(),
@@ -79,7 +81,9 @@ describe("account setup transactional email", () => {
       purchaserEmail: "Buyer@Example.com",
       userId: null,
     });
+    prisma.accountSetupToken.findFirst.mockResolvedValue(null);
     prisma.accountSetupToken.findUniqueOrThrow.mockResolvedValue({ id: "tok_1" });
+    prisma.accountSetupToken.update.mockResolvedValue({ id: "tok_1" });
     sendMock.mockResolvedValue({ MessageId: "010001ses" });
   });
 
@@ -114,6 +118,37 @@ describe("account setup transactional email", () => {
     const { issueAccountSetupToken } = await import("@/lib/auth/account-setup");
     const issued = await issueAccountSetupToken("order_1");
     expect(issued.emailDelivery).toBe("FAILED");
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses an unused SENT invite without sending again", async () => {
+    enableSesEnv();
+    prisma.accountSetupToken.findFirst.mockResolvedValue({
+      id: "tok_existing",
+      email: "buyer@example.com",
+      emailDelivery: "SENT",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const { issueAccountSetupToken } = await import("@/lib/auth/account-setup");
+    const issued = await issueAccountSetupToken("order_1");
+    expect(issued).toMatchObject({ reused: true, emailDelivery: "SENT", rawToken: "" });
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(prisma.accountSetupToken.create).not.toHaveBeenCalled();
+  });
+
+  it("force re-issues and sends a new email for resend", async () => {
+    enableSesEnv();
+    prisma.accountSetupToken.findFirst.mockResolvedValue({
+      id: "tok_existing",
+      email: "buyer@example.com",
+      emailDelivery: "SENT",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const { issueAccountSetupToken } = await import("@/lib/auth/account-setup");
+    const issued = await issueAccountSetupToken("order_1", { force: true });
+    expect(issued.reused).toBeUndefined();
+    expect(issued.emailDelivery).toBe("SENT");
+    expect(issued.rawToken.length).toBeGreaterThan(20);
     expect(sendMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -157,6 +192,21 @@ describe("sendAccountSetupEmail SES payload", () => {
     expect(message.Body.Text.Data).toContain("If you didn't make this purchase, ignore this email.");
     expect(message.Body.Html.Data).toContain("/setup/account?token=");
     expect(message.Body.Html.Data).toContain("Set up your account");
+  });
+
+  it("omits Reply-To when TRANSACTIONAL_REPLY_TO is unset", async () => {
+    enableSesEnv();
+    delete process.env.TRANSACTIONAL_REPLY_TO;
+    const { sendAccountSetupEmail } = await import("@/lib/email/transactional");
+    await sendAccountSetupEmail({
+      to: "buyer@example.com",
+      setupUrl: "https://preview.example/setup/account?token=abc",
+      expiresAt: new Date(),
+      orderId: "order_1",
+    });
+    const command = sendMock.mock.calls[0][0] as { input: { ReplyToAddresses?: string[]; Source: string } };
+    expect(command.input.Source).toBe("noreply@quantumreach.app");
+    expect(command.input.ReplyToAddresses).toBeUndefined();
   });
 
   it("does not call SES when sending is disabled", async () => {
@@ -206,6 +256,7 @@ describe("confirmation setup invite presentation", () => {
     expect(page).toContain("Resend setup email");
     expect(page).not.toContain("RECORDED_INTENT");
     expect(actions).toContain("resendAccountSetupEmailAction");
+    expect(actions).toContain("force: true");
     expect(actions).toContain("emailDelivery");
     expect(accountSetup).toContain("sendAccountSetupEmail");
     expect(accountSetup).toContain('"SENT"');

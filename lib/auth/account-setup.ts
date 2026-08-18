@@ -19,6 +19,7 @@ export type AccountSetupTokenIssue = {
   expiresAt: Date;
   email: string;
   emailDelivery: AccountSetupEmailDelivery;
+  reused?: boolean;
 };
 
 export function parseAccountSetupEmailDelivery(value?: string | null): AccountSetupEmailDelivery | null {
@@ -36,13 +37,39 @@ function appBaseUrl() {
   return base;
 }
 
-/** Issue a single-use setup token for a paid order. Invalidates prior unused tokens for the same order. */
-export async function issueAccountSetupToken(orderId: string): Promise<AccountSetupTokenIssue> {
+export async function getActiveSetupInvite(orderId: string) {
+  return prisma.accountSetupToken.findFirst({
+    where: { customerOrderId: orderId, usedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/** Issue a single-use setup token for a paid order. Invalidates prior unused tokens unless an unused invite is reused. */
+export async function issueAccountSetupToken(
+  orderId: string,
+  options: { force?: boolean } = {},
+): Promise<AccountSetupTokenIssue> {
   const order = await prisma.customerOrder.findUniqueOrThrow({ where: { id: orderId } });
   if (order.paymentStatus !== "PAID") throw new Error("Account setup is only available after payment is verified.");
   const email = (order.purchaserEmail ?? "").trim().toLowerCase();
   if (!email) throw new Error("Purchaser email is required for account setup.");
   if (order.userId) throw new Error("This order is already linked to an account.");
+
+  if (!options.force) {
+    const existing = await getActiveSetupInvite(orderId);
+    if (existing) {
+      const emailDelivery = parseAccountSetupEmailDelivery(existing.emailDelivery) ?? "DEFERRED_PREVIEW_LINK";
+      return {
+        tokenId: existing.id,
+        rawToken: "",
+        setupUrl: "",
+        expiresAt: existing.expiresAt,
+        email: existing.email,
+        emailDelivery,
+        reused: true,
+      };
+    }
+  }
 
   const rawToken = generateRawSetupToken();
   const tokenHash = hashSetupToken(rawToken);
@@ -61,6 +88,10 @@ export async function issueAccountSetupToken(orderId: string): Promise<AccountSe
   const token = await prisma.accountSetupToken.findUniqueOrThrow({ where: { tokenHash } });
   const setupUrl = `${appBaseUrl()}/setup/account?token=${encodeURIComponent(rawToken)}`;
   const emailDelivery = await deliverAccountSetupEmail({ to: email, setupUrl, expiresAt, orderId });
+  await prisma.accountSetupToken.update({
+    where: { id: token.id },
+    data: { emailDelivery },
+  });
   return {
     tokenId: token.id,
     rawToken,

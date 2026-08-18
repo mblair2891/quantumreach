@@ -21,8 +21,8 @@ export function getTransactionalEmailConfig() {
   const accessKeyId = process.env.AWS_SES_ACCESS_KEY_ID?.trim() ?? "";
   const secretAccessKey = process.env.AWS_SES_SECRET_ACCESS_KEY?.trim() ?? "";
   const fromDomain = process.env.DEFAULT_FROM_DOMAIN?.trim() ?? "";
-  const from = process.env.TRANSACTIONAL_FROM_EMAIL?.trim() || (fromDomain ? `noreply@${fromDomain}` : "");
-  const replyTo = process.env.TRANSACTIONAL_REPLY_TO?.trim() || "support@quantumreach.app";
+  const from = process.env.TRANSACTIONAL_FROM_EMAIL?.trim() || (fromDomain ? `noreply@${fromDomain}` : "noreply@quantumreach.app");
+  const replyTo = process.env.TRANSACTIONAL_REPLY_TO?.trim() || "";
   const configured = Boolean(region && accessKeyId && secretAccessKey);
   return { enabled, configured, region, from, replyTo };
 }

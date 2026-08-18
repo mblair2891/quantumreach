@@ -54,6 +54,7 @@ describe("pay-first account setup", () => {
     expect(commerce).toContain("reconcilePaidCheckoutSession");
     expect(commerce).not.toContain("mixes recurring and one-time");
     expect(webhooks).toContain("stripeSubscriptionId");
+    expect(webhooks).toContain("issueAccountSetupToken");
     expect(webhooks).not.toContain("cannot yet be correlated to a fulfilled workspace");
     expect(service).toContain("requiresAccountSetup: true");
     expect(service).toContain("if(!order.userId) return { requiresAccountSetup: true as const }");

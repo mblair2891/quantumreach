@@ -3998,6 +3998,8 @@ model AccountSetupToken {
   tokenHash       String    @unique
   expiresAt       DateTime
   usedAt          DateTime?
+  /// SENT | DEFERRED_PREVIEW_LINK | FAILED — set after the issue attempt.
+  emailDelivery   String?
   createdAt       DateTime  @default(now())
   order           CustomerOrder @relation(fields: [customerOrderId], references: [id], onDelete: Cascade)
 

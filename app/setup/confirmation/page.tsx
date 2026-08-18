@@ -341,7 +341,10 @@ async function renderOrderPaymentState({
       : null;
   if (paid && !order.userId && !emailDelivery && !setupUrl) {
     try {
-      const issued = await issueAccountSetupToken(order.id);
+      let issued = await issueAccountSetupToken(order.id);
+      if (issued.reused && issued.emailDelivery !== "SENT") {
+        issued = await issueAccountSetupToken(order.id, { force: true });
+      }
       const params = new URLSearchParams({
         submitted: "1",
         orderId: order.id,
@@ -349,7 +352,7 @@ async function renderOrderPaymentState({
       });
       if (checkoutState) params.set("checkout", checkoutState);
       if (searchParams.testPayment) params.set("testPayment", searchParams.testPayment);
-      if (issued.emailDelivery !== "SENT") params.set("setupToken", issued.rawToken);
+      if (issued.emailDelivery !== "SENT" && issued.rawToken) params.set("setupToken", issued.rawToken);
       redirect(`/setup/confirmation?${params.toString()}`);
     } catch {
       setupUrl = null;

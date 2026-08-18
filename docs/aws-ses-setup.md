@@ -19,3 +19,5 @@ Optional: `TRANSACTIONAL_REPLY_TO` (defaults to `support@quantumreach.app`).
 `EMAIL_SANDBOX_MODE=true` does not block transactional setup mail. While the SES account is in sandbox, every recipient must be a verified SES identity. Production access is an ops request and is out of scope here.
 
 When sending is disabled, confirmation keeps the on-page setup link (`DEFERRED_PREVIEW_LINK`). When sending is enabled but SES fails, confirmation also shows the on-page link (`FAILED`).
+
+Paid Stripe Checkout (webhook or success-return reconcile) issues the setup token once. A later confirmation render reuses an unused `SENT` invite and does not send again. Resend on the confirmation page force-issues a new token and sends a new email.
