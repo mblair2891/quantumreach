@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { evaluateSenderReadiness } from "@/lib/sending-infrastructure/readiness";
 import { warmupDailyLimit } from "@/lib/sending-infrastructure/warmup";
-import { dnsValueMatches } from "@/lib/sending-infrastructure/dns-observe";
+import { dnsValueMatches, evaluateSpfTxtRecords } from "@/lib/sending-infrastructure/dns-observe";
 import { displayDnsRecordName, nameserverProviderHint, zoneRelativeHost } from "@/lib/sending-infrastructure/dns-display";
 import { getSendingGates, isSesIdentityVerified, unavailableMessage } from "@/lib/sending-infrastructure/gates";
 
@@ -48,6 +48,30 @@ describe("managed sending Path A", () => {
     expect(dnsValueMatches("abc.dkim.amazonses.com", ["xyz.dkim.amazonses.com"])).toBe(false);
     expect(isSesIdentityVerified("Success")).toBe(true);
     expect(isSesIdentityVerified("PENDING")).toBe(false);
+    expect(
+      evaluateSpfTxtRecords({
+        type: "TXT",
+        name: "slotdaddy.app",
+        values: ["v=spf1 include:amazonses.com include:spf.privateemail.com ~all"],
+      }),
+    ).toMatchObject({ ok: true, status: "VERIFIED" });
+    expect(
+      evaluateSpfTxtRecords({
+        type: "TXT",
+        name: "slotdaddy.app",
+        values: ['"v=spf1 include:AMAZONSES.com ~all"'],
+      }),
+    ).toMatchObject({ ok: true, status: "VERIFIED" });
+    expect(
+      evaluateSpfTxtRecords({
+        type: "TXT",
+        name: "slotdaddy.app",
+        values: ["v=spf1 include:amazonses.com ~all", "v=spf1 include:spf.privateemail.com ~all"],
+      }),
+    ).toMatchObject({ ok: false, status: "FAILED", safeError: "MULTIPLE_SPF_RECORDS" });
+    expect(
+      evaluateSpfTxtRecords({ type: "TXT", name: "slotdaddy.app", values: [], error: "ENODATA" }),
+    ).toMatchObject({ ok: false, status: "PENDING" });
   });
 
   it("never marks domain ready without a verify path and uses SES evidence", () => {
@@ -61,7 +85,9 @@ describe("managed sending Path A", () => {
     expect(source("lib/sending-infrastructure/outbound.ts")).toContain("sender.fromAddress");
     expect(source("lib/sending-infrastructure/outbound.ts")).not.toContain("noreply@quantumreach.app");
     expect(byo).toContain("lookupDnsRecord(record.type, record.name)");
+    expect(byo).toContain("evaluateDnsRecordMatch");
     expect(byo).not.toContain("zoneRelativeHost(record.name");
+    expect(source("app/dashboard/sending/domains/page.tsx")).toContain("Multiple SPF records");
   });
 
   it("shows zone-relative DNS hosts for common BYO records", () => {

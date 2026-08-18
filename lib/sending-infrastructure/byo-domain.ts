@@ -5,7 +5,7 @@ import { enforceAllowance } from "./readiness";
 import { getWorkspaceEffectiveEntitlements } from "./operational";
 import { getSendingGates, isSesIdentityVerified, unavailableMessage } from "./gates";
 import { deleteSesDomainIdentity, pollSesDomainIdentity, requestSesDomainIdentity } from "./ses-identity";
-import { dnsValueMatches, lookupDnsRecord } from "./dns-observe";
+import { evaluateDnsRecordMatch, lookupDnsRecord } from "./dns-observe";
 import type { DnsRecord, DnsRecordPurpose } from "./dns";
 
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i;
@@ -175,13 +175,13 @@ export async function verifyByoDomain(input: { workspaceId: string; domainId: st
 
   for (const record of domain.dnsRecords) {
     const observed = await lookupDnsRecord(record.type, record.name);
-    const ok = !observed.error && dnsValueMatches(record.value, observed.values);
+    const match = evaluateDnsRecordMatch(record, observed);
     await prisma.domainDnsRecord.update({
       where: { id: record.id },
       data: {
-        status: ok ? "VERIFIED" : observed.error === "ENOTFOUND" || observed.error === "ENODATA" ? "PENDING" : "FAILED",
+        status: match.status,
         lastCheckedAt: new Date(),
-        safeError: ok ? null : observed.error ?? "VALUE_MISMATCH",
+        safeError: match.safeError,
       },
     });
   }
@@ -189,16 +189,19 @@ export async function verifyByoDomain(input: { workspaceId: string; domainId: st
   let verificationStatus = domain.sesIdentity?.verificationStatus ?? "PENDING";
   let dkimStatus = domain.sesIdentity?.dkimStatus ?? "PENDING";
   let sesError = domain.sesIdentity?.safeError ?? null;
+  const alreadyVerified =
+    isSesIdentityVerified(verificationStatus) && isSesIdentityVerified(dkimStatus);
   const gates = getSendingGates();
   if (gates.sesConfigured) {
     const poll = await pollSesDomainIdentity(domain.domainName);
-    if ("error" in poll) sesError = poll.error;
-    else {
+    if ("error" in poll) {
+      if (!alreadyVerified) sesError = poll.error;
+    } else {
       verificationStatus = poll.verificationStatus;
       dkimStatus = poll.dkimStatus;
       sesError = null;
     }
-  } else {
+  } else if (!alreadyVerified) {
     sesError = unavailableMessage("SES verification");
   }
 
@@ -209,7 +212,13 @@ export async function verifyByoDomain(input: { workspaceId: string; domainId: st
   });
 
   const verified = isSesIdentityVerified(verificationStatus) && isSesIdentityVerified(dkimStatus);
-  const nextStatus = verified ? "WARMING" : sesError ? "DNS_PENDING" : "SES_PENDING";
+  const nextStatus = verified
+    ? domain.lifecycleStatus === "ACTIVE"
+      ? "ACTIVE"
+      : "WARMING"
+    : sesError
+      ? "DNS_PENDING"
+      : "SES_PENDING";
   await prisma.managedDomain.update({ where: { id: domain.id }, data: { lifecycleStatus: nextStatus } });
   await auditDomain(
     domain.id,

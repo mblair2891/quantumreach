@@ -275,7 +275,13 @@ export default async function Page({
                           </td>
                           <td className="py-2 pr-3">{displayDnsRecordPurpose(record.purpose)}</td>
                           <td className="py-2">
-                            {record.status === "VERIFIED" ? "Found" : record.status === "FAILED" ? "Not matching" : "Waiting"}
+                            {record.status === "VERIFIED"
+                              ? "Found"
+                              : record.status === "FAILED"
+                                ? record.safeError === "MULTIPLE_SPF_RECORDS"
+                                  ? "Not matching · Multiple SPF records"
+                                  : "Not matching"
+                                : "Waiting"}
                           </td>
                         </tr>
                         );
