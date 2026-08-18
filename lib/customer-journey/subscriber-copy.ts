@@ -110,6 +110,39 @@ export function subscriberSetupFactsFromRecords(input: {
   };
 }
 
+export function displaySubscriberMailboxStatus(input: {
+  status?: string | null;
+  provisioningStatus?: string | null;
+  lifecycleState?: string | null;
+}) {
+  const status = (input.status ?? "").toUpperCase();
+  const provision = (input.provisioningStatus ?? "").toUpperCase();
+  const life = (input.lifecycleState ?? "").toUpperCase();
+  if (status === "FAILED" || provision === "FAILED" || life === "FAILED") {
+    return { label: "Failed", detail: "We could not finish this mailbox. Try again or contact support." };
+  }
+  if (life === "LIVE_READY") {
+    return { label: "Ready", detail: "This mailbox can send within your daily limit." };
+  }
+  if (life === "WARMING" || life === "RECOVERY") {
+    return { label: "Warming up", detail: "Sending is limited while this mailbox builds reputation." };
+  }
+  if (life === "PAUSED") {
+    return { label: "Paused", detail: "Sending is paused for this mailbox." };
+  }
+  if (
+    provision === "PENDING_PROVIDER_CONFIGURATION" ||
+    provision === "SES_SENDER_ONLY" ||
+    ["PENDING", "PROVISIONING", "PENDING_PROVIDER_CONFIGURATION"].includes(status)
+  ) {
+    return {
+      label: "Provisioning",
+      detail: "The sending address is created. A hosted inbox is not set up in this environment yet.",
+    };
+  }
+  return { label: "Provisioning", detail: "This mailbox is being set up." };
+}
+
 export function displayDnsRecordPurpose(purpose?: string | null) {
   switch ((purpose ?? "").toUpperCase()) {
     case "SPF":

@@ -113,6 +113,11 @@ describe("managed sending Path A", () => {
     expect(source("app/pricing/page.tsx")).toContain("Launch");
     expect(source("vercel.json")).toContain("/api/internal/jobs/run");
     expect(source("lib/sending-infrastructure/workspace-mailbox.ts")).toContain("Verify the domain DNS first");
+    expect(source("app/dashboard/sending/mailboxes/page.tsx")).toContain("Plan allows");
+    expect(source("app/dashboard/sending/mailboxes/page.tsx")).toContain("No mailboxes yet. Create one on a verified domain to start warm-up.");
+    expect(source("app/dashboard/sending/mailboxes/page.tsx")).not.toContain("Managed mailbox warm-up");
+    expect(source("components/dashboard/create-mailbox-form.tsx")).toContain("Full address:");
+    expect(source("components/dashboard/create-mailbox-form.tsx")).toContain("Create mailbox");
     expect(source("lib/managed-domains/purchase.ts")).toContain("DOMAIN_PURCHASING_ENABLED");
     expect(source("lib/managed-domains/purchase.ts")).toContain("purchaseManagedDomainForWorkspace");
     expect(source("lib/sending-infrastructure/outbound.ts")).not.toContain("noreply@quantumreach.app");

@@ -6,6 +6,7 @@ import {
   displaySendingSetup,
   displayDnsRecordPurpose,
   displaySubscriberDomainStatus,
+  displaySubscriberMailboxStatus,
   displayYourSetupStatus,
   isRequiredSetupComplete,
   subscriberLifecycleHeadline,
@@ -60,6 +61,14 @@ describe("subscriber-facing setup copy", () => {
     expect(displayDnsRecordPurpose("DKIM")).toBe("Signing");
     expect(displaySubscriberDomainStatus({ verificationStatus: "PENDING", dnsPending: true }).label).toBe("Pending DNS");
     expect(displaySubscriberDomainStatus({ verificationStatus: "VERIFIED", dkimStatus: "VERIFIED" }).label).toBe("Verified");
+    expect(displaySubscriberMailboxStatus({ lifecycleState: "WARMING", provisioningStatus: "SES_SENDER_ONLY" }).label).toBe(
+      "Warming up",
+    );
+    expect(displaySubscriberMailboxStatus({ lifecycleState: "LIVE_READY" }).label).toBe("Ready");
+    expect(displaySubscriberMailboxStatus({ status: "FAILED" }).label).toBe("Failed");
+    expect(displaySubscriberMailboxStatus({ provisioningStatus: "PENDING_PROVIDER_CONFIGURATION" }).label).toBe(
+      "Provisioning",
+    );
   });
 
   it("sends a paid workspace to onboarding with finish-setup language", () => {
