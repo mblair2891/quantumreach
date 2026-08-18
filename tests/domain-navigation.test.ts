@@ -65,4 +65,18 @@ describe("managed domain and registrant navigation", () => {
     expect(sendingDomains).not.toContain("BYO setup is not yet self-service");
     expect(sendingDomains).not.toContain("WORKSPACE_OWNED");
   });
+
+  it("lets subscribers copy displayed DNS name and value strings", () => {
+    const page = read("app/dashboard/sending/domains/page.tsx");
+    const button = read("components/dashboard/copy-value-button.tsx");
+    expect(page).toContain("Publish these DNS records");
+    expect(page).toContain("CopyValueButton");
+    expect(page).toContain('value={record.name}');
+    expect(page).toContain('value={record.value}');
+    expect(page).toContain('ariaLabel="Copy name"');
+    expect(page).toContain('ariaLabel="Copy value"');
+    expect(button).toContain("navigator.clipboard.writeText(value)");
+    expect(button).toContain("Copy failed");
+    expect(button).toContain('status === "copied" ? "Copied"');
+  });
 });

@@ -6,6 +6,7 @@ import { enforceAllowance } from "@/lib/sending-infrastructure/readiness";
 import { getDomainRegistrantProfile } from "@/lib/managed-domains/purchase";
 import { validateRegistrantContact } from "@/lib/managed-domains/registrant";
 import { displayDnsRecordPurpose, displaySubscriberDomainStatus } from "@/lib/customer-journey/subscriber-copy";
+import { CopyValueButton } from "@/components/dashboard/copy-value-button";
 import { addByoDomainAction, requestManagedDomainAction, verifyByoDomainAction } from "./actions";
 
 export default async function Page({
@@ -184,8 +185,18 @@ export default async function Page({
                       {domain.dnsRecords.map((record) => (
                         <tr key={record.id} className="border-b border-slate-100 dark:border-slate-800">
                           <td className="py-2 pr-3 font-mono">{record.type}</td>
-                          <td className="py-2 pr-3 font-mono text-xs">{record.name}</td>
-                          <td className="py-2 pr-3 font-mono text-xs">{record.value}</td>
+                          <td className="py-2 pr-3 align-top">
+                            <span className="inline-flex max-w-xs items-start gap-1.5">
+                              <span className="min-w-0 break-all font-mono text-xs">{record.name}</span>
+                              <CopyValueButton value={record.name} label="Copy" ariaLabel="Copy name" variant="compact" />
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 align-top">
+                            <span className="inline-flex max-w-md items-start gap-1.5">
+                              <span className="min-w-0 break-all font-mono text-xs">{record.value}</span>
+                              <CopyValueButton value={record.value} label="Copy" ariaLabel="Copy value" variant="compact" />
+                            </span>
+                          </td>
                           <td className="py-2 pr-3">{displayDnsRecordPurpose(record.purpose)}</td>
                           <td className="py-2">
                             {record.status === "VERIFIED" ? "Found" : record.status === "FAILED" ? "Not matching" : "Waiting"}
