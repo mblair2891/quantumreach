@@ -102,6 +102,221 @@ export async function approveDomainPurchaseRequest(
     data: { status: "APPROVED", approvedByUserId },
   });
 }
+export function getManagedPurchasingReadiness() {
+  const enabled = process.env.DOMAIN_PURCHASING_ENABLED === "true";
+  const provider = getDomainProvider();
+  const configured = provider.isConfigured();
+  return {
+    enabled,
+    configured,
+    ready: enabled && configured,
+    providerName: provider.name,
+    reason: !enabled
+      ? "Managed registration is not available in this environment. Connect a domain you own instead."
+      : !configured
+        ? "Managed registration is not configured yet. Connect a domain you own instead."
+        : null,
+  };
+}
+
+export function formatRegistrarPrice(cents?: number | null) {
+  if (!cents || cents <= 0) return null;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+
+export async function checkManagedDomainAvailability(domainName: string) {
+  const readiness = getManagedPurchasingReadiness();
+  if (!readiness.ready) throw new Error(readiness.reason || "Managed registration is not available.");
+  const domain = domainName.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\.$/, "");
+  const provider = getDomainProvider();
+  const [search, quote] = await Promise.all([
+    provider.searchDomains(domain),
+    provider.getDomainQuote(domain),
+  ]);
+  if (!search.ok && !quote.ok) {
+    throw new Error(search.safeError || quote.safeError || "Could not check that domain. Try again.");
+  }
+  const available = search.data?.[0]?.available !== false && quote.data?.available !== false;
+  return {
+    domainName: quote.data?.domainName || search.data?.[0]?.domainName || domain,
+    available,
+    estimatedCostCents: quote.data?.estimatedCostCents ?? search.data?.[0]?.estimatedCostCents ?? null,
+    resalePriceCents: quote.data?.resalePriceCents ?? null,
+    providerQuoteId: quote.data?.providerQuoteId ?? search.data?.[0]?.providerQuoteId ?? null,
+    message: available
+      ? null
+      : "That domain is not available to register. Try another name or connect a domain you already own.",
+  };
+}
+
+export async function purchaseManagedDomainForWorkspace(input: {
+  workspaceId: string;
+  actorUserId: string;
+  domainName: string;
+  registrantAttestationAccepted: boolean;
+}) {
+  const readiness = getManagedPurchasingReadiness();
+  if (!readiness.enabled) {
+    throw new Error("Managed registration is not available in this environment. Connect a domain you own instead.");
+  }
+  if (!readiness.configured) {
+    throw new Error("Managed registration is not configured yet. Connect a domain you own instead.");
+  }
+
+  const { addByoDomain } = await import("@/lib/sending-infrastructure/byo-domain");
+  const { enforceAllowance } = await import("@/lib/sending-infrastructure/readiness");
+  const { getWorkspaceEffectiveEntitlements } = await import("@/lib/sending-infrastructure/operational");
+
+  const domainName = input.domainName.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\.$/, "");
+  const { effective } = await getWorkspaceEffectiveEntitlements(input.workspaceId);
+  const used = await prisma.managedDomain.count({ where: { workspaceId: input.workspaceId } });
+  const allowance = enforceAllowance("domain", effective, used);
+  if (!allowance.allowed) {
+    throw new Error(
+      allowance.reason ||
+        "Your plan is at its domain limit. Upgrade or remove a domain to register another.",
+    );
+  }
+
+  const existingDomain = await prisma.managedDomain.findUnique({ where: { domainName } });
+  if (existingDomain?.workspaceId && existingDomain.workspaceId !== input.workspaceId) {
+    throw new Error("That domain is already attached to another workspace.");
+  }
+
+  let request = await prisma.domainPurchaseRequest.findFirst({
+    where: { workspaceId: input.workspaceId, requestedDomain: domainName },
+    include: { registrantSnapshot: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (request?.status === "PURCHASED") {
+    if (!existingDomain || existingDomain.workspaceId !== input.workspaceId) {
+      await addByoDomain({
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        domainName,
+        source: "purchased",
+      });
+    }
+    return { alreadyPurchased: true as const, domainName, requestId: request.id };
+  }
+
+  if (!request || ["FAILED", "CANCELED", "REJECTED", "DRAFT"].includes(request.status)) {
+    const created = await createDomainPurchaseRequest({
+      requestedDomain: domainName,
+      workspaceId: input.workspaceId,
+      requestedByUserId: input.actorUserId,
+      ownershipType: "WORKSPACE_OWNED",
+      registrantAttestationAccepted: input.registrantAttestationAccepted,
+    });
+    request = await prisma.domainPurchaseRequest.findUniqueOrThrow({
+      where: { id: created.id },
+      include: { registrantSnapshot: true },
+    });
+  }
+
+  if (request.status === "QUOTED" || request.status === "SUBMITTED") {
+    request = await prisma.domainPurchaseRequest.update({
+      where: { id: request.id },
+      data: { status: "APPROVED", approvedByUserId: input.actorUserId },
+      include: { registrantSnapshot: true },
+    });
+  }
+
+  const check = await checkManagedDomainAvailability(domainName);
+  if (!check.available) throw new Error(check.message || "That domain is not available.");
+
+  await prisma.domainPurchaseRequest.update({
+    where: { id: request.id },
+    data: { status: "PURCHASING", estimatedCostCents: check.estimatedCostCents, providerQuoteId: check.providerQuoteId },
+  });
+
+  const result = await getDomainProvider().purchaseDomain(domainName, request.id, request);
+  if (!result.ok) {
+    await prisma.domainPurchaseRequest.update({
+      where: { id: request.id },
+      data: { status: "FAILED", safeError: result.safeError },
+    });
+    throw new Error(result.safeError || "The registrar could not complete that purchase.");
+  }
+
+  await prisma.domainPurchaseRequest.update({
+    where: { id: request.id },
+    data: { status: "PURCHASED", purchasedAt: new Date(), safeError: null },
+  });
+
+  const attached = await addByoDomain({
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    domainName,
+    source: "purchased",
+  });
+  await prisma.managedDomain.update({
+    where: { id: attached.id },
+    data: {
+      provider: getDomainProvider().name,
+      providerDomainId: result.data?.providerDomainId,
+      purchaseCostCents: check.estimatedCostCents,
+      registrarStatus: "REGISTERED",
+      lifecycleStatus: "DNS_PENDING",
+    },
+  });
+  if (process.env.DNS_AUTOMATION_ENABLED === "true") {
+    const { enqueueDurableJob } = await import("@/lib/jobs/service");
+    await enqueueDurableJob({
+      workspaceId: input.workspaceId,
+      jobType: "DOMAIN_DNS_CONFIGURATION",
+      idempotencyKey: `dns:${attached.id}`,
+      payload: { domainId: attached.id },
+    });
+  }
+  await prisma.auditLog.create({
+    data: {
+      workspaceId: input.workspaceId,
+      actorId: input.actorUserId,
+      action: "MANAGED_DOMAIN_PURCHASED",
+      entityType: "ManagedDomain",
+      entityId: attached.id,
+      metadata: { domainName, requestId: request.id, providerDomainId: result.data?.providerDomainId },
+    },
+  });
+  return { alreadyPurchased: false as const, domainName, requestId: request.id, domainId: attached.id };
+}
+
+export async function retryDomainPurchaseRequest(id: string, actorUserId: string) {
+  const request = await prisma.domainPurchaseRequest.findUnique({
+    where: { id },
+    include: { registrantSnapshot: true },
+  });
+  if (!request) throw new Error("Purchase request not found.");
+  if (!request.workspaceId) throw new Error("Purchase request has no workspace.");
+  return purchaseManagedDomainForWorkspace({
+    workspaceId: request.workspaceId,
+    actorUserId,
+    domainName: request.requestedDomain,
+    registrantAttestationAccepted: Boolean(request.registrantAttestationAccepted),
+  });
+}
+
+export async function markDomainPurchaseFailed(id: string, actorUserId: string, note: string) {
+  if (note.trim().length < 8) throw new Error("An audit note is required.");
+  const request = await prisma.domainPurchaseRequest.update({
+    where: { id },
+    data: { status: "FAILED", safeError: note.trim() },
+  });
+  await prisma.auditLog.create({
+    data: {
+      workspaceId: request.workspaceId,
+      actorId: actorUserId,
+      action: "MANAGED_DOMAIN_PURCHASE_MARKED_FAILED",
+      entityType: "DomainPurchaseRequest",
+      entityId: request.id,
+      metadata: { note: note.trim(), domainName: request.requestedDomain },
+    },
+  });
+  return request;
+}
+
 export async function purchaseApprovedDomain(id: string) {
   const request = await (prisma as any).domainPurchaseRequest.findUnique({
     where: { id },

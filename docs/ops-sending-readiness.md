@@ -4,7 +4,7 @@ Transactional system mail (`noreply@quantumreach.app`, `lib/email/transactional.
 
 ## Chosen private-beta path (Path A)
 
-**BYO domain first.** OpenSRS purchase (Path B) stays gated until Path A works.
+**BYO domain first (Path A) stays live.** OpenSRS purchase (Path B) runs only when `DOMAIN_PURCHASING_ENABLED=true` and registrar credentials are present. Without those, subscribers still connect a domain they own.
 
 ```
 Subscriber adds domain
@@ -40,7 +40,7 @@ When a gate is off, UI/API returns **Unavailable in this environment** — never
 
 ## Worker
 
-Point Vercel Cron (or any scheduler) at `GET /api/internal/jobs/run` with `Authorization: Bearer $JOB_RUNNER_SECRET` about every minute. The runner:
+`vercel.json` schedules `GET /api/internal/jobs/run` hourly. Vercel sends `Authorization: Bearer $CRON_SECRET` when `CRON_SECRET` is set; `JOB_RUNNER_SECRET` is also accepted. The runner:
 
 1. Recovers expired leases
 2. Sweeps due warmup profiles (`WARMUP_SWEEP` / inline)

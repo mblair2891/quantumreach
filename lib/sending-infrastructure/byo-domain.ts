@@ -19,10 +19,14 @@ export function canManageSendingDomains(roleKey?: string | null) {
 }
 
 export function isSubscriberRemovableByoDomain(
-  domain: { ownershipType: string; workspaceId: string | null },
+  domain: { ownershipType: string; workspaceId: string | null; providerDomainId?: string | null },
   workspaceId: string,
 ) {
-  return domain.ownershipType === "WORKSPACE_OWNED" && domain.workspaceId === workspaceId;
+  return (
+    domain.ownershipType === "WORKSPACE_OWNED" &&
+    domain.workspaceId === workspaceId &&
+    !domain.providerDomainId
+  );
 }
 
 type ByoDnsRecord = DnsRecord & { purpose: DnsRecordPurpose };
@@ -47,7 +51,12 @@ function requiredRecords(domainName: string, verificationToken: string, dkimToke
   return records;
 }
 
-export async function addByoDomain(input: { workspaceId: string; actorUserId: string; domainName: string }) {
+export async function addByoDomain(input: {
+  workspaceId: string;
+  actorUserId: string;
+  domainName: string;
+  source?: "byo" | "purchased";
+}) {
   const domainName = normalizeDomainName(input.domainName);
   if (!DOMAIN_RE.test(domainName)) throw new Error("Enter a valid domain like example.com.");
   const { effective } = await getWorkspaceEffectiveEntitlements(input.workspaceId);
@@ -81,8 +90,9 @@ export async function addByoDomain(input: { workspaceId: string; actorUserId: st
         },
       });
 
+  const assignmentType = input.source === "purchased" ? "LEASED" : "BROUGHT_BY_WORKSPACE";
   if (domain.workspaceId !== input.workspaceId) {
-    await assignManagedDomain(domain.id, input.workspaceId, input.actorUserId, "BROUGHT_BY_WORKSPACE");
+    await assignManagedDomain(domain.id, input.workspaceId, input.actorUserId, assignmentType);
   } else {
     const assignment = await prisma.managedDomainAssignment.findFirst({
       where: { domainId: domain.id, workspaceId: input.workspaceId, status: "ACTIVE" },
@@ -93,7 +103,7 @@ export async function addByoDomain(input: { workspaceId: string; actorUserId: st
           domainId: domain.id,
           workspaceId: input.workspaceId,
           assignedByUserId: input.actorUserId,
-          assignmentType: "BROUGHT_BY_WORKSPACE",
+          assignmentType,
         },
       });
     }

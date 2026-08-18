@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect";
 import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
 import { addByoDomain, removeByoDomain, verifyByoDomain } from "@/lib/sending-infrastructure/byo-domain";
-import { createDomainPurchaseRequest } from "@/lib/managed-domains/purchase";
+import {
+  checkManagedDomainAvailability,
+  formatRegistrarPrice,
+  purchaseManagedDomainForWorkspace,
+} from "@/lib/managed-domains/purchase";
 
 function fail(message: string): never {
   redirect(`/dashboard/sending/domains?error=${encodeURIComponent(message)}`);
@@ -69,25 +73,43 @@ export async function removeByoDomainAction(form: FormData) {
   redirect("/dashboard/sending/domains?removed=1");
 }
 
-export async function requestManagedDomainAction(form: FormData) {
+export async function checkManagedDomainAction(form: FormData) {
+  try {
+    await requireSubscriberWorkspaceAccess();
+    const result = await checkManagedDomainAvailability(String(form.get("domain") ?? ""));
+    const price = formatRegistrarPrice(result.estimatedCostCents);
+    const params = new URLSearchParams({
+      check: result.domainName,
+      available: result.available ? "1" : "0",
+    });
+    if (price) params.set("price", price);
+    if (!result.available) params.set("error", result.message || "That domain is not available.");
+    redirect(`/dashboard/sending/domains?${params.toString()}`);
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    fail(error instanceof Error ? error.message : "Could not check that domain.");
+  }
+}
+
+export async function purchaseManagedDomainAction(form: FormData) {
   const { workspace, user } = await requireSubscriberWorkspaceAccess();
   try {
-    await createDomainPurchaseRequest({
+    await purchaseManagedDomainForWorkspace({
       workspaceId: workspace.id,
-      requestedByUserId: user.id,
-      requestedDomain: String(form.get("domain") ?? "").trim().toLowerCase(),
-      ownershipType: "WORKSPACE_OWNED",
+      actorUserId: user.id,
+      domainName: String(form.get("domain") ?? ""),
       registrantAttestationAccepted: String(form.get("attestation") ?? "") === "on",
     });
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    const raw = error instanceof Error ? error.message : "Could not submit that request.";
+    const raw = error instanceof Error ? error.message : "Could not register that domain.";
     fail(
       raw.includes("Registrant")
-        ? "Complete and confirm your registrant profile first, then request a managed domain."
+        ? "Complete and confirm your registrant profile first, then request a domain we’ll register for you."
         : raw,
     );
   }
   revalidatePath("/dashboard/sending/domains");
-  redirect("/dashboard/sending/domains?requested=1");
+  revalidatePath("/dashboard/onboarding");
+  redirect("/dashboard/sending/domains?purchased=1");
 }

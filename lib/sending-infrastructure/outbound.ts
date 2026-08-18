@@ -67,7 +67,7 @@ export async function sendWorkspaceTestEmail(input: {
     sesIdentityReady: isSesIdentityVerified(domain.sesIdentity?.verificationStatus) || isSesIdentityVerified(sender.sesIdentityState),
     dkimReady: isSesIdentityVerified(domain.sesIdentity?.dkimStatus) || isSesIdentityVerified(sender.dkimState),
     complianceReady: true,
-    rampReady: true,
+    rampReady: Boolean(profile && profile.currentDailyLimit > 0 && profile.lifecycleState !== "PAUSED"),
     sendingEnabled: gates.managedSendingEnabled,
     dailySendCap: dailyCap,
   });

@@ -11,12 +11,29 @@ import { lookupDnsHostHint } from "@/lib/sending-infrastructure/dns-observe";
 import { canManageSendingDomains, isSubscriberRemovableByoDomain } from "@/lib/sending-infrastructure/byo-domain";
 import { CopyValueButton } from "@/components/dashboard/copy-value-button";
 import { RemoveByoDomainForm } from "@/components/dashboard/remove-byo-domain-form";
-import { addByoDomainAction, removeByoDomainAction, requestManagedDomainAction, verifyByoDomainAction } from "./actions";
+import { getManagedPurchasingReadiness } from "@/lib/managed-domains/purchase";
+import {
+  addByoDomainAction,
+  checkManagedDomainAction,
+  purchaseManagedDomainAction,
+  removeByoDomainAction,
+  verifyByoDomainAction,
+} from "./actions";
 
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: { error?: string; connected?: string; verified?: string; requested?: string; removed?: string };
+  searchParams?: {
+    error?: string;
+    connected?: string;
+    verified?: string;
+    requested?: string;
+    removed?: string;
+    purchased?: string;
+    check?: string;
+    available?: string;
+    price?: string;
+  };
 }) {
   const { workspace, membership } = await requireSubscriberWorkspaceAccess();
   const canRemoveDomains = canManageSendingDomains(String(membership.roleKey));
@@ -39,7 +56,7 @@ export default async function Page({
   const atCap = !enforceAllowance("domain", entitlements.effective, domains.length).allowed;
   const registrant = validateRegistrantContact(profile);
   const registrantReady = Boolean(registrant.complete && profile?.confirmedAt);
-  const purchasingEnabled = process.env.DOMAIN_PURCHASING_ENABLED === "true";
+  const purchasing = getManagedPurchasingReadiness();
 
   return (
     <main className="space-y-6">
@@ -71,9 +88,9 @@ export default async function Page({
           Domain verified. You can create a mailbox next.
         </p>
       ) : null}
-      {searchParams?.requested ? (
+      {searchParams?.purchased ? (
         <p role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
-          Managed domain request submitted. We’ll follow up when it’s ready.
+          Domain registered. Publish the DNS records below if they are not applied automatically, then verify.
         </p>
       ) : null}
       {searchParams?.removed ? (
@@ -113,37 +130,58 @@ export default async function Page({
         </form>
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 text-slate-950 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-50">
-          <h2 className="text-lg font-semibold">Request a managed domain</h2>
-          {!purchasingEnabled ? (
+          <h2 className="text-lg font-semibold">Request a domain we’ll register for you</h2>
+          {!purchasing.ready ? (
             <p className="text-sm text-slate-700 dark:text-slate-300">
-              Managed purchase is not available in this environment. Connect a domain you own instead.
+              {purchasing.reason} You can still connect a domain you own.
             </p>
           ) : !registrantReady ? (
             <p className="text-sm text-slate-700 dark:text-slate-300">
-              Complete your registrant profile first, then you can request a domain we register for you.{" "}
+              Complete your registrant profile first, then you can request a domain we’ll register for you.{" "}
               <a className="font-semibold underline" href="/dashboard/settings/domain-registrant">
                 Complete registrant profile
               </a>
             </p>
+          ) : searchParams?.available === "1" && searchParams.check ? (
+            <form action={purchaseManagedDomainAction} className="space-y-3">
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                <span className="font-mono font-semibold">{searchParams.check}</span> looks available.
+                {searchParams.price
+                  ? ` Registrar list price about ${searchParams.price}/year — this uses one domain from your plan, not a separate checkout.`
+                  : " This uses one domain from your plan. There is no separate registrar checkout."}
+              </p>
+              <input type="hidden" name="domain" value={searchParams.check} />
+              <label className="flex gap-2 text-sm">
+                <input type="checkbox" name="attestation" required value="on" className="mt-1" />
+                <span>I confirm the registrant profile is accurate and authorize this registration.</span>
+              </label>
+              <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white" disabled={atCap}>
+                Register domain
+              </button>
+            </form>
           ) : (
-            <form action={requestManagedDomainAction} className="space-y-3">
+            <form action={checkManagedDomainAction} className="space-y-3">
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                We’ll check availability, then register it under your plan domain allowance.
+              </p>
               <label className="grid gap-1 text-sm font-medium">
                 Domain to register
                 <input
                   name="domain"
                   required
                   placeholder="youragency.com"
+                  defaultValue={searchParams?.check}
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
                 />
               </label>
-              <label className="flex gap-2 text-sm">
-                <input type="checkbox" name="attestation" required value="on" className="mt-1" />
-                <span>I confirm the registrant profile is accurate and authorize this request.</span>
-              </label>
-              <button className="rounded-xl border border-slate-300 px-4 py-2 font-semibold">Request managed domain</button>
+              <button className="rounded-xl border border-slate-300 px-4 py-2 font-semibold" disabled={atCap}>
+                Check availability
+              </button>
             </form>
           )}
           <p className="text-sm text-slate-700 dark:text-slate-300">
+            Canceling a registered domain later requires support — it is not the same as disconnecting a domain you
+            brought.{" "}
             <a className="font-semibold underline" href="/dashboard/settings/domain-registrant">
               Manage registrant profile
             </a>
@@ -188,6 +226,10 @@ export default async function Page({
                   </form>
                   {canRemove ? (
                     <RemoveByoDomainForm domainId={domain.id} domainName={domain.domainName} action={removeByoDomainAction} />
+                  ) : domain.providerDomainId ? (
+                    <p className="max-w-xs text-right text-xs text-slate-600 dark:text-slate-400">
+                      This registered domain cannot be canceled here. Email support@quantumreach.app.
+                    </p>
                   ) : null}
                 </div>
               </div>

@@ -10,14 +10,24 @@ export async function createWorkspaceMailbox(input: {
   localPart: string;
   displayName?: string | null;
 }) {
-  const mailbox = await createMailboxRequest(input.workspaceId, input.domainId, input.localPart, input.displayName);
   const domain = await prisma.managedDomain.findFirst({
-    where: { id: input.domainId },
+    where: {
+      id: input.domainId,
+      OR: [
+        { workspaceId: input.workspaceId },
+        { assignments: { some: { workspaceId: input.workspaceId, status: "ACTIVE" } } },
+      ],
+    },
     include: { sesIdentity: true },
   });
-  const domainVerified = isSesIdentityVerified(domain?.sesIdentity?.verificationStatus);
-  const dkimVerified = isSesIdentityVerified(domain?.sesIdentity?.dkimStatus);
+  if (!domain) throw new Error("Domain is not assigned to this workspace.");
+  const domainVerified = isSesIdentityVerified(domain.sesIdentity?.verificationStatus);
+  const dkimVerified = isSesIdentityVerified(domain.sesIdentity?.dkimStatus);
   const sesReady = domainVerified && dkimVerified;
+  if (!sesReady) {
+    throw new Error("Verify the domain DNS first, then create a mailbox.");
+  }
+  const mailbox = await createMailboxRequest(input.workspaceId, input.domainId, input.localPart, input.displayName);
 
   if (sesReady) {
     await prisma.managedMailbox.update({

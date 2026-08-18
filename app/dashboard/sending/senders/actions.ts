@@ -4,12 +4,16 @@ export async function createSenderIdentityAction(form:FormData){const {workspace
 export async function sendWorkspaceTestEmailAction(form: FormData) {
   const { workspace, user } = await requireSubscriberWorkspaceAccess();
   const { sendWorkspaceTestEmail } = await import("@/lib/sending-infrastructure/outbound");
+  const { redirect } = await import("next/navigation");
   const result = await sendWorkspaceTestEmail({
     workspaceId: workspace.id,
     actorUserId: user.id,
     senderId: String(form.get("senderId") ?? ""),
     to: String(form.get("to") ?? ""),
   });
-  if (!result.sent) throw new Error(result.reason);
   revalidatePath("/dashboard/sending/senders");
+  if (!result.sent) {
+    redirect(`/dashboard/sending/senders?error=${encodeURIComponent(result.reason)}`);
+  }
+  redirect("/dashboard/sending/senders?sent=1");
 }

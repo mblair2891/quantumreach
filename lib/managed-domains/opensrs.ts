@@ -98,20 +98,22 @@ export function getOpenSrsReadiness(config = getOpenSrsConfig()) {
     !config.apiKey && "OPENSRS_API_KEY",
     !config.baseUrl && "OPENSRS_API_BASE_URL",
   ].filter(Boolean) as string[];
-  const horizon =
-    config.environment === "horizon" &&
-    config.baseUrl.includes("horizon.opensrs.net");
+  const testMode =
+    config.environment === "horizon" || config.baseUrl.includes("horizon.opensrs.net");
+  const purchasingEnabled = process.env.DOMAIN_PURCHASING_ENABLED === "true";
+  const ready = missing.length === 0 && (testMode || purchasingEnabled);
   return {
-    ready: missing.length === 0 && horizon,
+    ready,
     missing,
     environment: config.environment,
     baseUrl: config.baseUrl,
-    testMode: horizon,
+    testMode,
+    purchasingEnabled,
     safeError: missing.length
-      ? `OpenSRS Horizon is missing required environment values: ${missing.join(", ")}.`
-      : horizon
+      ? `${testMode ? "OpenSRS Horizon" : "OpenSRS"} is missing required environment values: ${missing.join(", ")}.`
+      : testMode || purchasingEnabled
         ? undefined
-        : "OpenSRS provider is restricted to the Horizon test environment.",
+        : "Production OpenSRS purchasing is disabled until DOMAIN_PURCHASING_ENABLED=true and billing gates pass.",
   };
 }
 
@@ -317,8 +319,24 @@ function parseOpenSrsResponse(
     validationReasons,
   };
 }
+function providerId(domain: string, testMode: boolean) {
+  return `${testMode ? "opensrs-horizon" : "opensrs"}-${domain}`;
+}
+
+function mapPurchaseFailure(parsed?: OpenSrsParsedResponse) {
+  const text = `${parsed?.responseText || ""} ${parsed?.validationReasons.join(" ") || ""}`.toLowerCase();
+  if (/(taken|already registered|not available|unavailable)/.test(text)) {
+    return "That domain is already registered. Choose another name or connect a domain you own.";
+  }
+  if (/(insufficient|funds|balance|credit)/.test(text)) {
+    return "The registrar could not complete payment. Try again or contact support.";
+  }
+  return SAFE_PROVIDER_ERROR;
+}
+
 function toProviderError(
   parsed?: OpenSrsParsedResponse,
+  testMode = true,
 ): DomainProviderSafeError {
   return {
     code: parsed?.responseCode,
@@ -326,7 +344,7 @@ function toProviderError(
       parsed?.responseText ||
       parsed?.validationReasons[0] ||
       SAFE_PROVIDER_ERROR,
-    testMode: true,
+    testMode,
     validationReasons: parsed?.validationReasons.length
       ? parsed.validationReasons
       : undefined,
@@ -406,8 +424,8 @@ export class OpenSrsHorizonDomainProvider implements DomainProvider {
         {
           domainName,
           available,
-          providerQuoteId: `opensrs-horizon-${domainName}`,
-          testMode: true,
+          providerQuoteId: providerId(domainName, this.readiness().testMode),
+          testMode: this.readiness().testMode,
         } as DomainQuote,
       ],
     };
@@ -434,8 +452,8 @@ export class OpenSrsHorizonDomainProvider implements DomainProvider {
         available: true,
         estimatedCostCents: cost,
         resalePriceCents: cost ? Math.ceil(cost * 2) : undefined,
-        providerQuoteId: `opensrs-horizon-${domain}`,
-        testMode: true,
+        providerQuoteId: providerId(domain, this.readiness().testMode),
+        testMode: this.readiness().testMode,
       } as DomainQuote,
     };
   }
@@ -596,18 +614,18 @@ export class OpenSrsHorizonDomainProvider implements DomainProvider {
     const r = await this.call("sw_register", "domain", built.attributes);
     if (!r.ok) return r;
     return r.parsed.isSuccess === true
-      ? { ok: true, data: { providerDomainId: `opensrs-horizon-${domain}` } }
+      ? { ok: true, data: { providerDomainId: providerId(domain, this.readiness().testMode) } }
       : {
           ok: false,
-          safeError: SAFE_PROVIDER_ERROR,
-          providerError: toProviderError(r.parsed),
+          safeError: mapPurchaseFailure(r.parsed),
+          providerError: toProviderError(r.parsed, this.readiness().testMode),
         };
   }
   async getDomainStatus(
     providerDomainId: string,
   ): Promise<DomainProviderResult<{ status: string }>> {
     const domain = normalizeDomain(
-      providerDomainId.replace(/^opensrs-horizon-/, ""),
+      providerDomainId.replace(/^opensrs-(horizon-)?/, ""),
     );
     const r = await this.call("get", "domain", { domain, type: "status" });
     if (!r.ok) return r;

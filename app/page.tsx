@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SiteFooter } from "@/components/public-layout/site-footer";
 
 const system = [
   {
@@ -68,9 +69,17 @@ export default function HomePage() {
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-950 text-sm text-white">Q</span>
           Quantum Reach
         </Link>
-        <Link className="text-sm font-medium text-slate-600 transition hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-4" href="/sign-in">
-          Sign in
-        </Link>
+        <nav className="flex items-center gap-4 text-sm font-medium text-slate-600">
+          <Link className="transition hover:text-indigo-700" href="/pricing">
+            Pricing
+          </Link>
+          <Link className="transition hover:text-indigo-700" href="/contact">
+            Contact
+          </Link>
+          <Link className="transition hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-4" href="/sign-in">
+            Sign in
+          </Link>
+        </nav>
       </header>
 
       <section className="mx-auto grid max-w-7xl items-center gap-12 px-5 pb-20 pt-10 sm:px-8 sm:pb-28 sm:pt-16 lg:grid-cols-[1.05fr_.95fr] lg:gap-16">
@@ -114,6 +123,7 @@ export default function HomePage() {
           <Link className="funnel-primary mt-8 w-full bg-white text-slate-950 shadow-none hover:bg-indigo-50 sm:w-auto" href="/start">Join Quantum Reach <span className="ml-2">→</span></Link>
         </div>
       </section>
+      <SiteFooter />
     </main>
   );
 }

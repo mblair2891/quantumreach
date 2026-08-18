@@ -62,6 +62,9 @@ describe("managed domain and registrant navigation", () => {
     expect(sendingDomains).toContain('href="/dashboard/settings/domain-registrant"');
     expect(sendingDomains).toContain("No domains connected yet. Connect a domain you own to start setup.");
     expect(sendingDomains).toContain("Connect a domain you own, or request a managed domain");
+    expect(sendingDomains).toContain("Request a domain we’ll register for you");
+    expect(sendingDomains).toContain("getManagedPurchasingReadiness");
+    expect(sendingDomains).toContain("purchaseManagedDomainAction");
     expect(sendingDomains).not.toContain("BYO setup is not yet self-service");
     expect(sendingDomains).not.toContain("WORKSPACE_OWNED");
   });

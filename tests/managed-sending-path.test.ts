@@ -79,6 +79,19 @@ describe("managed sending Path A", () => {
     expect(nameserverProviderHint(["ns1.example.org"])).toBeNull();
   });
 
+  it("serves production trust pages and a warmup cron", () => {
+    expect(source("app/page.tsx")).toContain("SiteFooter");
+    expect(source("app/contact/page.tsx")).toContain("support@quantumreach.app");
+    expect(source("app/privacy/page.tsx")).toContain("Privacy Policy");
+    expect(source("app/terms/page.tsx")).toContain("Terms of Service");
+    expect(source("app/pricing/page.tsx")).toContain("Launch");
+    expect(source("vercel.json")).toContain("/api/internal/jobs/run");
+    expect(source("lib/sending-infrastructure/workspace-mailbox.ts")).toContain("Verify the domain DNS first");
+    expect(source("lib/managed-domains/purchase.ts")).toContain("DOMAIN_PURCHASING_ENABLED");
+    expect(source("lib/managed-domains/purchase.ts")).toContain("purchaseManagedDomainForWorkspace");
+    expect(source("lib/sending-infrastructure/outbound.ts")).not.toContain("noreply@quantumreach.app");
+  });
+
   it("lets a workspace owner remove a BYO domain after confirmation", () => {
     const byo = source("lib/sending-infrastructure/byo-domain.ts");
     const actions = source("app/dashboard/sending/domains/actions.ts");

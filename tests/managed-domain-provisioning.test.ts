@@ -334,7 +334,7 @@ describe("OpenSRS Horizon domain provider", () => {
       safeError: expect.stringContaining("OPENSRS_USERNAME"),
     });
   });
-  it("requires Horizon mode readiness", async () => {
+  it("allows Horizon test readiness and live production only when purchasing is enabled", async () => {
     configure();
     const { getOpenSrsReadiness } =
       await import("@/lib/managed-domains/opensrs");
@@ -344,9 +344,16 @@ describe("OpenSRS Horizon domain provider", () => {
       environment: "horizon",
     });
     process.env.OPENSRS_ENVIRONMENT = "production";
+    process.env.OPENSRS_API_BASE_URL = "https://rr-n1-tor.opensrs.net:55443";
     expect(getOpenSrsReadiness()).toMatchObject({
       ready: false,
       testMode: false,
+    });
+    process.env.DOMAIN_PURCHASING_ENABLED = "true";
+    expect(getOpenSrsReadiness()).toMatchObject({
+      ready: true,
+      testMode: false,
+      purchasingEnabled: true,
     });
   });
   it("parses available and unavailable search responses", async () => {

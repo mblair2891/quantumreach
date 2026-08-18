@@ -5,6 +5,7 @@ import { DEFAULT_COMMERCE_CATALOG, ENTITLEMENT_KEYS, EntitlementKey, aggregateEn
 import { getMailboxProvider, getProviderReadiness } from "./providers";
 import { CloudflareDnsProvider } from "./cloudflare";
 import { enforceAllowance, evaluateSenderReadiness } from "./readiness";
+import { isSesIdentityVerified } from "./gates";
 import { idempotencyKey, localPartIsValid, mailboxAddress } from "./provisioning";
 import { createWarmupProfileForMailbox } from "./warmup-service";
 import { DEFAULT_ADDONS, DEFAULT_COMMERCIAL_PLANS, DEFAULT_SETUP_PRODUCTS } from "@/lib/commercial/packages";
@@ -127,4 +128,17 @@ export async function deriveProvisioningStage(workspaceId: string, db: Db = pris
 
 export async function operatorReadiness(db: Db = prisma) { const provider = getProviderReadiness(); const cloudflare = await new CloudflareDnsProvider().health(); const [catalogMapped, commissionRules] = await Promise.all([db.commerceProduct.count({ where: { stripePriceId: { not: null } } }), db.commissionRule.count({ where: { active: true } })]); return [{ name: "Domain Provider", state: provider.domainProvider === "disabled" ? "NOT_CONFIGURED" : "READY", reason: `DOMAIN_PROVIDER=${provider.domainProvider}` }, { name: "Mailbox Provider", state: provider.mailbox.state, reason: provider.mailbox.safeMessage }, { name: "AWS SES", state: process.env.AWS_SES_REGION && process.env.AWS_ACCESS_KEY_ID ? "CONFIGURED" : "NOT_CONFIGURED", reason: process.env.AWS_SES_REGION ? "AWS SES region configured; credentials are not displayed." : "AWS_SES_REGION is not configured." }, { name: "DNS Provider", state: cloudflare.state, reason: cloudflare.safeMessage }, { name: "Inbound Sync", state: provider.inboundSyncEnabled ? "READY" : "NOT_CONFIGURED", reason: provider.inboundSyncEnabled ? "Inbound sync enabled." : "INBOUND_EMAIL_SYNC_ENABLED is false." }, { name: "Campaign Worker", state: process.env.CAMPAIGN_WORKER_ENABLED === "true" ? "READY" : "NOT_CONFIGURED", reason: process.env.CAMPAIGN_WORKER_ENABLED === "true" ? "Worker enabled." : "Campaign worker is not enabled; jobs remain queued." }, { name: "Stripe Catalog Mapping", state: catalogMapped > 0 ? "PARTIAL" : "NOT_CONFIGURED", reason: `${catalogMapped} products have Stripe price mappings.` }, { name: "Commission Rules", state: commissionRules > 0 ? "READY" : "NOT_CONFIGURED", reason: `${commissionRules} active commission rules.` }]; }
 
-export function senderReadinessFromRecords(sender: any, mailbox?: any, domain?: any) { return evaluateSenderReadiness({ domainReady: Boolean(domain && domain.lifecycleStatus !== "AVAILABLE"), mailboxActive: mailbox?.status === "ACTIVE", sesIdentityReady: sender.sesIdentityState === "VERIFIED" || domain?.sesIdentity?.verificationStatus === "SUCCESS", dkimReady: sender.dkimState === "VERIFIED" || domain?.sesIdentity?.dkimStatus === "SUCCESS", complianceReady: true, rampReady: domain?.warmupPlan?.status === "ACTIVE" || domain?.warmupPlan?.status === "COMPLETED", sendingEnabled: sender.sendingEnabled, dailySendCap: sender.dailySendCap ?? undefined }); }
+export function senderReadinessFromRecords(sender: any, mailbox?: any, domain?: any) {
+  const warmup = domain?.warmupPlan?.status;
+  const mailboxWarming = ["WARMING", "LIVE_READY", "RECOVERY"].includes(String(mailbox?.lifecycleState || sender?.healthState || ""));
+  return evaluateSenderReadiness({
+    domainReady: Boolean(domain && domain.lifecycleStatus !== "AVAILABLE"),
+    mailboxActive: mailbox?.status === "ACTIVE" || mailbox?.outboundEnabled === true,
+    sesIdentityReady: isSesIdentityVerified(sender.sesIdentityState) || isSesIdentityVerified(domain?.sesIdentity?.verificationStatus),
+    dkimReady: isSesIdentityVerified(sender.dkimState) || isSesIdentityVerified(domain?.sesIdentity?.dkimStatus),
+    complianceReady: true,
+    rampReady: warmup === "ACTIVE" || warmup === "COMPLETED" || warmup === "WARMING" || mailboxWarming || Number(sender.dailySendCap || 0) > 0,
+    sendingEnabled: sender.sendingEnabled,
+    dailySendCap: sender.dailySendCap ?? undefined,
+  });
+}
