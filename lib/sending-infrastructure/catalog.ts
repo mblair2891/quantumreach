@@ -12,8 +12,9 @@ export const COMMERCE_PRODUCT_KEYS = {
 } as const;
 
 export const ENTITLEMENT_KEYS = {
-  /** Sending-domain slots for outreach only. Never the customer’s primary brand/website domain. */
+  /** Sending-domain slots for outreach only (maxSendingDomains). Never the customer’s primary brand/website domain. */
   MANAGED_DOMAIN_ALLOWANCE: "MANAGED_DOMAIN_ALLOWANCE",
+  /** Outreach inboxes (maxInboxes). Hard-capped at 3 per sending domain. */
   MAILBOX_ALLOWANCE: "MAILBOX_ALLOWANCE",
   SENDER_IDENTITY_ALLOWANCE: "SENDER_IDENTITY_ALLOWANCE",
   MONTHLY_SEND_ALLOWANCE: "MONTHLY_SEND_ALLOWANCE",

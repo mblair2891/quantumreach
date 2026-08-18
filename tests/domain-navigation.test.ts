@@ -61,7 +61,8 @@ describe("managed domain and registrant navigation", () => {
     expect(settings).toContain("/dashboard/settings/domain-registrant");
     expect(sendingDomains).toContain('href="/dashboard/settings/domain-registrant"');
     expect(sendingDomains).toContain("No domains connected yet. Connect a domain you own to start setup.");
-    expect(sendingDomains).toContain("Connect a domain you own, or request a managed domain");
+    expect(sendingDomains).toContain("Connect a secondary");
+    expect(sendingDomains).toContain("not your main company website domain");
     expect(sendingDomains).toContain("Request a domain we’ll register for you");
     expect(sendingDomains).toContain("getManagedPurchasingReadiness");
     expect(sendingDomains).toContain("purchaseManagedDomainAction");

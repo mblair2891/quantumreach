@@ -486,6 +486,8 @@ model Workspace {
   contactImportRows         ContactImportRow[]
   suppressionListEntries    SuppressionListEntry[]
   sendingDomains            SendingDomain[]
+  outreachInboxes           Inbox[]
+  outreachSendLogs          SendLog[]
   managedDomains            ManagedDomain[]
   managedDomainAssignments  ManagedDomainAssignment[]
   domainPurchaseRequests    DomainPurchaseRequest[]
@@ -2444,15 +2446,62 @@ model SendingDomain {
   dnsRecords       Json                @default("[]")
   reputationStatus String              @default("not_started")
   dailyLimit       Int                 @default(50)
+  /// Instantly-style override. Null means min(100, inboxCount * 30).
+  dailyCapOverride Int?
   warmupStatus     String              @default("not_started")
   verifiedAt       DateTime?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   senderIdentities SenderIdentity[]
+  inboxes          Inbox[]
+  sendLogs         SendLog[]
 
   @@unique([workspaceId, domain])
   @@index([workspaceId, status])
+}
+
+/// Cold-outreach inbox (not SES mailbox). Max 3 per sending domain.
+model Inbox {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  sendingDomainId String
+  localPart       String
+  emailAddress    String
+  displayName     String?
+  status          String   @default("ACTIVE")
+  health          String   @default("HEALTHY")
+  dailyLimit      Int      @default(30)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  domain          SendingDomain @relation(fields: [sendingDomainId], references: [id], onDelete: Cascade)
+  sendLogs        SendLog[]
+
+  @@unique([sendingDomainId, localPart])
+  @@unique([workspaceId, emailAddress])
+  @@index([workspaceId, status])
+}
+
+/// Stub / blocked cold-send ledger. Not SES. utcDay is YYYY-MM-DD in UTC.
+model SendLog {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  inboxId         String
+  sendingDomainId String
+  contactId       String?
+  toEmail         String
+  status          String
+  blockReason     String?
+  utcDay          String
+  createdAt       DateTime @default(now())
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inbox           Inbox         @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  domain          SendingDomain @relation(fields: [sendingDomainId], references: [id], onDelete: Cascade)
+
+  @@index([inboxId, utcDay, status])
+  @@index([sendingDomainId, utcDay, status])
+  @@index([workspaceId, utcDay, status])
 }
 
 model SenderIdentity {
