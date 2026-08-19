@@ -40,6 +40,11 @@ export default async function OutboundPage({
           Package: {limits.maxSendingDomains} sending domains · {limits.maxInboxes} inboxes · {domains.length} /{" "}
           {limits.maxSendingDomains} domains used · {inboxCount} / {limits.maxInboxes} inboxes used.
         </p>
+        <p className="mt-3">
+          <a className="font-semibold text-sky-800 underline" href="/dashboard/sending/outbound/campaigns">
+            Outreach campaigns
+          </a>
+        </p>
       </header>
 
       {searchParams?.error ? (
@@ -101,6 +106,7 @@ export default async function OutboundPage({
         <h2 className="font-semibold text-slate-950">Import contacts CSV</h2>
         <p className="mt-1 text-sm text-slate-600">Columns: email, firstName, lastName</p>
         <form action={importOutboundContactsAction} className="mt-4 grid gap-3">
+          <input name="listName" placeholder="List name" defaultValue="Imported contacts" className="rounded-xl border px-3 py-2" />
           <textarea name="csvText" rows={5} placeholder={"email,firstName,lastName\nprospect@example.com,Ada,Lovelace"} className="rounded-xl border px-3 py-2 font-mono text-sm" />
           <button className="w-fit rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Import contacts</button>
         </form>

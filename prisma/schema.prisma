@@ -488,6 +488,9 @@ model Workspace {
   sendingDomains            SendingDomain[]
   outreachInboxes           Inbox[]
   outreachSendLogs          SendLog[]
+  outboundLists             OutboundList[]
+  outboundCampaigns         OutboundCampaign[]
+  outboundCampaignJobs      OutboundCampaignJob[]
   managedDomains            ManagedDomain[]
   managedDomainAssignments  ManagedDomainAssignment[]
   domainPurchaseRequests    DomainPurchaseRequest[]
@@ -663,6 +666,7 @@ model Contact {
   opportunities Opportunity[]
   callSessions  CallSession[]
   meetingRooms  MeetingRoom[]
+  outboundListMembers OutboundListMember[]
 
   @@index([workspaceId, email])
   @@index([workspaceId, companyId])
@@ -2472,11 +2476,13 @@ model Inbox {
   status          String   @default("ACTIVE")
   health          String   @default("HEALTHY")
   dailyLimit      Int      @default(30)
+  lastSentAt      DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   domain          SendingDomain @relation(fields: [sendingDomainId], references: [id], onDelete: Cascade)
   sendLogs        SendLog[]
+  campaignJobs    OutboundCampaignJob[]
 
   @@unique([sendingDomainId, localPart])
   @@unique([workspaceId, emailAddress])
@@ -2490,6 +2496,8 @@ model SendLog {
   inboxId         String
   sendingDomainId String
   contactId       String?
+  campaignId      String?
+  campaignJobId   String?
   toEmail         String
   status          String
   blockReason     String?
@@ -2502,6 +2510,76 @@ model SendLog {
   @@index([inboxId, utcDay, status])
   @@index([sendingDomainId, utcDay, status])
   @@index([workspaceId, utcDay, status])
+  @@index([campaignId])
+}
+
+model OutboundList {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members     OutboundListMember[]
+  campaigns   OutboundCampaign[]
+
+  @@index([workspaceId, createdAt])
+}
+
+model OutboundListMember {
+  id        String   @id @default(cuid())
+  listId    String
+  contactId String
+  createdAt DateTime @default(now())
+  list      OutboundList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact   Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, contactId])
+  @@index([contactId])
+}
+
+model OutboundCampaign {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  listId       String
+  name         String
+  status       String    @default("draft")
+  inboxPool    Json      @default("{\"type\":\"all\"}")
+  fromName     String?
+  subject      String
+  body         String
+  startAt      DateTime?
+  pauseReason  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  list         OutboundList         @relation(fields: [listId], references: [id], onDelete: Restrict)
+  jobs         OutboundCampaignJob[]
+
+  @@index([workspaceId, status])
+}
+
+model OutboundCampaignJob {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  campaignId    String
+  contactId     String
+  email         String
+  status        String    @default("queued")
+  inboxId       String?
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime?
+  skipReason    String?
+  sendLogId     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign      OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  inbox         Inbox?           @relation(fields: [inboxId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status, nextAttemptAt])
+  @@index([workspaceId, status])
 }
 
 model SenderIdentity {

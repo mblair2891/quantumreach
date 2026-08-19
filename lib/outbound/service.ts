@@ -118,7 +118,10 @@ export async function addInbox(
   });
 }
 
-export async function importContactsCsv(input: { workspaceId: string; csv: string; createdById?: string | null }, db: Db = prisma) {
+export async function importContactsCsv(
+  input: { workspaceId: string; csv: string; createdById?: string | null; listName?: string | null },
+  db: Db = prisma,
+) {
   const lines = input.csv.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (!lines.length) throw new Error("CSV is empty.");
   const headerCells = lines[0].split(",").map((cell) => cell.trim().toLowerCase().replace(/^"|"$/g, "").replace(/\s/g, ""));
@@ -127,6 +130,10 @@ export async function importContactsCsv(input: { workspaceId: string; csv: strin
   const firstIndex = hasHeader ? headerCells.indexOf("firstname") : 1;
   const lastIndex = hasHeader ? headerCells.indexOf("lastname") : 2;
   const rows = (hasHeader ? lines.slice(1) : lines).map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")));
+  const listName = input.listName?.trim();
+  const list = listName
+    ? await db.outboundList.create({ data: { workspaceId: input.workspaceId, name: listName } })
+    : null;
   let created = 0;
   let skipped = 0;
   for (const cells of rows) {
@@ -137,23 +144,26 @@ export async function importContactsCsv(input: { workspaceId: string; csv: strin
     }
     const firstName = (firstIndex >= 0 ? cells[firstIndex] : cells[1]) || "Contact";
     const lastName = (lastIndex >= 0 ? cells[lastIndex] : cells[2]) || "";
-    const existing = await db.contact.findFirst({ where: { workspaceId: input.workspaceId, email } });
-    if (existing) {
+    let contact = await db.contact.findFirst({ where: { workspaceId: input.workspaceId, email } });
+    if (contact) {
       skipped += 1;
-      continue;
+    } else {
+      contact = await db.contact.create({
+        data: {
+          workspaceId: input.workspaceId,
+          email,
+          firstName,
+          lastName,
+          createdById: input.createdById ?? undefined,
+        },
+      });
+      created += 1;
     }
-    await db.contact.create({
-      data: {
-        workspaceId: input.workspaceId,
-        email,
-        firstName,
-        lastName,
-        createdById: input.createdById ?? undefined,
-      },
-    });
-    created += 1;
+    if (list) {
+      await db.outboundListMember.create({ data: { listId: list.id, contactId: contact.id } }).catch(() => undefined);
+    }
   }
-  return { created, skipped, total: rows.length };
+  return { created, skipped, total: rows.length, listId: list?.id ?? null };
 }
 
 export async function canSend(inboxId: string, db: Db = prisma, now = new Date()): Promise<CanSendResult> {
@@ -169,7 +179,7 @@ export async function canSend(inboxId: string, db: Db = prisma, now = new Date()
   const day = utcDay(now);
   const inboxLimit = inbox.dailyLimit > 0 ? inbox.dailyLimit : DEFAULT_INBOX_DAILY_LIMIT;
   const inboxUsed = await db.sendLog.count({
-    where: { inboxId: inbox.id, utcDay: day, status: "STUB_SENT" },
+    where: { inboxId: inbox.id, utcDay: day, status: { in: ["STUB_SENT", "SENT"] } },
   });
   const inboxRemaining = Math.max(0, inboxLimit - inboxUsed);
   if (inboxRemaining <= 0) {
@@ -179,7 +189,7 @@ export async function canSend(inboxId: string, db: Db = prisma, now = new Date()
   const inboxCount = await db.inbox.count({ where: { sendingDomainId: inbox.sendingDomainId } });
   const cap = domainDailyLimit(inboxCount, inbox.domain.dailyCapOverride);
   const domainUsed = await db.sendLog.count({
-    where: { sendingDomainId: inbox.sendingDomainId, utcDay: day, status: "STUB_SENT" },
+    where: { sendingDomainId: inbox.sendingDomainId, utcDay: day, status: { in: ["STUB_SENT", "SENT"] } },
   });
   const domainRemaining = Math.max(0, cap - domainUsed);
   if (domainRemaining <= 0) {
@@ -189,7 +199,7 @@ export async function canSend(inboxId: string, db: Db = prisma, now = new Date()
   const limits = await packageLimitsFor(inbox.workspaceId, db);
   if (limits.maxDailySends) {
     const workspaceUsed = await db.sendLog.count({
-      where: { workspaceId: inbox.workspaceId, utcDay: day, status: "STUB_SENT" },
+      where: { workspaceId: inbox.workspaceId, utcDay: day, status: { in: ["STUB_SENT", "SENT"] } },
     });
     const workspaceRemaining = Math.max(0, limits.maxDailySends - workspaceUsed);
     if (workspaceRemaining <= 0) {
@@ -202,7 +212,13 @@ export async function canSend(inboxId: string, db: Db = prisma, now = new Date()
 }
 
 export async function recordSend(
-  input: { inboxId: string; toEmail: string; contactId?: string | null },
+  input: {
+    inboxId: string;
+    toEmail: string;
+    contactId?: string | null;
+    campaignId?: string | null;
+    campaignJobId?: string | null;
+  },
   db: Db = prisma,
   now = new Date(),
 ) {
@@ -225,6 +241,8 @@ export async function recordSend(
         inboxId: inbox.id,
         sendingDomainId: inbox.sendingDomainId,
         contactId: input.contactId ?? null,
+        campaignId: input.campaignId ?? null,
+        campaignJobId: input.campaignJobId ?? null,
         toEmail,
         status: "BLOCKED",
         blockReason: "SUPPRESSED",
@@ -241,6 +259,8 @@ export async function recordSend(
         inboxId: inbox.id,
         sendingDomainId: inbox.sendingDomainId,
         contactId: input.contactId ?? null,
+        campaignId: input.campaignId ?? null,
+        campaignJobId: input.campaignJobId ?? null,
         toEmail,
         status: "BLOCKED",
         blockReason: check.reason,
@@ -249,17 +269,21 @@ export async function recordSend(
     });
   }
 
-  return db.sendLog.create({
+  const log = await db.sendLog.create({
     data: {
       workspaceId: inbox.workspaceId,
       inboxId: inbox.id,
       sendingDomainId: inbox.sendingDomainId,
       contactId: input.contactId ?? null,
+      campaignId: input.campaignId ?? null,
+      campaignJobId: input.campaignJobId ?? null,
       toEmail,
       status: "STUB_SENT",
       utcDay: utcDay(now),
     },
   });
+  await db.inbox.update({ where: { id: inbox.id }, data: { lastSentAt: now } });
+  return log;
 }
 
 /** Stub cold send. Succeeds only if canSend. Does not call SES or Google. */

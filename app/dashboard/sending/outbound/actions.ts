@@ -42,7 +42,12 @@ export async function importOutboundContactsAction(form: FormData) {
     const file = form.get("csv");
     const pasted = String(form.get("csvText") ?? "");
     const csv = file instanceof File ? await file.text() : pasted;
-    await importContactsCsv({ workspaceId: workspace.id, csv, createdById: user.id });
+    await importContactsCsv({
+      workspaceId: workspace.id,
+      csv,
+      createdById: user.id,
+      listName: String(form.get("listName") ?? "Imported contacts"),
+    });
   } catch (error) {
     if (isRedirectError(error)) throw error;
     fail(error instanceof Error ? error.message : "Could not import contacts.");

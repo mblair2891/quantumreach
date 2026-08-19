@@ -18,7 +18,7 @@ const coreDomain = vi.hoisted(() => vi.fn(async () => ({ mode: "NONE" as const, 
 
 const db = {
   sendingDomain: { count: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
-  inbox: { count: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+  inbox: { count: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   sendLog: { count: vi.fn(), create: vi.fn() },
   contact: { findFirst: vi.fn(), create: vi.fn() },
   suppressionListEntry: { findFirst: vi.fn() },
