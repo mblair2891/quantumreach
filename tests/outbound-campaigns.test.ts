@@ -45,7 +45,7 @@ const db = vi.hoisted(() => ({
   inbox: { findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn(), update: vi.fn() },
   sendLog: { count: vi.fn(), create: vi.fn() },
   contact: { findUnique: vi.fn() },
-  suppressionListEntry: { findFirst: vi.fn() },
+  suppressionListEntry: { findFirst: vi.fn(), create: vi.fn() },
 }));
 
 vi.mock("server-only", () => ({}));
@@ -79,16 +79,21 @@ describe("outbound campaign send path", () => {
     gates.managedSendingEnabled = true;
     inboxes[0].lastSentAt = null;
     inboxes[1].lastSentAt = null;
+    inboxes[0].health = "HEALTHY";
+    inboxes[1].health = "HEALTHY";
+    inboxes[0].status = "ACTIVE";
+    inboxes[1].status = "ACTIVE";
     db.inbox.findMany.mockImplementation(async () =>
       [...inboxes].sort((a, b) => (a.lastSentAt?.getTime() ?? 0) - (b.lastSentAt?.getTime() ?? 0) || a.createdAt.getTime() - b.createdAt.getTime()),
     );
     db.inbox.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => inboxes.find((row) => row.id === where.id) ?? null);
     db.inbox.count.mockResolvedValue(2);
-    db.inbox.update.mockImplementation(async ({ where, data }: { where: { id: string }; data: { lastSentAt: Date } }) => {
+    db.inbox.update.mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const row = inboxes.find((inbox) => inbox.id === where.id);
-      if (row) row.lastSentAt = data.lastSentAt;
+      if (row) Object.assign(row, data);
       return row;
     });
+    db.suppressionListEntry.create.mockResolvedValue({});
     db.sendLog.count.mockResolvedValue(0);
     db.sendLog.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: `log_${String(data.inboxId)}`, ...data }));
     db.suppressionListEntry.findFirst.mockResolvedValue(null);
@@ -163,6 +168,52 @@ describe("outbound campaign send path", () => {
     gates.managedSendingEnabled = false;
     const { startOutreachCampaign } = await import("@/lib/outbound/campaigns");
     await expect(startOutreachCampaign("cmp_1", "w1", db as never)).rejects.toThrow("MANAGED_SENDING_ENABLED");
+  });
+
+  it("skips unhealthy inboxes after Google disconnect", async () => {
+    inboxes[0].health = "UNHEALTHY";
+    db.outboundCampaignJob.findMany.mockResolvedValue([
+      { id: "j1", campaignId: "cmp_1", contactId: "c1", email: "one@x.com", status: "queued" },
+    ]);
+    const { processCampaignBatch } = await import("@/lib/outbound/campaigns");
+    const result = await processCampaignBatch("cmp_1", { db: db as never, provider: new StubOutboundProvider() });
+    expect(result.sent).toBe(1);
+    expect(db.outboundCampaignJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "sent", inboxId: "inb_b" }) }),
+    );
+  });
+
+  it("suppresses bounce-like Google failures", async () => {
+    db.outboundCampaignJob.findMany.mockResolvedValue([
+      { id: "j1", campaignId: "cmp_1", contactId: "c1", email: "one@x.com", status: "queued" },
+    ]);
+    const provider = { id: "google", send: vi.fn(async () => ({ ok: false, provider: "google", reason: "BOUNCE_LIKE" })) };
+    const { processCampaignBatch } = await import("@/lib/outbound/campaigns");
+    const result = await processCampaignBatch("cmp_1", { db: db as never, provider: provider as never });
+    expect(result.skipped).toBe(1);
+    expect(db.suppressionListEntry.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: "one@x.com", reason: "HARD_BOUNCE" }) }),
+    );
+    expect(db.outboundCampaignJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "skipped", skipReason: "BOUNCE_LIKE" }) }),
+    );
+  });
+
+  it("marks the inbox unhealthy when Google auth is revoked", async () => {
+    db.outboundCampaignJob.findMany.mockResolvedValue([
+      { id: "j1", campaignId: "cmp_1", contactId: "c1", email: "one@x.com", status: "queued" },
+    ]);
+    const provider = { id: "google", send: vi.fn(async () => ({ ok: false, provider: "google", reason: "AUTH_REVOKED" })) };
+    const { processCampaignBatch } = await import("@/lib/outbound/campaigns");
+    await processCampaignBatch("cmp_1", { db: db as never, provider: provider as never });
+    expect(db.inbox.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ health: "UNHEALTHY", googleConnectionStatus: "REVOKED" }),
+      }),
+    );
+    expect(db.outboundCampaignJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "retry", skipReason: "AUTH_REVOKED" }) }),
+    );
   });
 
   it("pauses when no inbox has remaining capacity", async () => {

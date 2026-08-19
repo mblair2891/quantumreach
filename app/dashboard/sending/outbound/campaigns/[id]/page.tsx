@@ -92,9 +92,11 @@ export default async function OutreachCampaignDetailPage({
         <ul className="mt-3 space-y-1 text-sm text-slate-800">
           {capacity.map((row) => (
             <li key={row.inboxId}>
-              {row.emailAddress} · {row.usedToday} sent · {row.remaining} inbox remaining · {row.domainRemaining} on{" "}
-              {row.domain}
+              {row.emailAddress} · {row.provider ?? "stub"} · Google{" "}
+              {(row.googleConnectionStatus ?? "DISCONNECTED").toLowerCase()} · {row.usedToday} sent · {row.remaining}{" "}
+              inbox remaining · {row.domainRemaining} on {row.domain}
               {row.allowed ? "" : ` · blocked (${row.reason})`}
+              {row.lastError ? ` · ${row.lastError}` : ""}
             </li>
           ))}
           {!capacity.length ? <li>No outreach inboxes yet.</li> : null}

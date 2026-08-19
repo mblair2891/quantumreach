@@ -218,6 +218,7 @@ export async function recordSend(
     contactId?: string | null;
     campaignId?: string | null;
     campaignJobId?: string | null;
+    status?: "STUB_SENT" | "SENT";
   },
   db: Db = prisma,
   now = new Date(),
@@ -269,6 +270,7 @@ export async function recordSend(
     });
   }
 
+  const status = input.status === "SENT" ? "SENT" : "STUB_SENT";
   const log = await db.sendLog.create({
     data: {
       workspaceId: inbox.workspaceId,
@@ -278,11 +280,14 @@ export async function recordSend(
       campaignId: input.campaignId ?? null,
       campaignJobId: input.campaignJobId ?? null,
       toEmail,
-      status: "STUB_SENT",
+      status,
       utcDay: utcDay(now),
     },
   });
-  await db.inbox.update({ where: { id: inbox.id }, data: { lastSentAt: now } });
+  await db.inbox.update({
+    where: { id: inbox.id },
+    data: { lastSentAt: now, lastSuccessfulSendAt: now, lastError: null },
+  });
   return log;
 }
 

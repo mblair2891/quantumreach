@@ -32,6 +32,7 @@ export default async function OutreachCampaignsPage({
         {gated ? (
           <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
             Campaign sending is off until <code>MANAGED_SENDING_ENABLED=true</code>. You can still draft campaigns.
+            Real Gmail send stays disabled; the worker will not call Google.
           </p>
         ) : null}
       </header>

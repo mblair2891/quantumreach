@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getSendingGates } from "@/lib/sending-infrastructure/gates";
 import { canSend, recordSend } from "./service";
-import { getOutboundProvider, type OutboundProvider } from "./providers";
+import { getOutboundProviderForInbox, type OutboundProvider } from "./providers";
 import { utcDay } from "./config";
 
 type Db = typeof prisma;
@@ -164,10 +164,10 @@ export async function processCampaignBatch(
     return { processed: 0, sent: 0, skipped: 0, paused: false, completed: !remaining };
   }
 
-  const provider = options.provider ?? getOutboundProvider();
   const pool = parseInboxPool(campaign.inboxPool);
   let sent = 0;
   let skipped = 0;
+  let lastProvider = options.provider?.id ?? "stub";
 
   for (const job of jobs) {
     const suppressed = await db.suppressionListEntry.findFirst({ where: { workspaceId: campaign.workspaceId, email: job.email } });
@@ -192,6 +192,12 @@ export async function processCampaignBatch(
     const contact = await db.contact.findUnique({ where: { id: job.contactId } });
     const subject = applyMergeTags(campaign.subject, contact ?? { email: job.email });
     const body = applyMergeTags(campaign.body, contact ?? { email: job.email });
+    const provider =
+      options.provider ??
+      getOutboundProviderForInbox(inbox, {
+        MANAGED_SENDING_ENABLED: getSendingGates().managedSendingEnabled ? "true" : "false",
+      });
+    lastProvider = provider.id;
     const delivered = await provider.send({
       fromInbox: { id: inbox.id, emailAddress: inbox.emailAddress, displayName: inbox.displayName },
       fromName: campaign.fromName,
@@ -201,6 +207,37 @@ export async function processCampaignBatch(
     });
 
     if (!delivered.ok) {
+      if (delivered.reason === "AUTH_REVOKED") {
+        await db.inbox.update({
+          where: { id: inbox.id },
+          data: {
+            health: "UNHEALTHY",
+            googleConnectionStatus: "REVOKED",
+            lastError: "Google access was revoked. Reconnect this inbox.",
+          },
+        });
+      }
+      if (delivered.reason === "BOUNCE_LIKE") {
+        await db.suppressionListEntry.create({
+          data: {
+            workspaceId: campaign.workspaceId,
+            email: job.email,
+            reason: "HARD_BOUNCE",
+            source: "google_outbound",
+          },
+        }).catch(() => undefined);
+        await db.outboundCampaignJob.update({
+          where: { id: job.id },
+          data: {
+            status: "skipped",
+            skipReason: "BOUNCE_LIKE",
+            attempts: { increment: 1 },
+            inboxId: inbox.id,
+          },
+        });
+        skipped += 1;
+        continue;
+      }
       await db.outboundCampaignJob.update({
         where: { id: job.id },
         data: {
@@ -215,7 +252,14 @@ export async function processCampaignBatch(
     }
 
     const log = await recordSend(
-      { inboxId: inbox.id, toEmail: job.email, contactId: job.contactId, campaignId: campaign.id, campaignJobId: job.id },
+      {
+        inboxId: inbox.id,
+        toEmail: job.email,
+        contactId: job.contactId,
+        campaignId: campaign.id,
+        campaignJobId: job.id,
+        status: delivered.provider === "google" ? "SENT" : "STUB_SENT",
+      },
       db,
       now,
     );
@@ -246,7 +290,7 @@ export async function processCampaignBatch(
   if (!remaining) {
     await db.outboundCampaign.update({ where: { id: campaignId }, data: { status: "completed", pauseReason: null } });
   }
-  return { processed: sent + skipped, sent, skipped, paused: false, completed: !remaining, utcDay: utcDay(now), provider: provider.id };
+  return { processed: sent + skipped, sent, skipped, paused: false, completed: !remaining, utcDay: utcDay(now), provider: lastProvider };
 }
 
 export async function campaignCapacity(workspaceId: string, db: Db = prisma, now = new Date()) {
@@ -268,6 +312,10 @@ export async function campaignCapacity(workspaceId: string, db: Db = prisma, now
       domain: inbox.domain.domain,
       status: inbox.status,
       health: inbox.health,
+      provider: inbox.provider,
+      googleConnectionStatus: inbox.googleConnectionStatus,
+      lastError: inbox.lastError,
+      lastSuccessfulSendAt: inbox.lastSuccessfulSendAt,
       usedToday: used,
       remaining: check.inboxRemaining,
       domainRemaining: check.domainRemaining,

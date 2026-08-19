@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect";
 import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
 import { addInbox, addSendingDomain, importContactsCsv, stubSend } from "@/lib/outbound/service";
+import { disconnectGoogleInbox } from "@/lib/outbound/google-oauth";
 
 function fail(message: string) {
   redirect(`/dashboard/sending/outbound?error=${encodeURIComponent(message)}`);
@@ -53,6 +54,20 @@ export async function importOutboundContactsAction(form: FormData) {
     fail(error instanceof Error ? error.message : "Could not import contacts.");
   }
   redirect("/dashboard/sending/outbound?added=contacts");
+}
+
+export async function disconnectGoogleInboxAction(form: FormData) {
+  const { workspace, user, membership } = await requireSubscriberWorkspaceAccess();
+  if (!["WORKSPACE_OWNER", "ADMIN"].includes(String(membership.roleKey))) {
+    fail("Workspace admin access is required to disconnect Google.");
+  }
+  try {
+    await disconnectGoogleInbox(String(form.get("inboxId") ?? ""), workspace.id, user.id);
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    fail(error instanceof Error ? error.message : "Could not disconnect Google.");
+  }
+  redirect("/dashboard/sending/outbound?google=disconnected");
 }
 
 export async function stubOutboundSendAction(form: FormData) {

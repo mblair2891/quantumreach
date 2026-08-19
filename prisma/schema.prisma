@@ -2467,22 +2467,35 @@ model SendingDomain {
 
 /// Cold-outreach inbox (not SES mailbox). Max 3 per sending domain.
 model Inbox {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  sendingDomainId String
-  localPart       String
-  emailAddress    String
-  displayName     String?
-  status          String   @default("ACTIVE")
-  health          String   @default("HEALTHY")
-  dailyLimit      Int      @default(30)
-  lastSentAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  domain          SendingDomain @relation(fields: [sendingDomainId], references: [id], onDelete: Cascade)
-  sendLogs        SendLog[]
-  campaignJobs    OutboundCampaignJob[]
+  id                           String    @id @default(cuid())
+  workspaceId                  String
+  sendingDomainId              String
+  localPart                    String
+  emailAddress                 String
+  displayName                  String?
+  status                       String    @default("ACTIVE")
+  health                       String    @default("HEALTHY")
+  dailyLimit                   Int       @default(30)
+  lastSentAt                   DateTime?
+  /// stub | google
+  provider                     String    @default("stub")
+  /// DISCONNECTED | CONNECTED | EXPIRED | REVOKED | ERROR
+  googleConnectionStatus       String    @default("DISCONNECTED")
+  googleAccessTokenEncrypted   String?
+  googleRefreshTokenEncrypted  String?
+  googleAccessTokenExpiresAt   DateTime?
+  googleScopes                 String?
+  googleConnectedAt            DateTime?
+  googleConnectedById          String?
+  googleAccountEmail           String?
+  lastSuccessfulSendAt         DateTime?
+  lastError                    String?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+  workspace                    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  domain                       SendingDomain @relation(fields: [sendingDomainId], references: [id], onDelete: Cascade)
+  sendLogs                     SendLog[]
+  campaignJobs                 OutboundCampaignJob[]
 
   @@unique([sendingDomainId, localPart])
   @@unique([workspaceId, emailAddress])
