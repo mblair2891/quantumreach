@@ -68,7 +68,7 @@ function accountSetupCopy(input: AccountSetupEmailInput) {
   const html = [
     "<!DOCTYPE html><html><body>",
     "<p>Your Quantum Reach payment is confirmed. Create your password to activate your workspace.</p>",
-    `<p><a href="${href}">Set up your account</a></p>`,
+    `<p><a href="${href}" style="display:inline-block;background:#0369a1;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Set up your account</a></p>`,
     `<p>This link expires in about ${ttl} hours and can be used once.</p>`,
     `<p>Order id (for support): ${orderId}</p>`,
     "<p>If you didn't make this purchase, ignore this email.</p>",
