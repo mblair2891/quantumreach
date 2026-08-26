@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { getWorkspaceEffectiveEntitlements } from "@/lib/sending-infrastructure/operational";
 import { getWorkspaceCoreDomain, normalizeCoreDomainName } from "@/lib/workspaces/core-domain";
+import { hygienizeRows, parseCsv, summarizeHygiene } from "@/lib/contacts/hygiene";
+import { loadHygieneContext, persistReadyRows } from "@/lib/contacts/ingest";
 import {
   DEFAULT_INBOX_DAILY_LIMIT,
   INBOXES_PER_DOMAIN,
@@ -122,48 +124,43 @@ export async function importContactsCsv(
   input: { workspaceId: string; csv: string; createdById?: string | null; listName?: string | null },
   db: Db = prisma,
 ) {
-  const lines = input.csv.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) throw new Error("CSV is empty.");
-  const headerCells = lines[0].split(",").map((cell) => cell.trim().toLowerCase().replace(/^"|"$/g, "").replace(/\s/g, ""));
-  const hasHeader = headerCells.includes("email");
-  const emailIndex = hasHeader ? headerCells.indexOf("email") : 0;
-  const firstIndex = hasHeader ? headerCells.indexOf("firstname") : 1;
-  const lastIndex = hasHeader ? headerCells.indexOf("lastname") : 2;
-  const rows = (hasHeader ? lines.slice(1) : lines).map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")));
+  const parsed = parseCsv(input.csv);
+  if (!parsed.length) throw new Error("CSV is empty.");
+  const emails = parsed.map((row) => String(row.email ?? row.Email ?? ""));
+  const context = await loadHygieneContext(input.workspaceId, emails, db);
+  const rows = hygienizeRows(parsed, { ...context, titleCaseNames: true });
+  const summary = summarizeHygiene(rows);
+  const persisted = await persistReadyRows(
+    {
+      workspaceId: input.workspaceId,
+      rows,
+      source: "IMPORTED_CSV",
+      listName: input.listName,
+      createdById: input.createdById,
+      existingByEmail: context.existingByEmail,
+    },
+    db,
+  );
   const listName = input.listName?.trim();
-  const list = listName
-    ? await db.outboundList.create({ data: { workspaceId: input.workspaceId, name: listName } })
-    : null;
-  let created = 0;
-  let skipped = 0;
-  for (const cells of rows) {
-    const email = (cells[emailIndex] ?? cells[0] ?? "").toLowerCase();
-    if (!email || !email.includes("@")) {
-      skipped += 1;
-      continue;
-    }
-    const firstName = (firstIndex >= 0 ? cells[firstIndex] : cells[1]) || "Contact";
-    const lastName = (lastIndex >= 0 ? cells[lastIndex] : cells[2]) || "";
-    let contact = await db.contact.findFirst({ where: { workspaceId: input.workspaceId, email } });
-    if (contact) {
-      skipped += 1;
-    } else {
-      contact = await db.contact.create({
-        data: {
-          workspaceId: input.workspaceId,
-          email,
-          firstName,
-          lastName,
-          createdById: input.createdById ?? undefined,
-        },
-      });
-      created += 1;
-    }
-    if (list) {
+  let listId: string | null = null;
+  if (listName && persisted.contacts.length) {
+    const list = await db.outboundList.create({ data: { workspaceId: input.workspaceId, name: listName } });
+    listId = list.id;
+    for (const contact of persisted.contacts) {
       await db.outboundListMember.create({ data: { listId: list.id, contactId: contact.id } }).catch(() => undefined);
     }
   }
-  return { created, skipped, total: rows.length, listId: list?.id ?? null };
+  return {
+    created: persisted.created,
+    skipped: persisted.skipped,
+    merged: persisted.merged,
+    total: parsed.length,
+    listId,
+    ready: summary.readyCount,
+    needsReview: summary.needsReviewCount,
+    invalid: summary.invalidCount,
+    suppressed: summary.suppressedCount,
+  };
 }
 
 export async function canSend(inboxId: string, db: Db = prisma, now = new Date()): Promise<CanSendResult> {

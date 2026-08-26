@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from "@/lib/db/prisma";
+import { isCampaignEligible, isValidEmailSyntax, normalizeEmail } from "@/lib/contacts/hygiene";
 import { createToken, isSuppressed, queueOrSendEmail } from "./email";
 export async function evaluateCampaignCompliance(workspaceId: string, campaignId: string) {
   const campaign = await (prisma as any).emailCampaign.findFirst({ where: { id: campaignId, workspaceId }, include: { senderIdentity: { include: { domain: true } }, recipients: true, steps: true } });
@@ -22,9 +23,12 @@ export function renderEmail(body: string, contact: any, unsubscribeToken: string
   const base = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   return body.replaceAll("{{first_name}}", contact.firstName ?? "there").replaceAll("{{company}}", contact.company?.name ?? "your company").replaceAll("{{unsubscribe_url}}", `${base}/unsubscribe/${unsubscribeToken}`).replaceAll("{{scheduling_url}}", schedulingToken ? `${base}/book/${schedulingToken}` : "");
 }
-export async function addCampaignRecipient(workspaceId: string, campaignId: string, contact: { id?: string; email: string }) {
-  if (await isSuppressed(workspaceId, contact.email)) return null;
-  return (prisma as any).emailRecipient.create({ data: { workspaceId, campaignId, contactId: contact.id, email: contact.email.toLowerCase(), unsubscribeToken: createToken(), schedulingToken: createToken(18) } });
+export async function addCampaignRecipient(workspaceId: string, campaignId: string, contact: { id?: string; email: string; hygieneStatus?: string | null; status?: string | null }) {
+  const email = normalizeEmail(contact.email);
+  if (!isValidEmailSyntax(email)) return null;
+  if (!isCampaignEligible({ ...contact, email })) return null;
+  if (await isSuppressed(workspaceId, email)) return null;
+  return (prisma as any).emailRecipient.create({ data: { workspaceId, campaignId, contactId: contact.id, email, unsubscribeToken: createToken(), schedulingToken: createToken(18) } });
 }
 export async function queueFirstStep(workspaceId: string, campaignId: string) {
   const campaign = await (prisma as any).emailCampaign.findFirst({ where: { id: campaignId, workspaceId }, include: { steps: { orderBy: { stepNumber: "asc" } }, recipients: true } });

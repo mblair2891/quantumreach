@@ -179,17 +179,20 @@ export default async function OutboundPage({
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="font-semibold text-slate-950">Import contacts CSV</h2>
-        <p className="mt-1 text-sm text-slate-600">Columns: email, firstName, lastName</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Columns: email, firstName, lastName, company, companyDomain. Preview hygiene before import. Campaigns enroll
+          ready contacts only.
+        </p>
         <form action={importOutboundContactsAction} className="mt-4 grid gap-3">
           <input name="listName" placeholder="List name" defaultValue="Imported contacts" className="rounded-xl border px-3 py-2" />
-          <textarea name="csvText" rows={5} placeholder={"email,firstName,lastName\nprospect@example.com,Ada,Lovelace"} className="rounded-xl border px-3 py-2 font-mono text-sm" />
-          <button className="w-fit rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Import contacts</button>
+          <textarea name="csvText" rows={5} placeholder={"email,firstName,lastName,company,companyDomain\nprospect@example.com,Ada,Lovelace,Acme,acme.com"} className="rounded-xl border px-3 py-2 font-mono text-sm" />
+          <button className="w-fit rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Preview hygiene</button>
         </form>
         {contacts.length ? (
           <ul className="mt-4 space-y-1 text-sm text-slate-800">
             {contacts.map((contact) => (
               <li key={contact.id}>
-                {contact.email} — {contact.firstName} {contact.lastName}
+                {contact.email} — {contact.firstName} {contact.lastName} · {contact.hygieneStatus.toLowerCase()}
               </li>
             ))}
           </ul>

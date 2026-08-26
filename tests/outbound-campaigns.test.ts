@@ -40,12 +40,13 @@ const inboxes = [
 
 const db = vi.hoisted(() => ({
   outboundList: { findFirst: vi.fn(), create: vi.fn() },
-  outboundCampaign: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+  outboundCampaign: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   outboundCampaignJob: { upsert: vi.fn(), findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
   inbox: { findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn(), update: vi.fn() },
   sendLog: { count: vi.fn(), create: vi.fn() },
   contact: { findUnique: vi.fn() },
   suppressionListEntry: { findFirst: vi.fn(), create: vi.fn() },
+  workspace: { findUnique: vi.fn() },
 }));
 
 vi.mock("server-only", () => ({}));
@@ -64,7 +65,13 @@ const campaign = {
   inboxPool: { type: "all" },
   fromName: "Ada",
   subject: "Hi {{FirstName}}",
-  body: "Hello {{FirstName}} at {{Email}}",
+  body: "Hello {{FirstName}} at {{Email}}\n{{unsubscribe_url}}",
+  workspace: {
+    id: "w1",
+    name: "Acme",
+    legalName: "Acme Inc",
+    physicalMailingAddress: "1 Main St, Austin, TX 78701",
+  },
   list: {
     members: [
       { contactId: "c1", contact: { id: "c1", email: "one@x.com", firstName: "One", lastName: "A" } },
@@ -97,7 +104,9 @@ describe("outbound campaign send path", () => {
     db.sendLog.count.mockResolvedValue(0);
     db.sendLog.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: `log_${String(data.inboxId)}`, ...data }));
     db.suppressionListEntry.findFirst.mockResolvedValue(null);
+    db.workspace.findUnique.mockResolvedValue(campaign.workspace);
     db.outboundCampaign.findUnique.mockResolvedValue(campaign);
+    db.outboundCampaign.findMany.mockResolvedValue([{ id: campaign.id }]);
     db.outboundCampaign.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...campaign, ...data }));
     db.outboundCampaignJob.update.mockResolvedValue({});
     db.outboundCampaignJob.count.mockResolvedValue(0);
@@ -110,6 +119,63 @@ describe("outbound campaign send path", () => {
   it("applies FirstName and Email merge tags", async () => {
     const { applyMergeTags } = await import("@/lib/outbound/campaigns");
     expect(applyMergeTags("Hi {{FirstName}} <{{Email}}>", { firstName: "Ada", email: "ada@x.com" })).toBe("Hi Ada <ada@x.com>");
+  });
+
+  it("blocks start when the list has no campaign-ready contacts", async () => {
+    db.outboundCampaign.findFirst.mockResolvedValue({
+      ...campaign,
+      status: "draft",
+      list: {
+        members: [
+          { contactId: "c_bad", contact: { id: "c_bad", email: "not-an-email", firstName: "Pat", lastName: "X", hygieneStatus: "INVALID" } },
+          { contactId: "c_rev", contact: { id: "c_rev", email: "bob@gmail.com", firstName: "Bob", lastName: "Y", hygieneStatus: "NEEDS_REVIEW" } },
+        ],
+      },
+    });
+    const { startOutreachCampaign } = await import("@/lib/outbound/campaigns");
+    await expect(startOutreachCampaign("cmp_1", "w1", db as never)).rejects.toThrow("no campaign-ready contacts");
+    expect(db.outboundCampaignJob.upsert).not.toHaveBeenCalled();
+  });
+
+  it("does not enroll needs_review, invalid, or duplicate-email primaries", async () => {
+    db.outboundCampaign.findFirst.mockResolvedValue({
+      ...campaign,
+      status: "draft",
+      list: {
+        members: [
+          { contactId: "c1", contact: { id: "c1", email: "one@x.com", firstName: "One", lastName: "A", hygieneStatus: "READY" } },
+          { contactId: "c1b", contact: { id: "c1b", email: "one@x.com", firstName: "One", lastName: "Clone", hygieneStatus: "READY" } },
+          { contactId: "c_rev", contact: { id: "c_rev", email: "review@x.com", firstName: "Rev", lastName: "B", hygieneStatus: "NEEDS_REVIEW" } },
+          { contactId: "c_bad", contact: { id: "c_bad", email: "bad", firstName: "Bad", lastName: "C", hygieneStatus: "INVALID" } },
+        ],
+      },
+    });
+    db.outboundCampaignJob.upsert.mockResolvedValue({});
+    const { startOutreachCampaign } = await import("@/lib/outbound/campaigns");
+    await startOutreachCampaign("cmp_1", "w1", db as never);
+    const creates = db.outboundCampaignJob.upsert.mock.calls.map((call: unknown[]) => (call[0] as { create: { email: string; status: string; skipReason: string | null } }).create);
+    expect(creates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ email: "one@x.com", status: "queued", skipReason: null }),
+        expect.objectContaining({ email: "one@x.com", status: "skipped", skipReason: "DUPLICATE_EMAIL" }),
+        expect.objectContaining({ email: "review@x.com", status: "skipped", skipReason: "NEEDS_REVIEW" }),
+        expect.objectContaining({ email: "bad", status: "skipped", skipReason: "INVALID" }),
+      ]),
+    );
+  });
+
+  it("skips needs_review contacts at send time", async () => {
+    db.outboundCampaignJob.findMany.mockResolvedValue([
+      { id: "j1", campaignId: "cmp_1", contactId: "c1", email: "one@x.com", status: "queued" },
+    ]);
+    db.contact.findUnique.mockResolvedValue({ id: "c1", email: "one@x.com", firstName: "One", hygieneStatus: "NEEDS_REVIEW" });
+    const { processCampaignBatch } = await import("@/lib/outbound/campaigns");
+    const result = await processCampaignBatch("cmp_1", { db: db as never, provider: new StubOutboundProvider() });
+    expect(result.sent).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(db.outboundCampaignJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "skipped", skipReason: "NEEDS_REVIEW" }) }),
+    );
   });
 
   it("skips suppressed contacts at enqueue and never records a send", async () => {
@@ -197,6 +263,56 @@ describe("outbound campaign send path", () => {
     expect(db.outboundCampaignJob.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "skipped", skipReason: "BOUNCE_LIKE" }) }),
     );
+  });
+
+  it("blocks start without a physical mailing address", async () => {
+    db.outboundCampaign.findFirst.mockResolvedValue({ ...campaign, status: "draft" });
+    db.workspace.findUnique.mockResolvedValue({ id: "w1", name: "Acme", physicalMailingAddress: null });
+    const { startOutreachCampaign } = await import("@/lib/outbound/campaigns");
+    await expect(startOutreachCampaign("cmp_1", "w1", db as never)).rejects.toThrow("physical mailing address");
+    expect(db.outboundCampaignJob.upsert).not.toHaveBeenCalled();
+  });
+
+  it("blocks start without an unsubscribe merge tag", async () => {
+    db.outboundCampaign.findFirst.mockResolvedValue({
+      ...campaign,
+      status: "draft",
+      body: "Hello {{FirstName}} with no unsub tag",
+    });
+    const { startOutreachCampaign } = await import("@/lib/outbound/campaigns");
+    await expect(startOutreachCampaign("cmp_1", "w1", db as never)).rejects.toThrow("unsubscribe_url");
+    expect(db.outboundCampaignJob.upsert).not.toHaveBeenCalled();
+  });
+
+  it("appends mailing address and unsubscribe URL on Instantly sends", async () => {
+    const send = vi.fn(async () => ({ ok: true, provider: "stub" }));
+    db.outboundCampaignJob.findMany.mockResolvedValue([
+      { id: "j1", campaignId: "cmp_1", contactId: "c1", email: "one@x.com", status: "queued", unsubscribeToken: "tok_unsub" },
+    ]);
+    const { processCampaignBatch } = await import("@/lib/outbound/campaigns");
+    await processCampaignBatch("cmp_1", { db: db as never, provider: { id: "stub", send } as never });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("1 Main St, Austin, TX 78701"),
+      }),
+    );
+    expect(send.mock.calls[0][0].body).toContain("/unsubscribe/tok_unsub");
+    expect(send.mock.calls[0][0].body).toContain("Acme Inc");
+  });
+
+  it("worker drains running Instantly campaigns without a manual process click", async () => {
+    db.outboundCampaignJob.findMany.mockResolvedValue([
+      { id: "j1", campaignId: "cmp_1", contactId: "c1", email: "one@x.com", status: "queued", unsubscribeToken: "t1" },
+    ]);
+    const { processRunningOutboundCampaigns } = await import("@/lib/outbound/campaigns");
+    const result = await processRunningOutboundCampaigns({ db: db as never, provider: new StubOutboundProvider() });
+    expect(db.outboundCampaign.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: "running" } }),
+    );
+    expect(result.sent).toBe(1);
+    expect(result.processedCampaigns).toBe(1);
+    expect(source("lib/jobs/service.ts")).toContain("processRunningOutboundCampaigns");
+    expect(source("lib/jobs/service.ts")).toContain("OUTBOUND_CAMPAIGN_BATCH");
   });
 
   it("marks the inbox unhealthy when Google auth is revoked", async () => {

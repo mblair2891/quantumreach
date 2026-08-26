@@ -10,8 +10,10 @@ import { Button } from "@/components/ui/button";
 import { requireWorkspaceAdmin } from "@/lib/auth/rbac";
 import { getBillingConfig } from "@/lib/billing/config";
 import { displayCoreDomainMode, getWorkspaceCoreDomain } from "@/lib/workspaces/core-domain";
+import { Input, Textarea } from "@/components/ui/input";
+import { saveSendingIdentityAction } from "./actions";
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams?: { error?: string; saved?: string } }) {
   const { workspace, membership } = await requireWorkspaceAdmin();
   const billing = getBillingConfig();
   const coreDomain = await getWorkspaceCoreDomain(workspace.id);
@@ -28,7 +30,40 @@ export default async function Page() {
           {workspace.name}.
         </p>
       </header>
+      {searchParams?.error ? (
+        <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          {searchParams.error}
+        </p>
+      ) : null}
+      {searchParams?.saved ? (
+        <p role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
+          Mailing identity saved. Instantly campaigns will append this footer.
+        </p>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Campaign mailing identity</CardTitle>
+            <CardDescription>
+              CAN-SPAM: Instantly commercial sends include this legal name and physical address plus an unsubscribe
+              link. Campaigns cannot start without an address.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form action={saveSendingIdentityAction} className="grid gap-3">
+              <Input name="legalName" placeholder="Legal name" defaultValue={workspace.legalName ?? workspace.name} />
+              <Textarea
+                name="physicalMailingAddress"
+                required
+                rows={3}
+                placeholder="123 Main St, Austin, TX 78701, United States"
+                defaultValue={workspace.physicalMailingAddress ?? ""}
+              />
+              <Button type="submit">Save mailing identity</Button>
+            </form>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Workspace profile</CardTitle>

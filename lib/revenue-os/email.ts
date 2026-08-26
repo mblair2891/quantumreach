@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { isDomainSendReady } from "@/lib/managed-domains/service";
+import { markContactsSuppressed } from "@/lib/contacts/ingest";
 
 type SendInput = { workspaceId: string; to: string; subject: string; html: string; campaignId?: string; sequenceStepId?: string; contactId?: string; senderIdentityId?: string; managedDomainId?: string };
 
@@ -41,11 +42,16 @@ export async function isSuppressed(workspaceId: string, email: string) {
 }
 
 export async function addSuppression(workspaceId: string, email: string, reason: "UNSUBSCRIBED" | "HARD_BOUNCE" | "COMPLAINT" | "MANUAL" | "IMPORTED", source?: string, contactId?: string) {
-  return (prisma as any).suppressionListEntry.upsert({
+  const entry = await (prisma as any).suppressionListEntry.upsert({
     where: { workspaceId_email_reason: { workspaceId, email: normalizeEmail(email), reason } },
     update: { source, contactId },
     create: { workspaceId, email: normalizeEmail(email), reason, source, contactId }
   });
+  await markContactsSuppressed(workspaceId, email).catch(() => undefined);
+  if (contactId) {
+    await (prisma as any).contact.update({ where: { id: contactId }, data: { hygieneStatus: "SUPPRESSED" } }).catch(() => undefined);
+  }
+  return entry;
 }
 
 export async function enforceSendGate(input: SendInput) {
@@ -82,11 +88,20 @@ export async function queueOrSendEmail(input: SendInput) {
 }
 
 export async function unsubscribeByToken(token: string) {
+  const job = await (prisma as any).outboundCampaignJob.findUnique({ where: { unsubscribeToken: token } });
+  if (job) {
+    await addSuppression(job.workspaceId, job.email, "UNSUBSCRIBED", "unsubscribe_link", job.contactId ?? undefined);
+    await (prisma as any).outboundCampaignJob.updateMany({
+      where: { workspaceId: job.workspaceId, email: job.email, status: { in: ["queued", "retry"] } },
+      data: { status: "skipped", skipReason: "UNSUBSCRIBED" },
+    });
+    return { ok: true, workspaceId: job.workspaceId, source: "outbound" as const };
+  }
   const recipient = await (prisma as any).emailRecipient.findUnique({ where: { unsubscribeToken: token }, include: { campaign: true } });
   if (!recipient) return null;
   await addSuppression(recipient.workspaceId, recipient.email, "UNSUBSCRIBED", "unsubscribe_link", recipient.contactId ?? undefined);
   await (prisma as any).emailEvent.create({ data: { workspaceId: recipient.workspaceId, eventType: "unsubscribe", safeSummary: { emailDomain: recipient.email.split("@")[1] ?? null } } });
-  return { ok: true, workspaceId: recipient.workspaceId };
+  return { ok: true, workspaceId: recipient.workspaceId, source: "email_campaign" as const };
 }
 
 export async function handleSesEvent(input: { workspaceId: string; type: "bounce" | "complaint"; email: string; messageId?: string }) {

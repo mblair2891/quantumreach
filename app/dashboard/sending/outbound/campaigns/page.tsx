@@ -12,8 +12,14 @@ export default async function OutreachCampaignsPage({
   const { workspace } = await requireSubscriberWorkspaceAccess();
   const [campaigns, lists] = await Promise.all([
     prisma.outboundCampaign.findMany({ where: { workspaceId: workspace.id }, orderBy: { createdAt: "desc" }, include: { list: true } }),
-    prisma.outboundList.findMany({ where: { workspaceId: workspace.id }, orderBy: { createdAt: "desc" } }),
+    prisma.outboundList.findMany({
+      where: { workspaceId: workspace.id },
+      orderBy: { createdAt: "desc" },
+      include: { members: { include: { contact: { select: { hygieneStatus: true, email: true, status: true } } } } },
+    }),
   ]);
+  const listReady = (list: (typeof lists)[number]) =>
+    list.members.filter((member) => member.contact.status !== "ARCHIVED" && (member.contact.hygieneStatus ?? "READY") === "READY" && member.contact.email).length;
   const gated = !getSendingGates().managedSendingEnabled;
 
   return (
@@ -51,22 +57,35 @@ export default async function OutreachCampaignsPage({
             <option value="">Select imported list</option>
             {lists.map((list) => (
               <option key={list.id} value={list.id}>
-                {list.name}
+                {list.name} ({listReady(list)} ready / {list.members.length})
               </option>
             ))}
           </select>
           <input name="fromName" placeholder="From name (optional)" className="rounded-xl border px-3 py-2" />
           <input name="subject" required placeholder="Subject — Hello {{FirstName}}" className="rounded-xl border px-3 py-2" />
-          <textarea name="body" required rows={6} placeholder="Hi {{FirstName}}, …" className="rounded-xl border px-3 py-2" />
+          <textarea
+            name="body"
+            required
+            rows={6}
+            placeholder={"Hi {{FirstName}},\n\n…\n\n{{unsubscribe_url}}"}
+            className="rounded-xl border px-3 py-2"
+          />
+          <p className="text-sm text-slate-600">
+            Body must include <code>{"{{unsubscribe_url}}"}</code>. Set your physical mailing address in{" "}
+            <Link className="underline" href="/dashboard/settings">
+              Settings
+            </Link>{" "}
+            before starting. The worker appends the legal footer on send.
+          </p>
           <button className="w-fit rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Save draft</button>
         </form>
         {!lists.length ? (
           <p className="mt-3 text-sm text-slate-600">
             Import a CSV list on{" "}
-            <Link className="underline" href="/dashboard/sending/outbound">
-              Cold outreach
+            <Link className="underline" href="/dashboard/imports">
+              Contact imports
             </Link>{" "}
-            first.
+            and keep only ready rows. Lists with zero ready contacts cannot start.
           </p>
         ) : null}
       </section>

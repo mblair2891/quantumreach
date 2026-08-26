@@ -416,12 +416,14 @@ model UserProfile {
 }
 
 model Workspace {
-  id          String       @id @default(cuid())
-  name        String
-  slug        String       @unique
-  description String?
-  settings    Json         @default("{}")
-  ownerId     String?
+  id                       String       @id @default(cuid())
+  name                     String
+  slug                     String       @unique
+  description              String?
+  settings                 Json         @default("{}")
+  legalName                String?
+  physicalMailingAddress   String?
+  ownerId                  String?
   status      RecordStatus @default(ACTIVE)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -648,28 +650,36 @@ model Company {
 }
 
 model Contact {
-  id          String       @id @default(cuid())
-  workspaceId String
-  companyId   String?
-  firstName   String
-  lastName    String
-  email       String?
-  phone       String?
-  title       String?
-  status      RecordStatus @default(ACTIVE)
-  createdById String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id            String               @id @default(cuid())
+  workspaceId   String
+  companyId     String?
+  firstName     String
+  lastName      String
+  email         String?
+  phone         String?
+  title         String?
+  status        RecordStatus         @default(ACTIVE)
+  /// Campaign-eligibility hygiene. Independent of CRM archive `status`.
+  hygieneStatus ContactHygieneStatus @default(READY)
+  hygieneFlags  Json                 @default("[]")
+  companyRaw    String?
+  companyDomain String?
+  source        ContactSource        @default(MANUAL)
+  sourceDetail  Json                 @default("{}")
+  createdById   String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
 
-  company       Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  opportunities Opportunity[]
-  callSessions  CallSession[]
-  meetingRooms  MeetingRoom[]
+  company             Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  opportunities       Opportunity[]
+  callSessions        CallSession[]
+  meetingRooms        MeetingRoom[]
   outboundListMembers OutboundListMember[]
 
   @@index([workspaceId, email])
   @@index([workspaceId, companyId])
+  @@index([workspaceId, hygieneStatus])
 }
 
 model Lead {
@@ -2128,6 +2138,14 @@ enum ContactSource {
   FORM_SCHEDULER
   CAMPAIGN_REPLY
   CLIENT_PROVISIONED
+  WEBHOOK
+}
+
+enum ContactHygieneStatus {
+  READY
+  NEEDS_REVIEW
+  INVALID
+  SUPPRESSED
 }
 
 enum ContactImportStatus {
@@ -2393,12 +2411,18 @@ model ContactImportBatch {
   id                 String              @id @default(cuid())
   workspaceId        String
   fileName           String?
+  listName           String?
   status             ContactImportStatus @default(PREVIEW)
   complianceAttested Boolean             @default(false)
   attestationText    String?
   rowCount           Int                 @default(0)
   validCount         Int                 @default(0)
   invalidCount       Int                 @default(0)
+  readyCount         Int                 @default(0)
+  needsReviewCount   Int                 @default(0)
+  suppressedCount    Int                 @default(0)
+  mergedCount        Int                 @default(0)
+  readyOnlyCommitted Boolean             @default(false)
   createdById        String?
   committedAt        DateTime?
   createdAt          DateTime            @default(now())
@@ -2410,19 +2434,20 @@ model ContactImportBatch {
 }
 
 model ContactImportRow {
-  id                 String             @id @default(cuid())
+  id                 String               @id @default(cuid())
   workspaceId        String
   batchId            String
   rowNumber          Int
-  raw                Json               @default("{}")
-  mapped             Json               @default("{}")
-  isValid            Boolean            @default(false)
-  issues             Json               @default("[]")
+  raw                Json                 @default("{}")
+  mapped             Json                 @default("{}")
+  isValid            Boolean              @default(false)
+  issues             Json                 @default("[]")
+  hygieneStatus      ContactHygieneStatus @default(INVALID)
   dedupeKey          String?
   committedContactId String?
-  createdAt          DateTime           @default(now())
-  batch              ContactImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  workspace          Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt          DateTime             @default(now())
+  batch              ContactImportBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, batchId])
   @@index([workspaceId, dedupeKey])
@@ -2573,22 +2598,23 @@ model OutboundCampaign {
 }
 
 model OutboundCampaignJob {
-  id            String    @id @default(cuid())
-  workspaceId   String
-  campaignId    String
-  contactId     String
-  email         String
-  status        String    @default("queued")
-  inboxId       String?
-  attempts      Int       @default(0)
-  nextAttemptAt DateTime?
-  skipReason    String?
-  sendLogId     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  campaign      OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  inbox         Inbox?           @relation(fields: [inboxId], references: [id], onDelete: SetNull)
+  id               String    @id @default(cuid())
+  workspaceId      String
+  campaignId       String
+  contactId        String
+  email            String
+  status           String    @default("queued")
+  inboxId          String?
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime?
+  skipReason       String?
+  sendLogId        String?
+  unsubscribeToken String?   @unique
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign         OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  inbox            Inbox?           @relation(fields: [inboxId], references: [id], onDelete: SetNull)
 
   @@unique([campaignId, contactId])
   @@index([campaignId, status, nextAttemptAt])

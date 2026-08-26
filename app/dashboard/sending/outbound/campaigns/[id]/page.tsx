@@ -15,9 +15,15 @@ export default async function OutreachCampaignDetailPage({
   const { workspace } = await requireSubscriberWorkspaceAccess();
   const campaign = await prisma.outboundCampaign.findFirst({
     where: { id: params.id, workspaceId: workspace.id },
-    include: { list: true, jobs: { orderBy: { createdAt: "asc" }, take: 50 } },
+    include: {
+      list: { include: { members: { include: { contact: { select: { hygieneStatus: true, email: true, status: true } } } } } },
+      jobs: { orderBy: { createdAt: "asc" }, take: 50 },
+    },
   });
   if (!campaign) notFound();
+  const readyCount = campaign.list.members.filter(
+    (member) => member.contact.status !== "ARCHIVED" && (member.contact.hygieneStatus ?? "READY") === "READY" && member.contact.email,
+  ).length;
   const [counts, capacity] = await Promise.all([
     prisma.outboundCampaignJob.groupBy({
       by: ["status"],
@@ -39,7 +45,8 @@ export default async function OutreachCampaignDetailPage({
         <h1 className="text-3xl font-semibold text-slate-950">{campaign.name}</h1>
         <p className="mt-2 text-slate-700">
           Status <strong>{campaign.status}</strong>
-          {campaign.pauseReason ? ` · ${campaign.pauseReason}` : ""} · list {campaign.list.name}
+          {campaign.pauseReason ? ` · ${campaign.pauseReason}` : ""} · list {campaign.list.name} · {readyCount} ready /{" "}
+          {campaign.list.members.length} in audience
         </p>
       </header>
 
@@ -58,14 +65,21 @@ export default async function OutreachCampaignDetailPage({
         {campaign.status === "draft" || campaign.status === "paused" ? (
           <form action={startCampaignAction}>
             <input type="hidden" name="campaignId" value={campaign.id} />
-            <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Start campaign</button>
+            <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white" disabled={readyCount === 0}>
+              Start campaign
+            </button>
           </form>
+        ) : null}
+        {readyCount === 0 ? (
+          <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            No campaign-ready contacts. Needs review, invalid, and suppressed rows are not enrolled.
+          </p>
         ) : null}
         {campaign.status === "running" ? (
           <>
             <form action={processCampaignAction}>
               <input type="hidden" name="campaignId" value={campaign.id} />
-              <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Process batch</button>
+              <button className="rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">Run now</button>
             </form>
             <form action={pauseCampaignAction}>
               <input type="hidden" name="campaignId" value={campaign.id} />
@@ -78,7 +92,8 @@ export default async function OutreachCampaignDetailPage({
       <section className="rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="font-semibold text-slate-950">Queue</h2>
         <p className="mt-2 text-sm text-slate-700">
-          queued {tally.queued ?? 0} · sent {tally.sent ?? 0} · skipped {tally.skipped ?? 0} · retry {tally.retry ?? 0}
+          queued {tally.queued ?? 0} · sent {tally.sent ?? 0} · skipped {tally.skipped ?? 0} · retry {tally.retry ?? 0}.
+          The hourly job runner drains running Instantly campaigns; you do not need to click Run now.
         </p>
         <p className="mt-3 whitespace-pre-wrap text-sm text-slate-800">
           <strong>{campaign.subject}</strong>

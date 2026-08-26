@@ -4,6 +4,7 @@ import { processQueuedEmailSend } from "@/lib/sending-infrastructure/campaign-se
 import { CloudflareDnsProvider } from "@/lib/sending-infrastructure/cloudflare";
 import { expireWarmupOverrides, runMailboxWarmupEvaluation } from "@/lib/sending-infrastructure/warmup-service";
 import { getSendingGates } from "@/lib/sending-infrastructure/gates";
+import { processCampaignBatch, processRunningOutboundCampaigns } from "@/lib/outbound/campaigns";
 
 /** Durable serverless job runner. Jobs are claimed with a conditional update so two cron
  * invocations cannot execute the same record. Provider operations must remain idempotent. */
@@ -13,7 +14,8 @@ export type InfrastructureJobType =
   | "CAMPAIGN_SEND_BATCH" | "REPLY_SYNC" | "USAGE_RECONCILIATION"
   | "DELIVERABILITY_RECONCILIATION" | "SUBSCRIPTION_RECONCILIATION"
   | "PROVIDER_HEALTH_CHECK" | "SETUP_QUEUE_RECALCULATION"
-  | "WARMUP_DAILY_EVALUATION" | "WARMUP_OVERRIDE_EXPIRATION" | "WARMUP_SWEEP";
+  | "WARMUP_DAILY_EVALUATION" | "WARMUP_OVERRIDE_EXPIRATION" | "WARMUP_SWEEP"
+  | "OUTBOUND_CAMPAIGN_BATCH";
 
 const retryDelayMs = (attempt: number) => Math.min(6 * 60 * 60_000, 60_000 * 2 ** Math.max(0, attempt - 1));
 const safeError = (error: unknown) => error instanceof Error ? error.message.slice(0, 500) : "Unexpected job failure.";
@@ -54,6 +56,11 @@ async function executeClaimedJob(job: NonNullable<Awaited<ReturnType<typeof clai
   else if (job.jobType === "WARMUP_OVERRIDE_EXPIRATION") await expireWarmupOverrides();
   else if (job.jobType === "WARMUP_SWEEP") await sweepDueWarmupProfiles();
   else if (job.jobType === "CAMPAIGN_SEND_BATCH") { const payload=job.payload as {emailSendId?:string}; if(!payload.emailSendId)throw new Error("Email send is required."); await processQueuedEmailSend(payload.emailSendId); }
+  else if (job.jobType === "OUTBOUND_CAMPAIGN_BATCH") {
+    const payload = job.payload as { campaignId?: string };
+    if (payload.campaignId) await processCampaignBatch(payload.campaignId);
+    else await processRunningOutboundCampaigns();
+  }
   // Other job types are deliberately durable no-ops until their configured provider adapter exists.
   // They remain observable rather than reporting fabricated external success.
   else if (["MAILBOX_SYNC", "REPLY_SYNC", "SES_IDENTITY_VERIFICATION"].includes(job.jobType)) {
@@ -108,6 +115,11 @@ export async function sweepDueWarmupProfiles(now = new Date()) {
 export async function runInfrastructureJobs(input: { workerId: string; limit?: number }) {
   const sweep = await sweepDueWarmupProfiles().catch(() => ({ enqueued: 0 }));
   void sweep;
+  const outbound = await processRunningOutboundCampaigns().catch((error) => {
+    console.warn(JSON.stringify({ event: "outbound_campaign_sweep_failed", reason: safeError(error) }));
+    return { processedCampaigns: 0, sent: 0, skipped: 0 };
+  });
+  void outbound;
   const limit = Math.max(1, Math.min(input.limit ?? 10, 50));
   const summary = { claimed: 0, succeeded: 0, retried: 0, failed: 0, blocked: 0 };
   for (let i = 0; i < limit; i++) {

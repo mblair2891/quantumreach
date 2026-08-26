@@ -20,7 +20,8 @@ export const contactSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   phone: optionalText,
   title: optionalText,
-  companyId: optionalId
+  companyId: optionalId,
+  companyDomain: optionalText
 });
 
 export const leadSchema = z.object({

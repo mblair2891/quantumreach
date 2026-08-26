@@ -5,6 +5,9 @@ import { prisma } from "@/lib/db/prisma";
 import { requireWorkspaceAccess } from "@/lib/auth/rbac";
 import { audit } from "@/lib/audit/service";
 import { companySchema, contactSchema, leadSchema, opportunitySchema } from "@/lib/validation/schemas";
+import { classifyMapped } from "@/lib/contacts/hygiene";
+import { contactFromInput, loadHygieneContext, persistHygienizedContact } from "@/lib/contacts/ingest";
+import { toPrismaJson } from "@/lib/db/json";
 
 type CrmType = "Company" | "Contact" | "Lead" | "Opportunity";
 type CrmSlug = "companies" | "contacts" | "leads" | "opportunities";
@@ -51,12 +54,79 @@ export async function getCrmRecordContext(workspaceId: string, relatedType?: str
 }
 
 export async function createCompany(workspaceId: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); const data = companySchema.parse(input); const record = await prisma.company.create({ data: { name: data.name, domain: emptyToUndefined(data.domain), industry: emptyToUndefined(data.industry), employeeCount: emptyToUndefined(data.employeeCount), annualRevenue: toMoney(data.annualRevenue), workspaceId, createdById: user.id } }); await audit(workspaceId, "create", "Company", record.id, user.id); return record; }
-export async function createContact(workspaceId: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); const data = contactSchema.parse(input); const companyId = emptyToUndefined(data.companyId); await assertCompany(workspaceId, companyId); const record = await prisma.$transaction(async tx => { await enforceAcceptedLimit({ workspaceId, kind: "contact" }, tx); return tx.contact.create({ data: { firstName: data.firstName, lastName: data.lastName, email: emptyToUndefined(data.email), phone: emptyToUndefined(data.phone), title: emptyToUndefined(data.title), companyId, workspaceId, createdById: user.id } }); }, { isolationLevel: "Serializable" }); await audit(workspaceId, "create", "Contact", record.id, user.id); return record; }
+export async function createContact(workspaceId: string, input: unknown) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const data = contactSchema.parse(input);
+  const companyId = emptyToUndefined(data.companyId);
+  await assertCompany(workspaceId, companyId);
+  const mapped = contactFromInput({
+    firstName: data.firstName,
+    lastName: data.lastName,
+    email: data.email,
+    phone: data.phone,
+    title: data.title,
+    companyDomain: data.companyDomain,
+  });
+  const context = await loadHygieneContext(workspaceId, mapped.email ? [mapped.email] : []);
+  const classified = classifyMapped(mapped, context);
+  const existing = mapped.email ? context.existingByEmail.get(mapped.email) ?? null : null;
+  const record = await prisma.$transaction(async (tx) => {
+    if (!existing) await enforceAcceptedLimit({ workspaceId, kind: "contact" }, tx);
+    const saved = await persistHygienizedContact({
+      workspaceId,
+      mapped,
+      hygieneStatus: classified.hygieneStatus,
+      flags: classified.flags,
+      source: "MANUAL",
+      sourceEvent: { source: "MANUAL", at: new Date().toISOString() },
+      createdById: user.id,
+      existing,
+    }, tx as typeof prisma);
+    if (companyId) return tx.contact.update({ where: { id: saved.id }, data: { companyId } });
+    return saved;
+  }, { isolationLevel: "Serializable" });
+  await audit(workspaceId, existing ? "update" : "create", "Contact", record.id, user.id);
+  return record;
+}
 export async function createLead(workspaceId: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); const data = leadSchema.parse(input); const companyId = emptyToUndefined(data.companyId); const contactId = emptyToUndefined(data.contactId); await assertCompany(workspaceId, companyId); await assertContact(workspaceId, contactId); const record = await prisma.lead.create({ data: { name: data.name, email: emptyToUndefined(data.email), source: emptyToUndefined(data.source), sourcePlatform: emptyToUndefined(data.sourcePlatform), sourceUrl: emptyToUndefined(data.sourceUrl), importMethod: data.importMethod, campaignName: emptyToUndefined(data.campaignName), sourceNotes: emptyToUndefined(data.sourceNotes), outreachPermissionStatus: data.outreachPermissionStatus, companyId, contactId, score: emptyToUndefined(data.score), workspaceId, createdById: user.id } }); await audit(workspaceId, "create", "Lead", record.id, user.id); return record; }
 export async function createOpportunity(workspaceId: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); const data = opportunitySchema.parse(input); const companyId = emptyToUndefined(data.companyId); const contactId = emptyToUndefined(data.contactId); const leadId = emptyToUndefined(data.leadId); const pipelineId = emptyToUndefined(data.pipelineId); const stageId = emptyToUndefined(data.stageId); await Promise.all([assertCompany(workspaceId, companyId), assertContact(workspaceId, contactId), assertLead(workspaceId, leadId), assertPipeline(workspaceId, pipelineId), assertStage(workspaceId, stageId)]); const record = await prisma.opportunity.create({ data: { name: data.name, amount: toMoney(data.amount), closeDate: toDate(data.closeDate), companyId, contactId, leadId, pipelineId, stageId, workspaceId, createdById: user.id } }); await audit(workspaceId, "create", "Opportunity", record.id, user.id); return record; }
 
 export async function updateCompany(workspaceId: string, id: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); await getCompanyDetail(workspaceId, id); const data = companySchema.parse(input); const record = await prisma.company.update({ where: { id }, data: { name: data.name, domain: emptyToUndefined(data.domain), industry: emptyToUndefined(data.industry), employeeCount: emptyToUndefined(data.employeeCount), annualRevenue: toMoney(data.annualRevenue) } }); await audit(workspaceId, "update", "Company", id, user.id); return record; }
-export async function updateContact(workspaceId: string, id: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); await getContactDetail(workspaceId, id); const data = contactSchema.parse(input); const companyId = emptyToUndefined(data.companyId); await assertCompany(workspaceId, companyId); const record = await prisma.contact.update({ where: { id }, data: { firstName: data.firstName, lastName: data.lastName, email: emptyToUndefined(data.email), phone: emptyToUndefined(data.phone), title: emptyToUndefined(data.title), companyId } }); await audit(workspaceId, "update", "Contact", id, user.id); return record; }
+export async function updateContact(workspaceId: string, id: string, input: unknown) {
+  const { user } = await requireWorkspaceAccess(workspaceId);
+  const current = await getContactDetail(workspaceId, id);
+  const data = contactSchema.parse(input);
+  const companyId = emptyToUndefined(data.companyId);
+  await assertCompany(workspaceId, companyId);
+  const mapped = contactFromInput({
+    firstName: data.firstName,
+    lastName: data.lastName,
+    email: data.email,
+    phone: data.phone,
+    title: data.title,
+    company: current.company?.name,
+    companyRaw: current.companyRaw,
+    companyDomain: emptyToUndefined(data.companyDomain) ?? current.companyDomain,
+  });
+  const context = await loadHygieneContext(workspaceId, mapped.email ? [mapped.email] : []);
+  const classified = classifyMapped(mapped, context);
+  const record = await prisma.contact.update({
+    where: { id },
+    data: {
+      firstName: mapped.firstName,
+      lastName: mapped.lastName,
+      email: emptyToUndefined(mapped.email),
+      phone: emptyToUndefined(data.phone),
+      title: emptyToUndefined(data.title),
+      companyId,
+      companyDomain: mapped.companyDomain,
+      hygieneStatus: current.hygieneStatus === "SUPPRESSED" ? "SUPPRESSED" : classified.hygieneStatus,
+      hygieneFlags: toPrismaJson(current.hygieneStatus === "SUPPRESSED" ? [...new Set([...classified.flags, "suppressed"])] : classified.flags),
+    },
+  });
+  await audit(workspaceId, "update", "Contact", id, user.id);
+  return record;
+}
 export async function updateLead(workspaceId: string, id: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); await getLeadDetail(workspaceId, id); const data = leadSchema.parse(input); const companyId = emptyToUndefined(data.companyId); const contactId = emptyToUndefined(data.contactId); await assertCompany(workspaceId, companyId); await assertContact(workspaceId, contactId); const record = await prisma.lead.update({ where: { id }, data: { name: data.name, email: emptyToUndefined(data.email), source: emptyToUndefined(data.source), sourcePlatform: emptyToUndefined(data.sourcePlatform), sourceUrl: emptyToUndefined(data.sourceUrl), importMethod: data.importMethod, campaignName: emptyToUndefined(data.campaignName), sourceNotes: emptyToUndefined(data.sourceNotes), outreachPermissionStatus: data.outreachPermissionStatus, companyId, contactId, score: emptyToUndefined(data.score) } }); await audit(workspaceId, "lead.source_updated", "Lead", id, user.id, { sourcePlatform: data.sourcePlatform, importMethod: data.importMethod, outreachPermissionStatus: data.outreachPermissionStatus }); return record; }
 export async function updateOpportunity(workspaceId: string, id: string, input: unknown) { const { user } = await requireWorkspaceAccess(workspaceId); await getOpportunityDetail(workspaceId, id); const data = opportunitySchema.parse(input); const companyId = emptyToUndefined(data.companyId); const contactId = emptyToUndefined(data.contactId); const leadId = emptyToUndefined(data.leadId); const pipelineId = emptyToUndefined(data.pipelineId); const stageId = emptyToUndefined(data.stageId); await Promise.all([assertCompany(workspaceId, companyId), assertContact(workspaceId, contactId), assertLead(workspaceId, leadId), assertPipeline(workspaceId, pipelineId), assertStage(workspaceId, stageId)]); const record = await prisma.opportunity.update({ where: { id }, data: { name: data.name, amount: toMoney(data.amount), closeDate: toDate(data.closeDate), companyId, contactId, leadId, pipelineId, stageId } }); await audit(workspaceId, "update", "Opportunity", id, user.id); return record; }
 

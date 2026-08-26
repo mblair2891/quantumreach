@@ -1,5 +1,14 @@
+import crypto from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { getSendingGates } from "@/lib/sending-infrastructure/gates";
+import { hygieneSkipReason, isCampaignEligible, normalizeEmail, requiredFieldsFromTemplate } from "@/lib/contacts/hygiene";
+import {
+  appendCommercialFooter,
+  applyOutreachMergeTags,
+  assertInstantlyCompliance,
+  buildUnsubscribeUrl,
+  workspaceSendingIdentity,
+} from "./compliance";
 import { canSend, recordSend } from "./service";
 import { getOutboundProviderForInbox, type OutboundProvider } from "./providers";
 import { utcDay } from "./config";
@@ -18,11 +27,16 @@ function parseInboxPool(value: unknown): InboxPool {
   return { type: "all" };
 }
 
-export function applyMergeTags(template: string, contact: { firstName?: string | null; lastName?: string | null; email?: string | null }) {
-  return template
-    .replaceAll(/\{\{\s*FirstName\s*\}\}/gi, contact.firstName?.trim() || "")
-    .replaceAll(/\{\{\s*LastName\s*\}\}/gi, contact.lastName?.trim() || "")
-    .replaceAll(/\{\{\s*Email\s*\}\}/gi, contact.email?.trim() || "");
+export function applyMergeTags(
+  template: string,
+  contact: { firstName?: string | null; lastName?: string | null; email?: string | null },
+  extras: { unsubscribeUrl?: string } = {},
+) {
+  return applyOutreachMergeTags(template, contact, extras);
+}
+
+function newUnsubscribeToken() {
+  return crypto.randomBytes(32).toString("base64url");
 }
 
 function assertManagedSendingEnabled() {
@@ -72,15 +86,59 @@ export async function startOutreachCampaign(campaignId: string, workspaceId: str
   assertManagedSendingEnabled();
   const campaign = await db.outboundCampaign.findFirst({
     where: { id: campaignId, workspaceId },
-    include: { list: { include: { members: { include: { contact: true } } } } },
+    include: { list: { include: { members: { include: { contact: { include: { company: true } } } } } } },
   });
   if (!campaign) throw new Error("Campaign was not found.");
   if (!["draft", "paused"].includes(campaign.status)) throw new Error("This campaign cannot be started.");
 
-  const members = campaign.list.members.filter((member) => member.contact.email?.includes("@"));
+  const workspace = await db.workspace.findUnique({ where: { id: workspaceId } });
+  const identity = workspaceSendingIdentity(workspace);
+  assertInstantlyCompliance({ subject: campaign.subject, body: campaign.body, identity });
+
+  const requiredFields = requiredFieldsFromTemplate(campaign.subject, campaign.body);
+  const members = campaign.list.members;
+  const primaryByEmail = new Map<string, (typeof members)[number]>();
   for (const member of members) {
-    const email = member.contact.email!.trim().toLowerCase();
+    const email = normalizeEmail(member.contact.email ?? "");
+    if (!email) continue;
+    const current = primaryByEmail.get(email);
+    if (!current) {
+      primaryByEmail.set(email, member);
+      continue;
+    }
+    if (isCampaignEligible(member.contact, requiredFields) && !isCampaignEligible(current.contact, requiredFields)) {
+      primaryByEmail.set(email, member);
+    }
+  }
+  const readyPrimaries: typeof members = [];
+  for (const member of primaryByEmail.values()) {
+    if (!isCampaignEligible(member.contact, requiredFields)) continue;
+    const email = normalizeEmail(member.contact.email ?? "");
     const suppressed = await db.suppressionListEntry.findFirst({ where: { workspaceId, email } });
+    if (suppressed) continue;
+    readyPrimaries.push(member);
+  }
+  if (!readyPrimaries.length) {
+    throw new Error("This campaign has no campaign-ready contacts. Review the list and import ready rows only.");
+  }
+
+  for (const member of members) {
+    const email = normalizeEmail(member.contact.email ?? "");
+    const suppressed = email ? await db.suppressionListEntry.findFirst({ where: { workspaceId, email } }) : null;
+    const primary = email ? primaryByEmail.get(email) : undefined;
+    const isPrimary = primary?.contactId === member.contactId;
+    let status = "queued";
+    let skipReason: string | null = null;
+    if (suppressed) {
+      status = "skipped";
+      skipReason = "SUPPRESSED";
+    } else if (email && primary && !isPrimary) {
+      status = "skipped";
+      skipReason = "DUPLICATE_EMAIL";
+    } else if (!isCampaignEligible(member.contact, requiredFields)) {
+      status = "skipped";
+      skipReason = hygieneSkipReason(member.contact) ?? "NOT_READY";
+    }
     await db.outboundCampaignJob.upsert({
       where: { campaignId_contactId: { campaignId: campaign.id, contactId: member.contactId } },
       create: {
@@ -88,8 +146,9 @@ export async function startOutreachCampaign(campaignId: string, workspaceId: str
         campaignId: campaign.id,
         contactId: member.contactId,
         email,
-        status: suppressed ? "skipped" : "queued",
-        skipReason: suppressed ? "SUPPRESSED" : null,
+        status,
+        skipReason,
+        unsubscribeToken: newUnsubscribeToken(),
       },
       update: {},
     });
@@ -143,8 +202,12 @@ export async function processCampaignBatch(
     throw new Error("Cold outreach campaigns are disabled until MANAGED_SENDING_ENABLED=true.");
   }
 
-  const campaign = await db.outboundCampaign.findUnique({ where: { id: campaignId } });
+  const campaign = await db.outboundCampaign.findUnique({
+    where: { id: campaignId },
+    include: { workspace: true },
+  });
   if (!campaign || campaign.status !== "running") return { processed: 0, sent: 0, skipped: 0, paused: false };
+  const identity = workspaceSendingIdentity(campaign.workspace);
 
   const jobs = await db.outboundCampaignJob.findMany({
     where: {
@@ -190,8 +253,27 @@ export async function processCampaignBatch(
     }
 
     const contact = await db.contact.findUnique({ where: { id: job.contactId } });
-    const subject = applyMergeTags(campaign.subject, contact ?? { email: job.email });
-    const body = applyMergeTags(campaign.body, contact ?? { email: job.email });
+    if (contact && !isCampaignEligible(contact)) {
+      await db.outboundCampaignJob.update({
+        where: { id: job.id },
+        data: { status: "skipped", skipReason: hygieneSkipReason(contact) ?? "NOT_READY", attempts: { increment: 1 } },
+      });
+      skipped += 1;
+      continue;
+    }
+    let unsubscribeToken = job.unsubscribeToken;
+    if (!unsubscribeToken) {
+      unsubscribeToken = newUnsubscribeToken();
+      await db.outboundCampaignJob.update({ where: { id: job.id }, data: { unsubscribeToken } });
+    }
+    const unsubscribeUrl = buildUnsubscribeUrl(unsubscribeToken);
+    const mergeContact = contact ?? { email: job.email };
+    const subject = applyMergeTags(campaign.subject, mergeContact, { unsubscribeUrl });
+    const body = appendCommercialFooter(
+      applyMergeTags(campaign.body, mergeContact, { unsubscribeUrl }),
+      identity,
+      unsubscribeUrl,
+    );
     const provider =
       options.provider ??
       getOutboundProviderForInbox(inbox, {
@@ -324,4 +406,30 @@ export async function campaignCapacity(workspaceId: string, db: Db = prisma, now
     });
   }
   return rows;
+}
+
+/** Hourly worker drain. Skips paused campaigns. Idempotent: only queued/retry jobs send. */
+export async function processRunningOutboundCampaigns(
+  options: { db?: Db; provider?: OutboundProvider; now?: Date; limit?: number; campaignLimit?: number } = {},
+) {
+  const db = options.db ?? prisma;
+  if (!getSendingGates().managedSendingEnabled) {
+    return { processedCampaigns: 0, sent: 0, skipped: 0, skippedReason: "MANAGED_SENDING_DISABLED" as const };
+  }
+  const running = await db.outboundCampaign.findMany({
+    where: { status: "running" },
+    orderBy: { updatedAt: "asc" },
+    take: options.campaignLimit ?? 20,
+    select: { id: true },
+  });
+  let sent = 0;
+  let skipped = 0;
+  let paused = 0;
+  for (const campaign of running) {
+    const result = await processCampaignBatch(campaign.id, options);
+    sent += result.sent ?? 0;
+    skipped += result.skipped ?? 0;
+    if (result.paused) paused += 1;
+  }
+  return { processedCampaigns: running.length, sent, skipped, paused };
 }

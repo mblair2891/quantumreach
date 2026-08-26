@@ -20,8 +20,12 @@ const db = {
   sendingDomain: { count: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
   inbox: { count: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   sendLog: { count: vi.fn(), create: vi.fn() },
-  contact: { findFirst: vi.fn(), create: vi.fn() },
-  suppressionListEntry: { findFirst: vi.fn() },
+  contact: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+  company: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+  workspace: { findUnique: vi.fn() },
+  suppressionListEntry: { findFirst: vi.fn(), findMany: vi.fn() },
+  outboundList: { create: vi.fn() },
+  outboundListMember: { create: vi.fn() },
 };
 
 vi.mock("server-only", () => ({}));
@@ -67,8 +71,15 @@ describe("Instantly-style outbound limits", () => {
     db.sendLog.count.mockResolvedValue(0);
     db.sendLog.create.mockImplementation(async ({ data }) => ({ id: "log_1", ...data }));
     db.contact.findFirst.mockResolvedValue(null);
+    db.contact.findMany.mockResolvedValue([]);
     db.contact.create.mockImplementation(async ({ data }) => ({ id: "c1", ...data }));
+    db.contact.update.mockImplementation(async ({ data, where }) => ({ id: where.id, ...data }));
+    db.company.findFirst.mockResolvedValue(null);
+    db.workspace.findUnique.mockResolvedValue({ settings: {} });
     db.suppressionListEntry.findFirst.mockResolvedValue(null);
+    db.suppressionListEntry.findMany.mockResolvedValue([]);
+    db.outboundList.create.mockResolvedValue({ id: "list_1" });
+    db.outboundListMember.create.mockResolvedValue({});
   });
 
   it("maps package entitlements to maxSendingDomains and maxInboxes", () => {
@@ -147,8 +158,9 @@ describe("Instantly-style outbound limits", () => {
       csv: "email,firstName,lastName\nada@example.com,Ada,Lovelace\n",
     });
     expect(result.created).toBe(1);
+    expect(result.ready).toBe(1);
     expect(db.contact.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ email: "ada@example.com", firstName: "Ada" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ email: "ada@example.com", firstName: "Ada", hygieneStatus: "READY" }) }),
     );
   });
 

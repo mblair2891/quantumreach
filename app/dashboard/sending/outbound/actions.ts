@@ -3,7 +3,8 @@
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect";
 import { requireSubscriberWorkspaceAccess } from "@/lib/saas/access";
-import { addInbox, addSendingDomain, importContactsCsv, stubSend } from "@/lib/outbound/service";
+import { addInbox, addSendingDomain, stubSend } from "@/lib/outbound/service";
+import { createImportPreviewFromCsv } from "@/lib/revenue-os/imports";
 import { disconnectGoogleInbox } from "@/lib/outbound/google-oauth";
 
 function fail(message: string) {
@@ -42,18 +43,17 @@ export async function importOutboundContactsAction(form: FormData) {
   try {
     const file = form.get("csv");
     const pasted = String(form.get("csvText") ?? "");
-    const csv = file instanceof File ? await file.text() : pasted;
-    await importContactsCsv({
-      workspaceId: workspace.id,
-      csv,
+    const csv = file instanceof File && file.size > 0 ? await file.text() : pasted;
+    const batch = await createImportPreviewFromCsv(workspace.id, csv, {
+      fileName: file instanceof File && file.name ? file.name : "outbound.csv",
+      listName: String(form.get("listName") ?? "Imported contacts").trim() || "Imported contacts",
       createdById: user.id,
-      listName: String(form.get("listName") ?? "Imported contacts"),
     });
+    redirect(`/dashboard/imports/${batch.id}`);
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    fail(error instanceof Error ? error.message : "Could not import contacts.");
+    fail(error instanceof Error ? error.message : "Could not preview contacts.");
   }
-  redirect("/dashboard/sending/outbound?added=contacts");
 }
 
 export async function disconnectGoogleInboxAction(form: FormData) {

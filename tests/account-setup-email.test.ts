@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth/account-setup";
 
 const sendMock = vi.hoisted(() => vi.fn());
+const smtpSendMock = vi.hoisted(() => vi.fn());
 const prisma = vi.hoisted(() => ({
   customerOrder: { findUniqueOrThrow: vi.fn() },
   accountSetupToken: {
@@ -31,12 +32,14 @@ vi.mock("@aws-sdk/client-ses", () => {
   }
   return { SESClient, SendEmailCommand };
 });
+vi.mock("@/lib/email/smtp-transport", () => ({ sendViaSmtp: smtpSendMock }));
 vi.mock("@/lib/db/prisma", () => ({ prisma }));
 
 const source = (path: string) => readFileSync(path, "utf8");
 
 const envKeys = [
   "EMAIL_SENDING_ENABLED",
+  "EMAIL_TRANSPORT",
   "AWS_SES_REGION",
   "AWS_SES_ACCESS_KEY_ID",
   "AWS_SES_SECRET_ACCESS_KEY",
@@ -44,6 +47,11 @@ const envKeys = [
   "TRANSACTIONAL_REPLY_TO",
   "DEFAULT_FROM_DOMAIN",
   "APP_BASE_URL",
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_USER",
+  "SMTP_PASS",
+  "SMTP_SECURE",
 ] as const;
 
 const priorEnv = new Map<string, string | undefined>();
@@ -62,12 +70,29 @@ function restoreEnv() {
 
 function enableSesEnv() {
   process.env.EMAIL_SENDING_ENABLED = "true";
+  delete process.env.EMAIL_TRANSPORT;
   process.env.AWS_SES_REGION = "us-east-2";
   process.env.AWS_SES_ACCESS_KEY_ID = "test-key";
   process.env.AWS_SES_SECRET_ACCESS_KEY = "test-secret";
   process.env.TRANSACTIONAL_FROM_EMAIL = "noreply@quantumreach.app";
   process.env.TRANSACTIONAL_REPLY_TO = "support@quantumreach.app";
   process.env.APP_BASE_URL = "https://preview.example";
+}
+
+function enableSmtpEnv() {
+  process.env.EMAIL_SENDING_ENABLED = "true";
+  process.env.EMAIL_TRANSPORT = "smtp";
+  process.env.SMTP_HOST = "127.0.0.1";
+  process.env.SMTP_PORT = "2525";
+  process.env.SMTP_USER = "noreply@quantumreach.app";
+  process.env.SMTP_PASS = "dummy-pass";
+  process.env.SMTP_SECURE = "false";
+  process.env.TRANSACTIONAL_FROM_EMAIL = "noreply@quantumreach.app";
+  process.env.TRANSACTIONAL_REPLY_TO = "support@quantumreach.app";
+  process.env.APP_BASE_URL = "https://preview.example";
+  process.env.AWS_SES_REGION = "us-east-2";
+  process.env.AWS_SES_ACCESS_KEY_ID = "test-key";
+  process.env.AWS_SES_SECRET_ACCESS_KEY = "test-secret";
 }
 
 describe("account setup transactional email", () => {
@@ -85,6 +110,7 @@ describe("account setup transactional email", () => {
     prisma.accountSetupToken.findUniqueOrThrow.mockResolvedValue({ id: "tok_1" });
     prisma.accountSetupToken.update.mockResolvedValue({ id: "tok_1" });
     sendMock.mockResolvedValue({ MessageId: "010001ses" });
+    smtpSendMock.mockResolvedValue({ messageId: "<smtp-1@localhost>" });
   });
 
   afterEach(() => {
@@ -110,6 +136,7 @@ describe("account setup transactional email", () => {
     const issued = await issueAccountSetupToken("order_1");
     expect(issued.emailDelivery).toBe("DEFERRED_PREVIEW_LINK");
     expect(sendMock).not.toHaveBeenCalled();
+    expect(smtpSendMock).not.toHaveBeenCalled();
   });
 
   it("marks FAILED when sending is enabled but SES returns an error", async () => {
@@ -151,6 +178,24 @@ describe("account setup transactional email", () => {
     expect(issued.rawToken.length).toBeGreaterThan(20);
     expect(sendMock).toHaveBeenCalledTimes(1);
   });
+
+  it("uses SMTP and not SES when EMAIL_TRANSPORT=smtp", async () => {
+    enableSmtpEnv();
+    const { issueAccountSetupToken } = await import("@/lib/auth/account-setup");
+    const issued = await issueAccountSetupToken("order_1");
+    expect(issued.emailDelivery).toBe("SENT");
+    expect(smtpSendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(smtpSendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: "127.0.0.1",
+        port: 2525,
+        user: "noreply@quantumreach.app",
+        from: "noreply@quantumreach.app",
+        to: "buyer@example.com",
+      }),
+    );
+  });
 });
 
 describe("sendAccountSetupEmail SES payload", () => {
@@ -158,6 +203,7 @@ describe("sendAccountSetupEmail SES payload", () => {
     snapshotEnv();
     vi.clearAllMocks();
     sendMock.mockResolvedValue({ MessageId: "010001ses" });
+    smtpSendMock.mockResolvedValue({ messageId: "<smtp-1@localhost>" });
   });
 
   afterEach(() => {
@@ -221,6 +267,38 @@ describe("sendAccountSetupEmail SES payload", () => {
       }),
     ).resolves.toEqual({ sent: false, reason: "EMAIL_SENDING_DISABLED" });
     expect(sendMock).not.toHaveBeenCalled();
+    expect(smtpSendMock).not.toHaveBeenCalled();
+  });
+
+  it("attempts SMTP not SES when EMAIL_TRANSPORT=smtp", async () => {
+    enableSmtpEnv();
+    const { sendAccountSetupEmail, ACCOUNT_SETUP_EMAIL_SUBJECT } = await import("@/lib/email/transactional");
+    const setupUrl = "https://preview.example/setup/account?token=smtp-token";
+    const result = await sendAccountSetupEmail({
+      to: "buyer@example.com",
+      setupUrl,
+      expiresAt: new Date(),
+      orderId: "order_1",
+    });
+    expect(result).toEqual({ sent: true, messageId: "<smtp-1@localhost>" });
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(smtpSendMock).toHaveBeenCalledTimes(1);
+    expect(smtpSendMock.mock.calls[0][0]).toMatchObject({
+      host: "127.0.0.1",
+      port: 2525,
+      secure: false,
+      from: "noreply@quantumreach.app",
+      replyTo: "support@quantumreach.app",
+      to: "buyer@example.com",
+      subject: ACCOUNT_SETUP_EMAIL_SUBJECT,
+    });
+    expect(smtpSendMock.mock.calls[0][0].text).toContain(setupUrl);
+  });
+
+  it("does not call SES when EMAIL_TRANSPORT=smtp even if SES env is present", async () => {
+    enableSmtpEnv();
+    const { getTransactionalEmailConfig } = await import("@/lib/email/transactional");
+    expect(getTransactionalEmailConfig()).toMatchObject({ transport: "smtp", smtpConfigured: true, enabled: true });
   });
 });
 
@@ -264,6 +342,27 @@ describe("confirmation setup invite presentation", () => {
     expect(accountSetup).not.toContain("queueOrSendEmail");
     expect(transactional).toContain("@aws-sdk/client-ses");
     expect(transactional).toContain("sendAccountSetupEmail");
+    expect(transactional).toContain('EMAIL_TRANSPORT');
     expect(transactional).not.toContain("lib/revenue-os/email");
+    expect(transactional).not.toContain("lib/outbound");
+  });
+
+  it("keeps Instantly/outbound and campaign SES off the transactional SMTP helper", () => {
+    const files = [
+      "lib/outbound/campaigns.ts",
+      "lib/outbound/providers.ts",
+      "lib/outbound/service.ts",
+      "lib/sending-infrastructure/ses.ts",
+      "lib/sending-infrastructure/campaign-service.ts",
+      "lib/jobs/service.ts",
+    ];
+    // Instantly drain is allowed to import campaign batch, not transactional SMTP/SES helper.
+    for (const file of files) {
+      const contents = source(file);
+      expect(contents).not.toContain("lib/email/transactional");
+      expect(contents).not.toContain("lib/email/smtp-transport");
+      expect(contents).not.toContain("sendAccountSetupEmail");
+      expect(contents).not.toContain("sendViaSmtp");
+    }
   });
 });
